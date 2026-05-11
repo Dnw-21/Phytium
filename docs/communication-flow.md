@@ -381,6 +381,24 @@ echo "=== dmesg last 5 ===" && dmesg | grep -iE "rproc|rpmsg" | tail -5
 
 脚本自动处理: 模块加载/卸载、从核启停、通道绑定、面板启动、资源清理。
 
+### 开机自启 (systemd)
+
+已配置 systemd 服务，**重启开发板后自动运行**，无需手动操作。
+
+```bash
+# 查看状态
+systemctl status openamp
+
+# 手动停止
+sudo systemctl stop openamp
+
+# 手动启动
+sudo systemctl start openamp
+
+# 重启服务
+sudo systemctl restart openamp
+```
+
 ### 手动操作 (备选)
 
 
