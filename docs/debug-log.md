@@ -115,3 +115,41 @@ received message: Hello World! No:2
 ...
 received message: Hello World! No:100
 ```
+
+## 2026-05-11 (续): FreeRTOS 切换
+
+### 问题 6: FreeRTOS SDK 编译 — symlink 路径解析
+
+**现象**: `$(SDK_DIR)/../freertos.kconfig` 在 symlink 下 `..` 穿越到错误目录
+
+**根因**: FreeRTOS SDK 依赖 standalone SDK（需放在 `freertos-sdk/standalone/`）。
+使用 symlink 时，`standalone/../` 的 `..` 解析到物理路径（standalone SDK 根目录）而非逻辑路径（FreeRTOS SDK 根目录）。
+
+**解决**: 不使用 symlink，直接 `cp -r` 复制 standalone SDK 到 `freertos-sdk/standalone/`。
+
+**修复的文件**:
+1. `Kconfig`: `source "$(SDK_DIR)/../freertos.kconfig"` → `source "$(FREERTOS_SDK_DIR)/freertos.kconfig"`
+2. `makefile`: `FREERTOS_SDK_DIR =` → `FREERTOS_SDK_DIR := $(abspath ...)` 并 `export`
+3. `tools/freertos_comonents.mk`: `FREERTOS_SDK_DIR := $(SDK_DIR)/..` → `$(abspath $(SDK_DIR)/..)`
+
+### 问题 7: FreeRTOS 传感器数据只发1包
+
+**现象**: `rpmsg_send` 第2次调用失败，只收到1包
+
+**根因**: `platform_poll()` 需要 remoteproc 结构体（`&remoteproc_device_00`），但 `send_all_sensor_packets` 从回调中获得的 `priv` 不是正确的 remoteproc 指针。
+
+**解决**: 
+1. 添加全局变量 `g_remoteproc_priv` 在 `FRpmsgEchoApp` 中保存
+2. `send_all_sensor_packets` 使用 `g_remoteproc_priv` 调用 `platform_poll()`
+
+### FreeRTOS 传感器通信验证成功
+
+```
+[SEND] Requested sensor data from slave
+[RECV] Waiting for 10 sensor packets...
+  [PKT  1] ID= 1 ts=    0 V=220.50V A=1.25A T=27.3C [NORMAL]
+  ...
+  [PKT 10] ID=10 ts=  900 V=221.20V A=1.32A T=35.2C [NORMAL]
+  >> [COMPLETED] Batch 1: Received 10/10 sensor packets
+```
+15批次 × 10包 = 150包稳定连续收发。

@@ -100,28 +100,44 @@ homo_rproc_kick() (发送 IPI)
   └── gic_write_sgi1r(ipi=9, target=CPU3_MPIDR)  → GICv3 直接寄存器写入
 ```
 
-## 5. 裸机固件编译
+## 5. 从核固件编译
 
 ### 工具链
 
 - **必须**: `aarch64-none-elf-gcc` (ARM bare-metal, 非 Linux 版本)
-- **不建议**: `aarch64-none-linux-gnu-gcc` (仅用于 Linux 应用)
+- **工具链路径**: `/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf/`
 
-### SDK: phytium-standalone-sdk
+### 5.1 Bare-metal SDK: phytium-standalone-sdk
 
 ```bash
-# 环境变量
-export AARCH64_CROSS_PATH="/path/to/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
-export PHYTIUM_DEV_PATH="/path/to/phytium-standalone-sdk-master"
-
-# 配置和编译
-cd example/system/amp/openamp_for_linux/
-make config_pe2204_phytiumpi_aarch64   # 飞腾派 aarch64
+export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
+cd phytium-standalone-sdk-master/example/system/amp/openamp_for_linux/
+make config_pe2204_phytiumpi_aarch64
 make clean && make all
 # 输出: pe2204_aarch64_phytiumpi_openamp_core0.elf
 ```
 
-### 固件配置要点
+### 5.2 FreeRTOS SDK: phytium-free-rtos-sdk
+
+**前置条件**: 必须将 standalone SDK 复制到 `freertos-sdk/standalone/` 目录下。
+
+```bash
+export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
+cd phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/
+make config_pe2204_phytiumpi_aarch64
+make clean && make all
+# 输出: pe2204_aarch64_phytiumpi_openamp_for_linux.elf
+```
+
+**FreeRTOS 架构**: `main.c` 创建 FreeRTOS 任务 `RpmsgEchoTask`（`rpmsg-echo_os.c`），堆栈 8KB，优先级 4，通过 `vTaskStartScheduler` 启动调度器。
+
+**与 bare-metal 的关键差异**:
+- 使用 `FreeRTOS.h` + `task.h` 任务管理
+- `platform_poll` 需要 remoteproc 结构体指针（不可用回调 priv）
+- Stop 机制不同：需通过 `shutdown_req` + `rproc_get_stop_flag()` 退出任务
+- 源文件: `src/rpmsg-echo_os.c` (非 `slaver_00_example.c`)
+
+### 固件配置要点 (通用)
 
 - 加载地址: `0xB0100000` (CONFIG_IMAGE_LOAD_ADDRESS)
 - 中断角色: slave (CONFIG_INTERRUPT_ROLE_SLAVE=y)
@@ -205,6 +221,7 @@ modprobe -r rpmsg_char rpmsg_ctrl
 |------|------|
 | 内核源码 (5.10) | `/home/alientek/Phytium_syscode/内核源码/` |
 | 裸机 SDK | `/home/alientek/Phytium_syscode/phytium-standalone-sdk-master/` |
+| FreeRTOS SDK | `/home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/` |
 | 裸机编译器 | `/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf/` |
 | Linux 编译器 | `/home/alientek/Phytium_syscode/GCC编译器/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/` |
 | 手册和文档 | `/home/alientek/phytium-embedded-docs-master/` |
