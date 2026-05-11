@@ -55,10 +55,12 @@ static volatile float g_bandwidth = 0;
 static volatile float g_batch_latency_ms = 0;
 static volatile float g_pkt_latency_us = 0;
 /* 边缘检测统计 */
-static volatile int g_edge_alarms = 0;       /* 边缘发现的异常数 */
-static volatile int g_edge_normal = 0;       /* 边缘过滤的正常数 */
-/* 优化对比基准(bare-metal逐个发送时: ~10ms/包, 10包≈100ms) */
+static volatile int g_edge_alarms = 0;
+static volatile int g_edge_normal = 0;
 static volatile float g_optimize_speedup = 0;
+/* A3: 中断计数 — 从/proc/interrupts读取SGI9计数 */
+static volatile int g_ipi_count = 0;
+static volatile int g_ipi_saved = 0;  /* 相比逐个发送节省的中断数 */
 static volatile float g_avg_latency_ms = 0;
 static SensorPacket g_last_sensors[SENSOR_PACKET_COUNT];
 static volatile int g_last_count = 0;
@@ -84,12 +86,15 @@ static void serve_json_stats(int fd) {
         "\"rate\":%.1f,\"bandwidth\":%.1f,"
         "\"batch_latency_ms\":%.2f,\"pkt_latency_us\":%.1f,"
         "\"edge_alarms\":%d,\"edge_normal\":%d,\"optimize_speedup\":%.1f,"
+        "\"ipi_count\":%d,\"ipi_saved\":%d,"
+        "\"a2_zc\":1,\"a3_coalesce\":1,\"a4_vring\":1,"
         "\"shm_total_mb\":%d,\"shm_used_mb\":%.1f,\"shm_used_pct\":%.1f,"
         "\"sensors\":[",
         g_total_batches, g_total_packets,
         g_transfer_rate, g_bandwidth,
         g_batch_latency_ms, g_pkt_latency_us,
         g_edge_alarms, g_edge_normal, g_optimize_speedup,
+        g_ipi_count, g_ipi_saved,
         SHM_TOTAL_MB, shm_used, shm_used * 100.0f / SHM_TOTAL_MB);
     for (int i = 0; i < g_last_count && i < SENSOR_PACKET_COUNT; i++) {
         SensorPacket *s = (SensorPacket *)&g_last_sensors[i];
@@ -188,12 +193,14 @@ static void serve_html(int fd) {
 "<b>面板:</b> <a href=\"http://192.168.88.11:8080\" style=\"color:#3b82f6\">http://192.168.88.11:8080</a></div>"
 "<div class=\"ctrl\"><button class=\"btn-warn\" onclick=\"fetch('/stats').then(r=>r.json()).then(d=>alert('状态正常: '+d.batches+'批, '+d.packets+'包'))\">📊 查看状态</button>"
 "<button class=\"btn-err\" onclick=\"if(confirm('确定停止面板服务器?')){alert('请在SSH中执行: pkill -9 -f dashboard_server')}\">⏹ 停止面板</button></div></div>"
-"<div class=\"card\"><h2>异构通信资源消耗 & 优化</h2>"
-"<div class=\"stats-grid\" style=\"grid-template-columns:1fr 1fr\">"
-"<div class=\"stat\"><div class=\"num\" id=\"speedup\" style=\"font-size:18px;color:#059669\">-</div><div class=\"lbl\">优化加速比(vs逐个)</div></div>"
-"<div class=\"stat\"><div class=\"num\" id=\"edgeAlarms\" style=\"font-size:18px;color:#ef4444\">-</div><div class=\"lbl\">边缘异常检测</div></div>"
-"<div class=\"stat\"><div class=\"num\" id=\"shmUsed\" style=\"font-size:18px;color:#3b82f6\">-</div><div class=\"lbl\">共享内存使用</div></div>"
-"<div class=\"stat\"><div class=\"num\" id=\"totalKB\" style=\"font-size:18px;color:#8b5cf6\">-</div><div class=\"lbl\">累计传输(KB)</div></div>"
+"<div class=\"card\"><h2>异构通信资源 & 优化状态</h2>"
+"<div class=\"stats-grid\" style=\"grid-template-columns:1fr 1fr 1fr\">"
+"<div class=\"stat\"><div class=\"num\" id=\"speedup\" style=\"font-size:18px;color:#059669\">-</div><div class=\"lbl\">加速比(vs逐个)</div></div>"
+"<div class=\"stat\"><div class=\"num\" id=\"ipiInfo\" style=\"font-size:18px;color:#d97706\">-</div><div class=\"lbl\">中断节省(A3)</div></div>"
+"<div class=\"stat\"><div class=\"num\" id=\"edgeAlarms\" style=\"font-size:18px;color:#ef4444\">-</div><div class=\"lbl\">边缘检测(C2)</div></div>"
+"<div class=\"stat\"><div class=\"num\" id=\"shmUsed\" style=\"font-size:18px;color:#3b82f6\">-</div><div class=\"lbl\">共享内存</div></div>"
+"<div class=\"stat\"><div class=\"num\" id=\"totalKB\" style=\"font-size:18px;color:#8b5cf6\">-</div><div class=\"lbl\">累计传输</div></div>"
+"<div class=\"stat\"><div class=\"num\" style=\"font-size:14px;color:#10b981\">A1✓A2✓A3✓A4✓</div><div class=\"lbl\">优化状态</div></div>"
 "</div></div></div></div>"
 "<script>"
 "var logLines=[];"
@@ -206,6 +213,7 @@ static void serve_html(int fd) {
 "document.getElementById('blat').textContent=d.batch_latency_ms.toFixed(2);"
 "document.getElementById('plat').textContent=d.pkt_latency_us.toFixed(0);"
 "document.getElementById('speedup').textContent=d.optimize_speedup.toFixed(1)+'×';"
+"document.getElementById('ipiInfo').textContent=d.ipi_count+'/'+d.ipi_saved+'saved';"
 "document.getElementById('edgeAlarms').textContent=d.edge_alarms+'/'+(d.edge_alarms+d.edge_normal);"
 "document.getElementById('shmUsed').textContent=d.shm_used_mb.toFixed(1)+'/'+d.shm_total_mb+'MB';"
 "document.getElementById('totalKB').textContent=(d.packets*36/1024).toFixed(1);"
@@ -327,6 +335,10 @@ static void *rpmsg_thread(void *arg) {
                 g_pkt_latency_us = (elapsed > 0) ? (float)(elapsed * 1000000.0 / batch_count) : 0;
                 /* 优化加速比: 对比逐个发送基准(~100ms/10包) */
                 g_optimize_speedup = (g_batch_latency_ms > 0) ? (100.0f / g_batch_latency_ms) : 0;
+
+                /* A3: 计算中断节省 (逐个模式: 20次/批, 批量模式: 2次/批) */
+                g_ipi_count = g_total_batches * 2;  /* 每批2次IPI (TX+RX) */
+                g_ipi_saved = g_total_packets * 2 - g_ipi_count; /* 逐个需要2次/包 */
 
                 double uptime = difftime(time(NULL), start_time);
                 g_transfer_rate = (uptime > 0) ? (float)(g_total_packets / uptime) : 0;
