@@ -1,11 +1,8 @@
 /*
- * 电网安全预警通知模块
- * 支持: 企业微信Bot / 邮件 / 本地日志
+ * 电网安全预警通知模块 v2.0
+ * 支持: 飞书Bot / 企业微信Bot / 邮件 / 本地日志
  *
- * 编译: gcc -Wall -O2 -std=c11 -o alert_notify alert_notify.c
- * 测试: ./alert_notify test
- *
- * 配置: 修改下方 WEBHOOK_URL 为你的企业微信Bot地址
+ * 配置: 修改下方 WEBHOOK_URL 和 PLATFORM 即可
  */
 #define _DEFAULT_SOURCE
 #include <stdio.h>
@@ -13,8 +10,13 @@
 #include <string.h>
 #include <time.h>
 
-/* ═══════════ 配置 (按需修改) ═══════════ */
-#define WEBHOOK_URL ""  /* 填入企业微信Bot Webhook地址 */
+/* ═══════════ 配置 ═══════════ */
+#define PLATFORM_FEISHU   1   /* 飞书 */
+#define PLATFORM_WECOM    2   /* 企业微信 */
+#define PLATFORM          PLATFORM_FEISHU  /* ← 选择平台 */
+
+#define FEISHU_URL   ""  /* 飞书Bot Webhook */
+#define WECOM_URL    ""  /* 企业微信Bot Webhook */
 #define LOG_FILE     "/tmp/grid_alerts.log"
 #define MAX_LOG_LINES 500
 
@@ -40,17 +42,46 @@ static int curl_post(const char *url, const char *json) {
     return system(cmd);
 }
 
+/* ─── 获取当前时间字符串 ─── */
+static const char *time_str(const AlertMsg *a) {
+    static char buf[32];
+    strftime(buf, sizeof(buf), "%m-%d %H:%M:%S", localtime(&a->timestamp));
+    return buf;
+}
+
+/* ─── 飞书Bot通知 (卡片消息) ─── */
+static int feishu_notify(const AlertMsg *a) {
+    const char *url = FEISHU_URL;
+    if (!url || !url[0]) { printf("[WARN] FEISHU_URL 未配置\n"); return -1; }
+
+    const char *colors[] = {"green", "yellow", "red"};
+    const char *titles[] = {"🟢 电网运行正常", "🟡 电网预警", "🔴 电网危险告警"};
+    const char *color = colors[a->level > 2 ? 0 : a->level];
+    const char *title = titles[a->level > 2 ? 0 : a->level];
+
+    char json[2048];
+    snprintf(json, sizeof(json),
+        "{\"msg_type\":\"interactive\",\"card\":{"
+        "\"header\":{\"title\":{\"content\":\"%s\",\"tag\":\"plain_text\"},"
+        "\"template\":\"%s\"},"
+        "\"elements\":["
+        "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\","
+        "\"content\":\"**告警来源**: %s\\n**详情**: %s\\n**建议措施**: %s\\n**时间**: %s\"}},"
+        "{\"tag\":\"hr\"},"
+        "{\"tag\":\"note\",\"elements\":[{\"tag\":\"plain_text\","
+        "\"content\":\"Phytium Pi 电网安全监测系统\"}]}]}}",
+        title, color, a->source, a->detail, a->action, time_str(a));
+
+    return curl_post(url, json);
+}
+
 /* ─── 企业微信Bot通知 ─── */
 static int wecom_notify(const AlertMsg *a) {
-    if (!WEBHOOK_URL || !WEBHOOK_URL[0]) {
-        printf("[WARN] WEBHOOK_URL 未配置, 跳过企业微信通知\n");
-        return -1;
-    }
+    const char *url = WECOM_URL;
+    if (!url || !url[0]) { printf("[WARN] WECOM_URL 未配置\n"); return -1; }
 
     const char *icons[] = {"🟢", "🟡", "🔴"};
-    char json[1024];
-
-    /* Markdown格式消息 */
+    char json[2048];
     snprintf(json, sizeof(json),
         "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\""
         "%s **电网安全告警**\\n"
@@ -63,11 +94,20 @@ static int wecom_notify(const AlertMsg *a) {
         a->source,
         a->level == 2 ? "red" : "warning",
         a->level == 2 ? "🔴危险" : (a->level == 1 ? "🟡预警" : "🟢正常"),
-        a->detail,
-        a->action,
-        ctime(&a->timestamp));
+        a->detail, a->action, time_str(a));
 
-    return curl_post(WEBHOOK_URL, json);
+    return curl_post(url, json);
+}
+
+/* ─── 发送通知 (根据平台自动选择) ─── */
+static int push_notify(const AlertMsg *a) {
+#if PLATFORM == PLATFORM_FEISHU
+    return feishu_notify(a);
+#elif PLATFORM == PLATFORM_WECOM
+    return wecom_notify(a);
+#else
+    return -1;
+#endif
 }
 
 /* ─── 日志记录 ─── */
@@ -101,9 +141,9 @@ int alert_send(AlertLevel level, const char *source,
     snprintf(a.action, sizeof(a.action), "%s", action);
 
     log_alert(&a);
-    int ret = wecom_notify(&a);
+    int ret = push_notify(&a);
 
-    printf("[ALERT] %s | %s → %s (wecom:%d)\n",
+    printf("[ALERT] %s | %s → %s (push:%d)\n",
            a.level == 2 ? "🔴" : "🟡", a.source, a.title, ret);
     return ret;
 }
@@ -128,13 +168,19 @@ int main(int argc, char *argv[]) {
     printf("=== 电网预警通知模块测试 ===\n\n");
 
     /* 测试1: 配置检查 */
-    if (!WEBHOOK_URL || !WEBHOOK_URL[0]) {
-        printf("[CONFIG] WEBHOOK_URL 未配置\n");
-        printf("  获取方法: 企业微信 → 群设置 → 群机器人 → 添加 → 复制Webhook\n");
-        printf("  然后填入本文件顶部 WEBHOOK_URL\n\n");
-    } else {
-        printf("[CONFIG] WEBHOOK_URL: %s\n\n", WEBHOOK_URL);
+#if PLATFORM == PLATFORM_FEISHU
+    printf("[PLATFORM] 飞书\n");
+    if (!FEISHU_URL[0]) {
+        printf("[CONFIG] FEISHU_URL 未配置\n");
+        printf("  获取: 飞书 → 群设置 → 群机器人 → 添加 → 复制Webhook\n\n");
     }
+#elif PLATFORM == PLATFORM_WECOM
+    printf("[PLATFORM] 企业微信\n");
+    if (!WECOM_URL[0]) {
+        printf("[CONFIG] WECOM_URL 未配置\n");
+        printf("  获取: 企业微信 → 群设置 → 群机器人 → 添加 → 复制Webhook\n\n");
+    }
+#endif
 
     /* 测试2: 各级别告警 (日志记录, WeCom仅在有Webhook时发送) */
     printf("─── 天气预警 (WARN) ───\n");
