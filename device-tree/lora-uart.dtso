@@ -1,0 +1,56 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "phytium,pe2204";
+
+    /*
+     * LoRa UART & GPIO Device Tree Overlay
+     * 飞腾派 CEK8903 J1 多功能接口
+     *
+     * LoRa模块 (ATK-MWCC68D):
+     *   J1 Pin 8  (UART3_TXD) → LoRa RXD
+     *   J1 Pin 10 (UART3_RXD) → LoRa TXD
+     *   J1 Pin 7  (GPIO2_10)  → LoRa AUX/MD0
+     *
+     * 引脚映射:
+     *   UART3_TXD: PE2204 UART3 TX
+     *   UART3_RXD: PE2204 UART3 RX
+     *   GPIO2_10:  PE2204 GPIO Bank2 Pin10
+     *
+     * 使用方法:
+     *   sudo dtoverlay lora-uart.dtbo
+     *   或编译: dtc -@ -I dts -O dtb -o lora-uart.dtbo lora-uart.dtso
+     */
+
+    fragment@0 {
+        target-path = "/soc/uart@2800c000";
+        __overlay__ {
+            status = "okay";
+            pinctrl-names = "default";
+            pinctrl-0 = <&lora_uart_pins>;
+            lora-module {
+                compatible = "atk,mwcc68d";
+                uart-device = <&uart3>;
+                aux-gpios = <&gpio2 10 0>;
+                status = "okay";
+            };
+        };
+    };
+
+    fragment@1 {
+        target-path = "/soc/pinctrl";
+        __overlay__ {
+            lora_uart_pins: lora-uart-pins {
+                pins = "uart3_txd", "uart3_rxd";
+                function = "uart3";
+            };
+
+            lora_gpio_pins: lora-gpio-pins {
+                pins = "gpio2_10";
+                function = "gpio";
+                bias-pull-down;
+            };
+        };
+    };
+};

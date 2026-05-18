@@ -1,6 +1,6 @@
 # OpenAMP 异构多核通信知识库
 
-> **项目进度**: 设备树已配置 → Bare-metal/FreeRTOS双版本 → A1批量合并(659×加速) → C2边缘异常检测 → C3 Web面板 → 优化记录: [optimization-record.md](optimization-record.md)
+> **项目进度**: 设备树已配置 → Bare-metal/FreeRTOS双版本 → A1批量合并(659×加速) → C2边缘异常检测 → C3 Web面板 → **GD32主控移植完成** → [移植记录](transplant-gd32-to-phytium.md) → 优化记录: [optimization-record.md](optimization-record.md)
 
 ## 1. 硬件架构
 

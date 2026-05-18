@@ -15,21 +15,29 @@ SLAVE_DIR = remote-core
 
 # 目标文件
 TARGET_MASTER = $(BUILD_DIR)/rpmsg_master
+TARGET_MASTER_RECV = $(BUILD_DIR)/master_receiver
 TARGET_SLAVE = $(BUILD_DIR)/rpmsg_slave.elf
 
 # 源文件
 MASTER_SRCS = $(MASTER_DIR)/rpmsg_master.c
+MASTER_RECV_SRCS = $(MASTER_DIR)/master_receiver.c
 SLAVE_SRCS = $(SLAVE_DIR)/rpmsg_slave.c
 
 # 目标文件
 MASTER_OBJS = $(BUILD_DIR)/rpmsg_master.o
+MASTER_RECV_OBJS = $(BUILD_DIR)/master_receiver.o
 SLAVE_OBJS = $(BUILD_DIR)/rpmsg_slave.o
 
-all: master slave
+all: master master-recv slave
 
 master: $(BUILD_DIR) $(TARGET_MASTER)
 	@echo ""
-	@echo "✅ Linux主控程序编译完成: $(TARGET_MASTER)"
+	@echo "✅ Linux Echo程序编译完成: $(TARGET_MASTER)"
+	@echo ""
+
+master-recv: $(BUILD_DIR) $(TARGET_MASTER_RECV)
+	@echo ""
+	@echo "✅ Master Receiver编译完成: $(TARGET_MASTER_RECV)"
 	@echo ""
 
 slave: $(BUILD_DIR) $(TARGET_SLAVE)
@@ -47,6 +55,14 @@ $(TARGET_MASTER): $(MASTER_OBJS)
 $(MASTER_OBJS): $(MASTER_SRCS)
 	$(CC) $(CFLAGS_MASTER) -c $< -o $@
 	@echo "[BUILD] 编译主控程序源码"
+
+$(TARGET_MASTER_RECV): $(MASTER_RECV_OBJS)
+	$(CC) $(CFLAGS_MASTER) $^ -o $@
+	@echo "[BUILD] 链接Master Receiver"
+
+$(MASTER_RECV_OBJS): $(MASTER_RECV_SRCS)
+	$(CC) $(CFLAGS_MASTER) -c $< -o $@
+	@echo "[BUILD] 编译Master Receiver源码"
 
 $(TARGET_SLAVE): $(SLAVE_OBJS)
 	$(CC) $(CFLAGS_SLAVE) $^ -o $@
@@ -103,7 +119,8 @@ help:
 	@echo "用法: make [目标]"
 	@echo ""
 	@echo "目标:"
-	@echo "  master      - 编译Linux主控程序 (默认)"
+	@echo "  master      - 编译Linux Echo程序"
+	@echo "  master-recv - 编译Master Receiver (主控数据接收)"
 	@echo "  slave       - 编译从核固件（裸机程序）"
 	@echo "  all         - 编译所有目标"
 	@echo "  clean       - 清理构建文件"
