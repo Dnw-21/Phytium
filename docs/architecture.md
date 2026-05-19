@@ -380,4 +380,62 @@ Phytium/
 | 边缘异常检测      | C2 | FreeRTOS侧电压/电流/温度阈值预判                    | ✅  |
 | Web监控面板     | C3 | dashboard\_server提供实时Web监控               | ✅  |
 | 共享内存Flash模拟 | -  | 状态数据+波形数据用共享内存代替Flash                    | ✅  |
+| 自动化测试框架 | -  | 5项自动化测试，总控脚本+报告生成 | ✅ |
+
+## 10. 自动化测试框架
+
+### 10.1 测试架构
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  测试主机 (x86_64)                                           │
+│                                                              │
+│  test_runner.sh ── 总控脚本                                   │
+│  ├── check_env       (开发板连通性+remoteproc状态检查)         │
+│  ├── cleanup_rpmsg   (测试间 /dev/rpmsg0 释放)                │
+│  ├── run_test_rpmsg  (SSH远程执行RPMsg测试)                   │
+│  ├── run_test_local  (SSH远程执行本地测试)                    │
+│  └── generate_report (Markdown 测试报告)                      │
+│       │                                                      │
+│       │ sshpass + SSH                                        │
+│       ▼                                                      │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  开发板 (192.168.88.11)                               │   │
+│  │                                                        │   │
+│  │  /home/user/demo/tests/                                │   │
+│  │  ├── test_rpmsg_link      TC01: PING (5次, 诊断输出)   │   │
+│  │  ├── test_fault_inject    TC02: 3节点×5类型×3等级=45种  │   │
+│  │  ├── test_command         TC03: 监听DEVICE_MASTER_CMD  │   │
+│  │  ├── test_encrypt         TC04: 本地加解密往返验证       │   │
+│  │  └── test_stress          TC05: 5秒高速注入, ACK统计    │   │
+│  │                                                        │   │
+│  │  /dev/rpmsg0 ←→ FreeRTOS CPU3                          │   │
+│  │    DEVICE_MASTER_TEST → TestCtrlPacket_t               │   │
+│  │    DEVICE_MASTER_CMD  ← TestRespPacket_t               │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                              │
+│  输出: docs/test_report_YYYYMMDD_HHMMSS.md                   │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 测试命令类型 (FreeRTOS 侧处理)
+
+| 子命令 | 值 | 功能 | 触发行为 |
+|--------|-----|------|----------|
+| TEST_PING | 0x01 | 链路连通性 | 返回 PONG + 时间戳 |
+| TEST_SINGLE_FAULT | 0x02 | 单次故障注入 | fill_test_frame() → master_recv_inject_data() |
+| TEST_CONTINUOUS | 0x03 | 连续故障模式 | 设置 g_test_running 标志 |
+| TEST_STOP | 0x04 | 停止连续模式 | 清除 g_test_running 标志 |
+| TEST_CHAOS_ENCRYPT | 0x06 | 混沌加密验证 | chaos_encrypt_block → chaos_decrypt_block 往返比较 |
+| TEST_STATUS | 0x07 | 状态查询 | 返回 running/stopped + 已处理包数 |
+
+### 10.3 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| [test_runner.sh](file:///home/alientek/Phytium/tests/test_runner.sh) | 总控脚本 |
+| [Makefile](file:///home/alientek/Phytium/tests/Makefile) | 编译+部署 |
+| [test_control.h](file:///home/alientek/Phytium/freertos/inc/test_control.h) | 测试协议定义 |
+| [test_control.c](file:///home/alientek/Phytium/freertos/src/test_control.c) | FreeRTOS 侧测试逻辑 |
+| [rpmsg-echo_os.c](file:///home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/src/rpmsg-echo_os.c) | DEVICE_MASTER_TEST 集成点 |
 

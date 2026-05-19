@@ -213,7 +213,132 @@ modprobe -r rpmsg_char rpmsg_ctrl
 | Linux 应用 | `/home/alientek/Phytium/src/openamp-demo/` |
 | GD32 原始工程 | `/home/alientek/Phytium/GD32L233C_Prj_Master/` |
 
-## 11. 参考链接
+## 11. 自动化测试框架
+
+### 11.1 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    测试主机 (x86_64)                      │
+│                                                          │
+│  test_runner.sh ──总控脚本────                           │
+│  ├── TC01: RPMsg Link PING (链路测试)                    │
+│  ├── TC02: Fault Injection (故障注入全覆盖)              │
+│  ├── TC03: Command TX (命令传输监听)                     │
+│  ├── TC04: Chaos Encrypt (混沌加密验证, 本地计算)        │
+│  └── TC05: Stress Test (压力测试, 高频率故障注入)        │
+│       │                                                  │
+│       │ SSH (sshpass)                                    │
+│       ▼                                                  │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  Phytium Pi 开发板 (192.168.88.11)               │    │
+│  │                                                   │    │
+│  │  /home/user/demo/tests/                           │    │
+│  │  ├── test_rpmsg_link    →  /dev/rpmsg0 (RPMsg)   │    │
+│  │  ├── test_fault_inject  →  /dev/rpmsg0           │    │
+│  │  ├── test_command       →  /dev/rpmsg0           │    │
+│  │  ├── test_encrypt       →  本地计算 (无RPMsg)     │    │
+│  │  └── test_stress        →  /dev/rpmsg0           │    │
+│  │                                                   │    │
+│  │  RPMsg ──────────────────► FreeRTOS (CPU3)        │    │
+│  │    DEVICE_MASTER_TEST (0x0030)                    │    │
+│  │    ◄──────────────────── DEVICE_MASTER_CMD (0x0021)│   │
+│  │                                                   │    │
+│  │  测试报告: /home/alientek/Phytium/docs/           │    │
+│  │    test_report_YYYYMMDD_HHMMSS.md                 │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 11.2 协议定义
+
+**Linux → FreeRTOS**: `DEVICE_MASTER_TEST (0x0030)`
+
+数据载荷为 `TestCtrlPacket_t`:
+| 字段 | 字节 | 说明 |
+|------|------|------|
+| subcmd | 1 | 测试子命令 (PING=0x01, SINGLE_FAULT=0x02, CONTINUOUS=0x03, STOP=0x04, FLASH_CHECK=0x05, CHAOS_ENCRYPT=0x06, STATUS=0x07) |
+| node_id | 1 | 目标节点 ID (0-2) |
+| fault_type | 1 | 故障类型 (1=OVER_VOLTAGE, 2=UNDER_VOLTAGE, 3=VOLTAGE_SAG, 4=VOLTAGE_SWELL, 5=TRANSIENT) |
+| severity | 1 | 严重等级 (1=NORMAL, 2=WARNING, 3=DANGER) |
+| sample_count | 2 | 采样点数 |
+| reserved | 2 | 保留 |
+
+**FreeRTOS → Linux**: `DEVICE_MASTER_CMD (0x0021)`
+
+数据载荷为 `TestRespPacket_t`:
+| 字段 | 字节 | 说明 |
+|------|------|------|
+| resp_code | 1 | 响应码 (PONG=0x01, FAULT_SENT=0x02, RUNNING=0x03, STOPPED=0x04, FLASH_OK=0x05, ENCRYPT_OK=0x06, ERROR=0xFF) |
+| subcmd_echo | 1 | 回显子命令 |
+| node_id | 1 | 节点 ID |
+| fault_type | 1 | 故障类型 |
+| processed_count | 4 | 已处理包数 |
+| timestamp_ms | 4 | 时间戳 (ms) |
+
+### 11.3 FreeRTOS 侧测试控制模块
+
+```
+/home/alientek/Phytium/freertos/
+├── inc/test_control.h    — 测试协议定义 (宏 + 数据结构 + 接口)
+└── src/test_control.c    — 测试控制逻辑实现
+```
+
+**关键函数**:
+- `test_control_init()` — 初始化测试状态
+- `test_control_handle(ctrl, resp)` — 处理测试控制包，返回响应包
+  - `TEST_PING`: 返回 PONG + 时间戳
+  - `TEST_SINGLE_FAULT`: 构造仿真 LoRa 帧注入 master_recv_inject_data
+  - `TEST_CONTINUOUS`: 设置连续运行标志
+  - `TEST_STOP`: 停止连续模式
+  - `TEST_CHAOS_ENCRYPT`: 执行 chaos_encrypt_block → chaos_decrypt_block 往返验证
+- `test_control_get_status()` — 获取测试统计
+
+**集成点**: [rpmsg-echo_os.c](file:///home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/src/rpmsg-echo_os.c#L422) — `DEVICE_MASTER_TEST` case → `test_control_handle()` → RPMsg 响应
+
+### 11.4 运行测试
+
+```bash
+cd /home/alientek/Phytium/tests
+
+# 编译
+make
+
+# 部署到开发板
+make deploy
+
+# 运行全部测试
+bash test_runner.sh all
+
+# 运行单个测试
+bash test_runner.sh tc01      # 链路 PING 测试
+bash test_runner.sh tc02      # 故障注入测试
+bash test_runner.sh tc03      # 命令传输测试
+bash test_runner.sh tc04      # 混沌加密测试 (本地)
+bash test_runner.sh tc05      # 压力测试
+
+# 报告位置
+ls /home/alientek/Phytium/docs/test_report_*.md
+```
+
+### 11.5 测试清单
+
+| ID | 测试项 | 类型 | 验证内容 | 通过标准 |
+|----|--------|------|----------|----------|
+| TC01 | RPMsg Link PING | RPMsg | CPU3 链路连通性 | PING 成功率 100%, RTT < 100ms |
+| TC02 | Fault Injection | RPMsg | 所有节点×故障类型×严重等级 | 45/45 组合全部 OK |
+| TC03 | Command TX | RPMsg | FreeRTOS→Linux 命令传输 | 至少收到 1 条 command |
+| TC04 | Chaos Encrypt | 本地 | encrypt→decrypt 往返一致性 | 6 种数据长度全部一致 |
+| TC05 | Stress Test | RPMsg | 高频率故障注入 (5秒) | ACK 率 ≥ 70%, 速率 > 10 faults/s |
+
+### 11.6 添加新测试
+
+1. 创建 `test_modules/test_new.c` (参考已有模块)
+2. 在 `Makefile` 添加编译规则
+3. 在 `test_runner.sh` 添加 `test_tcXX()` 函数
+4. 若需 FreeRTOS 侧新子命令，在 `test_control.h` 添加宏，在 `test_control.c` switch 添加 case
+
+## 12. 参考链接
 
 - 飞腾嵌入式文档: https://gitee.com/phytium_embedded/phytium-embedded-docs
 - OpenAMP 手册: https://gitee.com/phytium_embedded/phytium-embedded-docs/tree/master/open-amp

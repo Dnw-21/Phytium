@@ -295,12 +295,7 @@ static int send_batch_zero_copy(struct rpmsg_endpoint *ept)
     g_kick_count++;  /* A3: 累计SGI9中断计数 */
     sensor_data_send_count++;
 
-    /* 仅每50批打印一次, 避免串口泛滥 */
-    if (g_kick_count % 50 == 0) {
-        OPENAMP_DEVICE_INFO("FreeRTOS ZC: %d pkts/batch, kicks:%d, edge:%dN/%dA\r\n",
-                            SENSOR_PACKET_COUNT, g_kick_count,
-                            g_edge_normal_count, g_edge_alarm_count);
-    }
+    /* 静默: ZC stats 不打印 */
     return ret;
 }
 
@@ -360,19 +355,17 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
 {
 	(void)priv;
     (void)src;
-
-    int ret;
-    (void)priv;
-    OPENAMP_DEVICE_INFO("src:0x%x",src);
+    /* 静默模式: 不打印每条消息的src/command，避免串口刷屏 */
     ept->dest_addr = src;
 
+    int ret;
     ret = parse_protocol_data((char *)data, len, &protocol_data);
     if(ret != 0)
     {
         OPENAMP_DEVICE_ERROR("parse protocol data error,ret:%d",ret);
         return RPMSG_SUCCESS;/* 解析失败，忽略数据 */
     }
-    OPENAMP_DEVICE_INFO("command:0x%x,length:%d.",protocol_data.command,protocol_data.length);
+    /* 静默: 不打印每条命令详情 */
     switch (protocol_data.command)
     {
         case DEVICE_CORE_START:
@@ -412,13 +405,11 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
              */
             g_ept = ept;
 
-            /* 测试：收到握手帧时立即回发一个测试DEVICE_MASTER_CMD */
+            /* 测试：用 rpmsg_send_master_cmd 回发测试命令 */
             {
-                ProtocolData test = {.command = DEVICE_MASTER_CMD,
-                                     .length = 2,
-                                     .data = {0x00, 0xFF}};
-                int tr = rpmsg_send(ept, &test, 6 + test.length);
-                OPENAMP_DEVICE_INFO("handshake echo test: ret=%d\r\n", tr);
+                uint8_t params[2] = {0, 0};
+                int tr = rpmsg_send_master_cmd(0, 0x10, params, 2);
+                (void)tr; /* 静默: handshake test cmd sent */
             }
 
             if (protocol_data.length > 0 && protocol_data.length <= MAX_DATA_LENGTH) {

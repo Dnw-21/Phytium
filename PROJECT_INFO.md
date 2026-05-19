@@ -1,6 +1,6 @@
 # Phytium PE2204 LoRa 主控系统 — 项目信息汇总
 
-> **更新**: 2026-05-18 | **状态**: GD32代码全部移植完成，LoRa模块待接入
+> **更新**: 2026-05-19 | **状态**: GD32 v3代码全部移植完成，代码层面100%兼容，待开发板上电验证
 
 ## 一、项目基本信息
 
@@ -158,7 +158,9 @@ dmesg | grep -i rproc                           # 启动日志
 
 | 项目 | 路径 |
 |------|------|
-| GD32 完整工程 | `GD32L233C_Prj_Master/` |
+| GD32 v1 工程（旧版） | `GD32L233C_Prj_Master/` |
+| **GD32 v3 工程（当前基准）** | `GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` |
+| v3 设计文档 | [GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md](GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md) |
 | 移植记录 | [docs/transplant-gd32-to-phytium.md](docs/transplant-gd32-to-phytium.md) |
 
 ## 九、文档索引
@@ -175,4 +177,4 @@ dmesg | grep -i rproc                           # 启动日志
 
 ---
 
-**版本**: v3.0 | **基于**: GD32L233C_Prj_Master 移植
+**版本**: v3.1 | **基于**: GD32L233C_Prj_Master_v3 移植

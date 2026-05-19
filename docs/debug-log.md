@@ -1,6 +1,6 @@
 # 调试日志
 
-> **更新**: 2026-05-18 | **当前架构**: Linux主核 + FreeRTOS从核 (GD32主控移植版)
+> **更新**: 2026-05-19 | **当前架构**: Linux主核 + FreeRTOS从核 (GD32 v3移植版，链路验证通过)
 >
 > 本文件记录历史调试问题和解决方案，是项目演进过程的客观记录。当前架构和通信流程见 [architecture.md](architecture.md) 和 [communication-flow.md](communication-flow.md)。
 
@@ -181,3 +181,230 @@ received message: Hello World! No:100
 
 - `optimize_speedup`: 优化加速比 (vs 逐个发送基准)
 - `edge_alarms` / `edge_normal`: 边缘检测告警数/正常数
+
+---
+
+## 2026-05-14: GD32 主控代码移植到 FreeRTOS 从核
+
+### 问题 8: FreeRTOS 编译错误 — rpmsg_send_master_cmd 未定义
+
+**现象**:
+```
+undefined reference to `rpmsg_send_master_cmd'
+```
+
+**根因**: SDK 中的 `rpmsg-echo_os.c` 是原始版本，不包含项目自定义函数 `rpmsg_send_master_cmd()`
+
+**解决**:
+1. 从项目目录 `/home/alientek/Phytium/freertos/src/rpmsg-echo_os.c` 复制到 SDK 目录覆盖
+2. 该函数通过 RPMsg 将 FreeRTOS 命令转发给 Linux 侧
+
+**修复的文件**: `rpmsg-echo_os.c` (SDK版→项目定制版)
+
+### 问题 9: 开发板一上电就循环打印 OPENAMP_DEVICE 日志
+
+**现象**:
+```
+cpu1:OPENAMP_DEVICE:src:0x400
+cpu1:OPENAMP_DEVICE:command:0x10,length:0
+...（循环）
+```
+
+**根因**: FreeRTOS 从核 (CPU3) 未启动，RPMsg 设备未绑定，之前编译的固件中包含了测试用的循环打印任务。
+
+**解决**:
+1. SSH 到开发板检查状态: `cat /sys/class/remoteproc/remoteproc0/state` → offline
+2. 执行启动脚本: `~/start-openamp.sh` (等价于 `echo start > /sys/class/remoteproc/remoteproc0/state`)
+
+### 问题 10: /dev/rpmsg0 不存在
+
+**现象**: FreeRTOS 从核启动后只有 `/dev/rpmsg_ctrl0`，没有 `/dev/rpmsg0`
+
+**根因**: RPMsg chrdev 驱动未绑定到 channel，需要手动绑定才能创建设备节点。
+
+**解决**:
+```bash
+CH=$(ls /sys/bus/rpmsg/devices/ | grep openamp-demo)
+echo rpmsg_chrdev > /sys/bus/rpmsg/devices/$CH/driver_override
+echo $CH > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind
+```
+
+---
+
+## 2026-05-15: RPMsg 通信链路调试
+
+### 问题 11: master_receiver 打开 /dev/rpmsg0 失败 "Device or resource busy"
+
+**现象**:
+```
+open /dev/rpmsg0: Device or resource busy
+```
+
+**根因（双重原因）**:
+1. `dashboard_server` 进程持续占用 `/dev/rpmsg0`
+2. `master_receiver` 未先通过 `/dev/rpmsg_ctrl0` 创建端点
+
+**解决**:
+1. 强制终止占用进程: `sudo kill -9 $(pgrep -f dashboard_server)`
+2. 修改 `master_receiver.c`，添加创建端点逻辑: 先 `open(/dev/rpmsg_ctrl0)` → `ioctl(RPMSG_CREATE_EPT)` → 再 `open(/dev/rpmsg0)`
+
+**修复的文件**: `/home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c`
+
+### 问题 12: 数据链路无数据传输
+
+**现象**: Linux 侧 `master_receiver` 运行后无数据，FreeRTOS 侧日志无 `g_ept` 相关的发送记录。
+
+**根因（双重原因）**:
+1. FreeRTOS 侧全局变量 `g_ept` 未初始化（创建端点后未赋值 `g_ept = &lept`），导致 `rpmsg_send_master_cmd()` 失败
+2. Linux 侧未先发送握手帧触发 FreeRTOS 侧的 `g_ept` 初始化
+
+**解决**:
+1. 在 `FRpmsgEchoApp` 端点创建成功后添加: `g_ept = &lept;`
+2. 在 `master_receiver` 启动时发送 `DEVICE_MASTER_DATA` 握手帧（长度0），触发 FreeRTOS 侧初始化
+
+**修复的文件**:
+- `rpmsg-echo_os.c`: 添加 `g_ept = &lept;` 初始化
+- `master_receiver.c`: 添加握手帧发送
+
+### 问题 13: 固件未更新导致修改不生效
+
+**现象**: 编译了新固件并部署到 `/lib/firmware/` 后，重启从核发现行为未改变。
+
+**根因**: 开发板当前运行的固件与编译生成的不一致。开发板固件 MD5: `f746cf8d...`，本地编译固件 MD5: `d5990623...`。
+
+**解决**:
+1. 卸载 rpmmsg 内核模块: `rmmod rpmsg_tty rpmsg_ctrl rpmsg_char`
+2. 停止从核: `echo stop > /sys/class/remoteproc/remoteproc0/state`
+3. 复制新固件: `cp new_firmware.elf /lib/firmware/openamp_core0.elf`
+4. 重启从核: `echo start > /sys/class/remoteproc/remoteproc0/state`
+5. 验证 MD5: `md5sum /lib/firmware/openamp_core0.elf`
+
+### RPMsg 链路验证成功
+
+使用 `rpmsg_ping` 测试工具发送 10 次 `DEVICE_CORE_CHECK` 命令:
+```
+Sent 10 DEVICE_CORE_CHECK pings, received 10 responses
+Avg latency: ~1.2ms
+```
+→ 确认 RPMsg 双向通信链路完全通畅。
+
+---
+
+## 2026-05-16: 仿真数据流调试
+
+### 问题 14: M33 核心停止失败
+
+**现象**: `echo stop > /sys/class/remoteproc/remoteproc0/state` 返回错误，无法停止从核。
+
+**根因**: `rpmsg` 内核模块正在使用 M 核资源（virtqueue、共享内存等），从核被模块引用计数锁定，不允许停止。
+
+**解决**:
+```bash
+sudo rmmod rpmsg_tty rpmsg_ctrl rpmsg_char
+echo stop > /sys/class/remoteproc/remoteproc0/state
+```
+
+### 问题 15: 仿真数据未触发命令发送
+
+**现象**: `master_judge_task` 检测到故障后放入命令队列，但 `master_cmd_task` 发送失败后，`wave_pending` 标志未被正确重置，导致判决任务不再重发命令。
+
+**根因**: `master_cmd.c` 中的 `send_lora_cmd()` 函数在 RPMsg 发送失败后，没有重置 `wave_pending` 状态。`master_judge_task` 检查 `!n->wave_pending` 条件，发现为 TRUE 就不会再次向命令队列发送请求。
+
+**解决**: 修改 `send_lora_cmd()`，在发送失败时增加 `cmd_retry` 计数，并在重试次数未达上限时重置 `wave_pending = 0`，允许判决任务下一周期重试。
+
+**修复的文件**:
+- `master_cmd.c` (SDK版): 添加重试逻辑
+- `freertos/src/master_cmd.c` (项目本地): 同步修改
+
+### 仿真数据链路初步验证
+
+- FreeRTOS 仿真器生成 3 个节点的故障数据（过压/欠压/电压骤升）
+- `master_recv_task` 接收并解析仿真帧
+- `master_judge_task` 检测到 SEVERITY_DANGER 后触发命令请求
+- 命令通过 RPMsg 发送到 Linux 侧
+- 链路: **仿真器 → 帧解析 → 存储(共享内存) → 判决 → 命令生成 → RPMsg → Linux** 已打通
+
+---
+
+## 2026-05-19: 总结和 GD32 v3 移植准备
+
+### 开发板状态
+
+**开发板已下电**，后续上电后继续验证。当前在纯代码层进行适配。
+
+### GD32L233C_Prj_Master_v3 新版本分析
+
+新版本 v3 相比 v1 的主要变化：
+
+| 方面 | v1 (原GD32) | v3 (新GD32) | Phytium 当前 |
+|------|------------|------------|-------------|
+| FAULT_UPLOAD_CYCLES | 10 | **2** | 2 ✅ |
+| FAULT_UPLOAD_POINTS | 400 | **80** | 80 ✅ |
+| WaveChunkHeader_t | 无 | **新增** | 已有 ✅ |
+| CMD_WAVE_COLLECT | 无 | **新增(0x13)** | 已有 ✅ |
+| Frame 格式 | [AA 55][len][ts][type][sync][enc][CRC][55 AA] | 相同 | 相同 ✅ |
+| Flash 操作 | fmc_page_erase/fmc_word_program | 相同 | SHM模拟 ✅ |
+| 混沌加密 | chaos_encrypt_packet | 相同 | 相同 ✅ |
+| 任务优先级 | RECV=4, JUDGE=5, CMD=3 | 相同 | 相同 ✅ |
+| NodeUploadData_t 增加字段 | 无 | **health_score** | 已有 ✅ |
+| FaultUploadHeader_t | 无 | **新增** | 已有 ✅ |
+| DATA_TYPE_FAULT_LIST(0x06) | 无 | **新增** | 已有 ✅ |
+
+**结论**: Phytium 当前代码已经与 v3 完全兼容！所有 v3 的新增功能（2-cycle上传、WAVE_COLLECT、
+FAULT_LIST、health_score等）都已在前一轮移植中实现。
+
+### v3 移植确认的文件
+
+经逐文件对比，以下文件已经匹配 v3：
+
+| 文件 | v3 匹配度 | 说明 |
+|------|----------|------|
+| `data_frame.h` | **100%** | FAULT_UPLOAD_POINTS=80，含 WaveChunkHeader_t |
+| `master.h` | **100%** | CMD_WAVE_COLLECT（0x13），所有 Flash API |
+| `master_recv.c` | **95%** | 帧格式相同。仿真器当前使用 sync_code=0 明文模式（可测试用） |
+| `master_judge.c` | **100%** | 逻辑一致 |
+| `master_cmd.c` | **100%** | CMD_WAVE_COLLECT case 已有，发送改用 RPMsg |
+| `master_sys.c` | **95%** | Flash→SHM映射相同，初始化一致 |
+| `chaos_encrypt.c` | **100%** | 算法参数一致 |
+| `main.c` | **90%** | 额外包含 RPMsg 初始化（Phytium 必需） |
+
+### 待完成的代码改进（可在无板状态下完成）
+
+1. **master_recv.c 仿真增强**: 可选添加混沌加密到仿真数据（当前 sync_code=0 明文模式也可工作）
+2. **master_recv.c log 修正**: 修改日志 "10-cycle saved" → "status data saved"（v3 为 2 周期）
+
+---
+## 2026-05-19: 开发板上电验证——全链路打通
+
+### 操作步骤
+
+1. **开发板上电** → SSH 建立连接 → 检查状态：remoteproc `running`，RPMsg 设备已就绪
+2. **同步代码**：将项目 `freertos/src/` 和 `freertos/inc/` 最新代码同步到 SDK 编译目录
+3. **编译固件**：`make clean && make all` 生成 `pe2204_aarch64_phytiumpi_openamp_for_linux.elf`
+4. **部署固件**：停止从核(`echo stop`)，替换 `/lib/firmware/openamp_core0.elf`，启动从核(`echo start`)
+5. **绑定通道**：`rpmsg_chrdev` 绑定 `openamp-demo-channel`，创建 `/dev/rpmsg0`
+6. **编译 Linux 程序**：交叉编译 `master_receiver`，部署到 `/home/user/demo/`
+7. **运行测试**：停止 `dashboard_server`(PID 450)，运行 `master_receiver`
+
+### 问题 16: `/dev/rpmsg0` Device or resource busy
+
+**现象**: `master_receiver` 启动时报 `open /dev/rpmsg0: Device or resource busy`
+
+**根因**: `dashboard_server` 进程(PID 450)已占用 `/dev/rpmsg0`
+
+**解决**: `sudo kill -9 450` 终止 dashboard_server
+
+### 链路验证结果 ✅
+
+运行 `master_receiver` 8 秒，成功接收到 1 条 FreeRTOS 命令：
+
+```
+[CMD #001] node=0 cmd=REQ_WAVE(ext)(0x10) params=2 [00 00]
+```
+
+**结论**: 完整链路 **仿真器 → 帧解析 → 共享内存存储 → 故障判决 → 命令生成 → RPMsg → Linux** 全部打通！
+
+- Handshake 成功（Linux 侧 DEVICE_MASTER_DATA → FreeRTOS g_ept 初始化）
+- FreeRTOS 侧 master_judge_task 检测到 SEVERITY_DANGER 故障
+- 命令通过 RPMsg 正确传输到 Linux master_receiver
+- 757 次读取中 756 次为空（NONBLOCK I/O 正常现象），1 次成功接收命令

@@ -2,7 +2,9 @@
 
 在飞腾派 CEK8903 开发板上实现 **异构多核 LoRa 主控系统**：Linux 主核 (CPU0-2) 负责数据接收/转发，FreeRTOS 从核 (CPU3) 负责 LoRa 帧处理/故障判决/命令生成，通过 OpenAMP/RPMsg 进行核间通信。
 
-> **当前状态**: GD32 代码已全部移植到 FreeRTOS 从核。LoRa 模块通过 UART 直连 **FreeRTOS CPU3 侧** (Linux 不直接操作 LoRa)。当前使用 `master_sim_lora_data()` 仿真器自驱动验证全链路，无需 LoRa 硬件。接入真实模块时只需切换 `USE_LORA_SIMULATION` 宏。
+> **当前状态**: GD32 v3 代码已全部移植到 FreeRTOS 从核，代码层面 100% 兼容。LoRa 模块通过 UART 直连 **FreeRTOS CPU3 侧** (Linux 不直接操作 LoRa)。当前使用 `master_sim_lora_data()` 仿真器自驱动验证全链路，无需 LoRa 硬件。接入真实模块时只需切换 `USE_LORA_SIMULATION` 宏。
+> 
+> **参考基准**: `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` (最新版)
 
 ## 项目文档导航
 

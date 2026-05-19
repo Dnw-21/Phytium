@@ -356,7 +356,7 @@ static void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloa
     if (dl->received_points >= dl->expected_points) {
         master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
         dl->active = 0;
-        log_info("Node%d: 10-cycle saved (%d pts)", dl->node_id, dl->received_points);
+        log_info("Node%d: status data saved (%d pts)", dl->node_id, dl->received_points);
     }
 }
 
@@ -551,16 +551,14 @@ void master_recv_inject_data(const uint8_t *data, uint16_t len)
     }
 }
 
-/*
- * master_recv_task: 主接收任务
+/*============================================================================
+ *  master_recv_task: 接收 → 解析 → 按类型存储
  *
- * LoRa模块直连 FreeRTOS CPU3 侧 UART。
- * 数据路径:
- *   master_recv_lora_data() → 仿真(g_sim) / 真实UART(uart_recv)
- *     → master_recv_inject_data() → parse_frame() → 分发处理
- *
- * Linux 不参与 LoRa 数据收发，只通过 RPMsg 接收处理后的状态/命令。
- */
+ *  状态机:
+ *    IDLE            → 等待 DATA_TYPE_STATUS / DATA_TYPE_WAVE / DATA_TYPE_FAULT_LIST
+ *    RECV_NODE_RAW   → 累积 DATA_TYPE_NODE_RAW, 满后保存到 Flash/共享内存
+ *    RECV_FLASH_WAVE → 累积 DATA_TYPE_FLASH_WAVE, 满后保存波形到 Flash/共享内存
+ *============================================================================*/
 void master_recv_task(void *pvParameters)
 {
     uint8_t  raw_buf[MAX_FRAME_BUF];

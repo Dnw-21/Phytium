@@ -12,6 +12,7 @@
 #define DEVICE_MASTER_DATA  0x0020U
 #define DEVICE_MASTER_CMD   0x0021U
 #define DEVICE_SENSOR_BATCH 0x0011U
+#define DEVICE_CORE_CHECK   0x0003U   /* ping-pong 双向验证 */
 
 #define MAX_DATA_LENGTH     496
 
@@ -27,11 +28,15 @@ static int total_cmd_rx = 0;
 static int total_other_rx = 0;
 static int total_reads = 0;
 static int total_empty = 0;
+static int ping_sent = 0;
+static int ping_echo = 0;
+static struct timespec last_ping_time = {0, 0};
 
 void signal_handler(int sig)
 {
-    printf("\n[INFO] Signal %d, stopping... (reads:%d empty:%d cmd:%d other:%d)\n",
-           sig, total_reads, total_empty, total_cmd_rx, total_other_rx);
+    printf("\n[INFO] Signal %d, stopping... (reads:%d empty:%d cmd:%d other:%d ping:%d/%d)\n",
+           sig, total_reads, total_empty, total_cmd_rx, total_other_rx,
+           ping_sent, ping_echo);
     running = 0;
 }
 
@@ -113,8 +118,11 @@ int main(int argc, char *argv[])
         usleep(200000);
     }
 
+    printf("[INFO] Bidirectional Ping: Linux→FreeRTOS→Linux (DEVICE_CORE_CHECK 0x0003)\n");
     printf("[INFO] Listening for master commands...\n");
     printf("[INFO] Press Ctrl+C to stop.\n\n");
+
+    clock_gettime(CLOCK_MONOTONIC, &last_ping_time);
 
     while (running) {
         memset(rx_buf, 0, sizeof(rx_buf));
@@ -129,6 +137,11 @@ int main(int argc, char *argv[])
             case DEVICE_MASTER_CMD:
                 total_cmd_rx++;
                 print_master_cmd(pkt);
+                break;
+            case DEVICE_CORE_CHECK:
+                ping_echo++;
+                printf("[PING #%d] Linux→FreeRTOS→Linux round-trip OK! (echo %d bytes)\n",
+                       ping_echo, ret);
                 break;
             case DEVICE_SENSOR_BATCH:
                 total_other_rx++;
@@ -149,16 +162,34 @@ int main(int argc, char *argv[])
             total_empty++;
         }
 
-        if (total_reads % 1000 == 0) {
-            printf("[STATS] reads=%d empty=%d cmd=%d other=%d\n",
-                   total_reads, total_empty, total_cmd_rx, total_other_rx);
+        /* 每2秒发送一次PING验证双向通信 */
+        {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            double elapsed = (now.tv_sec - last_ping_time.tv_sec) +
+                             (now.tv_nsec - last_ping_time.tv_nsec) / 1e9;
+            if (elapsed >= 2.0) {
+                ProtocolData ping = {.command = DEVICE_CORE_CHECK, .length = 0};
+                ssize_t sret = write(rpmsg_fd, &ping, 6);
+                if (sret > 0) {
+                    ping_sent++;
+                    if (ping_sent <= 3 || ping_sent % 5 == 0)
+                        printf("[PING] #%d sent -> waiting for echo...\n", ping_sent);
+                }
+                last_ping_time = now;
+            }
+        }
+
+        if (total_reads % 500 == 0) {
+            printf("[STATS] reads=%d empty=%d cmd=%d ping=%d/%d\n",
+                   total_reads, total_empty, total_cmd_rx, ping_sent, ping_echo);
         }
 
         usleep(10000);
     }
 
-    printf("\n[SUMMARY] Reads: %d, Empty: %d, Cmds: %d, Other: %d\n",
-           total_reads, total_empty, total_cmd_rx, total_other_rx);
+    printf("\n[SUMMARY] Reads: %d, Empty: %d, Cmds: %d, Other: %d, Ping: %d/%d\n",
+           total_reads, total_empty, total_cmd_rx, total_other_rx, ping_sent, ping_echo);
 
     if (rpmsg_fd >= 0) close(rpmsg_fd);
     return 0;

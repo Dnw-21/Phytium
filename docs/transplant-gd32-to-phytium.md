@@ -1,8 +1,9 @@
 # GD32L233C 主控程序移植到 Phytium PE2204 FreeRTOS 记录
 
-> **移植日期**: 2026-05-18
-> **移植状态**: 代码层面完成，待硬件验证（LoRa模块连接后测试）
-> **原程序**: /home/alientek/Phytium/GD32L233C_Prj_Master
+> **移植日期**: 2026-05-14 ~ 2026-05-19
+> **移植状态**: 代码层面已完成，与GD32 v3完全兼容，待硬件验证（开发板上电后测试）
+> **原程序 v1**: /home/alientek/Phytium/GD32L233C_Prj_Master
+> **当前版本 v3**: /home/alientek/Phytium/GD32L233C_Prj_Master_v3
 > **目标SDK**: /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master
 
 ## 一、移植概述
@@ -200,7 +201,64 @@ echo rpmsg_chrdev > /sys/bus/rpmsg/devices/virtio0.rpmsg-openamp-demo-channel.-1
 echo stop > /sys/class/remoteproc/remoteproc0/state
 ```
 
-## 八、后续工作（待硬件验证）
+## 八、GD32 v3 (GD32L233C_Prj_Master_v3) 兼容性分析
+
+### 8.1 v3 vs v1 主要差异
+
+| 方面 | v1 (原GD32) | v3 (新GD32) | Phytium移植 |
+|------|------------|------------|------------|
+| FAULT_UPLOAD_CYCLES | 10 | **2** | 2 ✅ |
+| FAULT_UPLOAD_POINTS | 400 | **80** | 80 ✅ |
+| NodeUploadData_t | 基本 | **+health_score字段** | 已含 ✅ |
+| FaultUploadHeader_t | 无 | **新增(故障上传专用头)** | 已含 ✅ |
+| WaveChunkHeader_t | 无 | **新增(波形上传头)** | 已含 ✅ |
+| DATA_TYPE_FAULT_LIST | 无 | **新增(0x06)** | 已含 ✅ |
+| CMD_WAVE_COLLECT | 无 | **新增(0x13)** | 已含 ✅ |
+| MASTER_WAVE_RATE_15000 | 无 | **新增** | 已含 ✅ |
+
+### 8.2 逐文件对比结果
+
+| 文件 | v3 一致性 | 差异说明 |
+|------|----------|---------|
+| `data_frame.h` | 100% | 相同 |
+| `master.h` | 100% | 相同(含Flash API) |
+| `master_recv.c` | 95% | 帧格式相同。仿真用明文(sync_code=0)，v3用混沌加密 |
+| `master_judge.c` | 100% | 逻辑一致 |
+| `master_cmd.c` | 100% | 发送从LoRa→RPMsg(Phytium适配) |
+| `master_sys.c` | 95% | 存储从Flash→SHM(Phytium适配) |
+| `chaos_encrypt.c` | 100% | 算法/参数一致 |
+| `main.c` | 90% | +rpmsg_echo_task(RPMsg通信必需) |
+
+### 8.3 v3 帧协议 (与Phytium一致)
+
+```
+完整帧格式 (带帧边界标记，用于UART传输):
+┌──────┬──────┬──────────────┬─────────────────────────────────────┬──────┬──────┬──────┐
+│0xAA  │0x55  │ data_len(2B) │      DATA 段 (data_len 字节)       │ CRC8 │0x55  │0xAA  │
+└──────┴──────┴──────────────┴─────────────────────────────────────┴──────┴──────┴──────┘
+                                        │
+                                        ▼
+                        ┌────────┬──────┬──────────┬─────────────────┐
+                        │ ts(4B) │ type │ sync(4B) │ encrypted payload│
+                        └────────┴──────┴──────────┴─────────────────┘
+                                               │
+                              sync_code=0 ────→ 明文模式(仿真)
+                              sync_code≠0 ────→ chaos_decrypt → payload
+```
+
+### 8.4 接收状态机
+
+```
+RSTATE_IDLE          → 等待 DATA_TYPE_STATUS(0x01) / DATA_TYPE_WAVE(0x02) / FAULT_LIST(0x06)
+                       STATUS头(15B=FaultUploadHeader_t / 11B=NodeUploadData_t) → 设置 dl->active=1
+                       WAVE头 → 擦除旧波形区 → dl->active=1
+RSTATE_RECV_NODE_RAW → 累积 DATA_TYPE_NODE_RAW(0x04) int32×4 样本到 dl->node_buffer
+                       满 FAULT_UPLOAD_POINTS(80点) → master_flash_save_node_data() → IDLE
+RSTATE_RECV_FLASH_WAVE→ 累积 DATA_TYPE_FLASH_WAVE(0x05) int16 样本到波形区
+                       满 expected_points → master_recv_wave_data() → IDLE
+```
+
+## 九、后续工作（待硬件验证）
 
 1. **LoRa模块连接**: 将ATK-MWCC68D连接到J1接口（Pin7=AUX, Pin8=TXD, Pin10=RXD）
 2. **LoRa驱动开发**: Linux侧或FreeRTOS侧实现ATK-MWCC68D的UART驱动
@@ -208,7 +266,7 @@ echo stop > /sys/class/remoteproc/remoteproc0/state
 4. **混沌加密同步验证**: 确认收发双方混沌状态同步正确
 5. **故障判决实测**: 连接实际终端节点，验证故障检测逻辑
 
-## 九、已知问题与注意事项
+## 十、已知问题与注意事项
 
 1. RPMsg通道名称 `rpmsg-openamp-demo-channel` 需要与设备树和FreeRTOS侧一致
 2. 共享内存起始地址 0xB0120000 需要在SDK内存布局中未被其他模块使用
