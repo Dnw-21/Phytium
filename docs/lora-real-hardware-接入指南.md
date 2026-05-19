@@ -757,6 +757,20 @@ cat /dev/rpmsg0 | xxd | head -20
 [LoRa] ACK received (如果有确认机制)
 ```
 
+### 8.5 使用自动化测试套件验证 (推荐)
+
+接好 LoRa 硬件后，可以用自动化测试套件做系统性验证：
+
+```bash
+cd /home/alientek/Phytium/tests
+make deploy          # 编译+部署测试程序
+make run-link        # TC01: 验证 RPMsg 链路正常
+make run-cmd         # TC03: 确认 FreeRTOS 能收到并转发真实 LoRa 命令
+make run-all         # 全量回归 (在确认通信正常后运行)
+```
+
+详细测试操作见：[setup-guide.md](setup-guide.md) 步骤 9-10
+
 ***
 
 ## 9. 踩坑记录与排错

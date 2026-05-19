@@ -237,6 +237,147 @@ sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
 ./master_receiver
 ```
 
+## 步骤 8: Web 实时监控面板
+
+### 8.1 启动 Dashboard
+
+`dashboard_server` 是一个嵌入式 HTTP 服务器，提供浏览器实时监控面板：
+
+```bash
+# 在飞腾派上启动 (后台运行)
+ssh user@192.168.88.11 "nohup ./dashboard_server > /tmp/dashboard.log 2>&1 &"
+
+# 浏览器打开监控面板
+# http://192.168.88.11:8080
+```
+
+面板显示内容：
+- 异构架构拓扑图 (CPU0-2 Linux + CPU3 FreeRTOS)
+- 实时传感器数据表 (电压、电流、温度、状态)
+- 传输速率和延迟统计
+- 传输日志滚动显示
+- 优化加速比可视化
+- CSV 历史记录 (保存于 `/tmp/dashboard_data.csv`)
+
+### 8.2 停止 Dashboard
+
+```bash
+ssh user@192.168.88.11 "sudo kill -9 \$(pgrep -f dashboard_server)"
+```
+
+> **⚠️ 注意**: `dashboard_server` 会占用 `/dev/rpmsg0`。如果同时想运行 `master_receiver` 或测试程序，需要先停掉 dashboard。
+
+### 8.3 命令行监控 (轻量替代)
+
+如果不需要 Web 界面，可以用终端版的 `master_receiver`：
+
+```bash
+ssh user@192.168.88.11 "./master_receiver"
+```
+
+输出示例：
+```
+==========================================
+ OpenAMP Master Data Receiver
+==========================================
+[CMD  #001] node=1 cmd=REQ_WAVE(0x01)
+[CMD  #002] node=2 cmd=REQ_FAULT_LIST(0x02)
+[PING #1] Linux→FreeRTOS→Linux round-trip OK!
+```
+
+---
+
+## 步骤 9: 自动化测试套件
+
+### 9.1 测试架构
+
+```
+开发主机 (x86_64)                 飞腾派 (192.168.88.11)
+┌──────────────────┐    SSH      ┌──────────────────────────┐
+│ test_runner.sh   │──────────► │ /home/user/demo/tests/    │
+│ (总控脚本)       │             │ ├── test_rpmsg_link       │
+│ ├── TC01: PING   │             │ ├── test_fault_inject     │
+│ ├── TC02: 故障注入│             │ ├── test_command          │
+│ ├── TC03: 命令监听│             │ ├── test_encrypt          │
+│ ├── TC04: 加密验证│             │ ├── test_stress           │
+│ └── TC05: 压力测试│             │ └── test_panel (交互式)   │
+│                  │             │        │                  │
+│ 输出: 测试报告    │             │  /dev/rpmsg0 ←→ FreeRTOS │
+└──────────────────┘             └──────────────────────────┘
+```
+
+### 9.2 编译和部署测试程序
+
+```bash
+cd /home/alientek/Phytium/tests
+make deploy
+```
+
+这会自动：
+1. 用 `aarch64-none-linux-gnu-gcc` 交叉编译所有 `test_*.c` → `build/`
+2. 通过 `sshpass` + `scp` 部署到 `192.168.88.11:/home/user/demo/tests/`
+3. 自动设置可执行权限
+
+### 9.3 运行测试
+
+```bash
+# 跑全部 5 项自动化测试 + 生成报告
+make run-all
+
+# 或只跑单项
+make run-link      # TC01: RPMsg PING (5次, 20s)
+make run-fault     # TC02: 故障注入全覆盖 (3节点×5类型×3等级, 60s)
+make run-cmd       # TC03: 命令传输监听 (20s)
+make run-encrypt   # TC04: 混沌加解密验证 (10s, 本地计算, 无需RPMsg)
+make run-stress    # TC05: 压力测试 (5s高速连续注入, 15s)
+```
+
+### 9.4 测试报告
+
+每次运行后自动生成 Markdown 报告：
+```
+docs/test_report_YYYYMMDD_HHMMSS.md
+```
+
+报告包含：测试概要、通过率、每项明细、完整日志、环境信息。
+
+### 9.5 5 项测试明细
+
+| 编号 | 名称 | 内容 | 通过标准 |
+|:---:|------|------|------|
+| TC01 | RPMsg Link PING | 双向 PING (5次) | 5/5 PONG, RTT<100ms |
+| TC02 | Fault Injection | 所有节点×所有故障类型组合 | 每次返回 FAULT_SENT |
+| TC03 | Command TX | 监听 FreeRTOS→Linux 命令 | 至少收到 1 条 CMD |
+| TC04 | Chaos Encrypt | 本地加解密往返验证 | 多种长度全部一致 |
+| TC05 | Stress Test | 5秒高速连续注入 | ACK率≥70%, >10 faults/s |
+
+---
+
+## 步骤 10: 交互式测试面板
+
+如果不想跑全自动测试，可以用交互式面板手动操作：
+
+```bash
+make run-panel
+```
+
+进入菜单：
+```
+┌──────────────────────────────────────────────────────┐
+│  1. PING测试         验证RPMsg链路往返                │
+│  2. 单次故障注入      注入指定节点/类型故障帧          │
+│  3. 连续故障生成      持续向FreeRTOS发送仿真故障数据   │
+│  4. 停止测试          停止连续模式                     │
+│  5. Flash状态查询     查询节点Flash保存统计            │
+│  6. 混沌加密验证      测试encrypt/decrypt往返一致性    │
+│  7. 连续收包监控      观察FreeRTOS侧生成的所有命令      │
+│  a. 自动化测试套件    运行全部自动化测试               │
+│  q. 退出                                              │
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 故障排查
 
 常见问题及解决方法参见 [debug-log.md](debug-log.md)。

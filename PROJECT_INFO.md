@@ -73,7 +73,8 @@ Phytium PE2204 异构四核
 | 端点 ID | 值 | 方向 | 功能 |
 |---------|-----|------|------|
 | DEVICE_MASTER_DATA | 0x0020 | Linux → FreeRTOS | LoRa帧转发 |
-| DEVICE_MASTER_CMD | 0x0021 | FreeRTOS → Linux | 主控指令转发 |
+| DEVICE_MASTER_CMD | 0x0021 | FreeRTOS → Linux | 主控指令转发/测试响应 |
+| DEVICE_MASTER_TEST | 0x0030 | Linux → FreeRTOS | 测试命令 (PING/故障注入/加密验证) |
 | DEVICE_SENSOR_BATCH | 0x0011 | FreeRTOS → Linux | 传感器批量数据 |
 
 ## 四、编译工具链
@@ -144,7 +145,64 @@ ls /dev/rpmsg*                                  # rpmsg0, rpmsg_ctrl0
 dmesg | grep -i rproc                           # 启动日志
 ```
 
-## 七、LoRa 模块接口 (待接入)
+## 七、测试与监控
+
+### 7.1 快速入口
+
+```bash
+cd /home/alientek/Phytium/tests
+
+make deploy        # 编译+部署测试程序到飞腾派 (交叉编译 → sshpass+scp)
+make run-all       # 跑全部 5 项自动化测试 + 生成报告
+make run-panel     # 交互式测试面板 (手动操作菜单)
+make run-link      # 单项: RPMsg PING 链路测试
+make run-fault     # 单项: 故障注入全覆盖
+make run-stress    # 单项: 压力测试
+```
+
+### 7.2 监控面板
+
+| 方式 | 类型 | 操作 |
+|------|------|------|
+| Web Dashboard | 浏览器 `http://192.168.88.11:8080` | `nohup ./dashboard_server &` |
+| 命令行监控 | 终端 | `./master_receiver` |
+| 交互面板 | 菜单式终端 | `cd tests && make run-panel` |
+
+### 7.3 5 项自动化测试
+
+| 编号 | 测试 | 内容 | 用时 | 通过标准 |
+|:---:|------|------|:---:|------|
+| TC01 | RPMsg Link | PING 往返 (5次) | 20s | 5/5 PONG, RTT<100ms |
+| TC02 | Fault Inject | 故障注入全覆盖 | 60s | 每种组合返回 FAULT_SENT |
+| TC03 | Command TX | 监听主控命令 | 20s | ≥1条 DEVICE_MASTER_CMD |
+| TC04 | Chaos Encrypt | 加解密往返验证 | 10s | 多种长度 100%一致 |
+| TC05 | Stress | 5秒高速注入 | 15s | ACK≥70%, >10faults/s |
+
+### 7.4 测试协议 (FreeRTOS ↔ Linux)
+
+**Linux → FreeRTOS**: `DEVICE_MASTER_TEST(0x0030)` + `TestCtrlPacket_t`
+```
+[subcmd][node_id][fault_type][severity][sample_count][reserved]
+  1B      1B       1B          1B        2B           2B
+```
+- subcmd: 0x01=PING, 0x02=单次故障, 0x03=连续, 0x04=停止, 0x06=加密, 0x07=状态
+
+**FreeRTOS → Linux**: `DEVICE_MASTER_CMD(0x0021)` + `TestRespPacket_t`
+```
+[resp_code][subcmd_echo][node_id][fault_type][processed_count][timestamp_ms]
+  1B         1B          1B       1B          4B              4B
+```
+- resp_code: 0x01=PONG, 0x02=FAULT_SENT, 0x03=RUNNING, 0x04=STOPPED, 0xFF=ERROR
+
+### 7.5 测试报告
+
+每次运行后自动生成：`docs/test_report_YYYYMMDD_HHMMSS.md`
+
+详细操作见：[docs/setup-guide.md](docs/setup-guide.md) 步骤 8-10
+
+---
+
+## 八、LoRa 模块接口 (待接入)
 
 | 飞腾派接口 | PE2204引脚 | LoRa模块引脚 | 功能 |
 |-----------|-----------|-------------|------|
@@ -154,7 +212,7 @@ dmesg | grep -i rproc                           # 启动日志
 
 设备树: [device-tree/lora-uart.dtso](device-tree/lora-uart.dtso)
 
-## 八、GD32 原始工程
+## 九、GD32 原始工程
 
 | 项目 | 路径 |
 |------|------|
@@ -163,7 +221,7 @@ dmesg | grep -i rproc                           # 启动日志
 | v3 设计文档 | [GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md](GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md) |
 | 移植记录 | [docs/transplant-gd32-to-phytium.md](docs/transplant-gd32-to-phytium.md) |
 
-## 九、文档索引
+## 十、文档索引
 
 | 文档 | 内容 |
 |------|------|
