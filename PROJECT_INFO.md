@@ -1,6 +1,6 @@
 # Phytium PE2204 LoRa 主控系统 — 项目信息汇总
 
-> **更新**: 2026-05-19 | **状态**: GD32 v3代码全部移植完成，代码层面100%兼容，待开发板上电验证
+> **更新**: 2026-05-19 | **状态**: LoRa真实硬件接入，精简链路打通（终端→UART3→RPMsg→Linux显示）
 
 ## 一、项目基本信息
 
@@ -74,6 +74,8 @@ Phytium PE2204 异构四核
 |---------|-----|------|------|
 | DEVICE_MASTER_DATA | 0x0020 | Linux → FreeRTOS | LoRa帧转发 |
 | DEVICE_MASTER_CMD | 0x0021 | FreeRTOS → Linux | 主控指令转发/测试响应 |
+| DEVICE_LORA_CTRL | 0x0022 | Linux → FreeRTOS | LoRa RX控制 (0=STOP, 1=START, 2=QUERY) |
+| DEVICE_LORA_DATA | 0x0023 | FreeRTOS → Linux | LoRa收到原始帧透传显示 |
 | DEVICE_MASTER_TEST | 0x0030 | Linux → FreeRTOS | 测试命令 (PING/故障注入/加密验证) |
 | DEVICE_SENSOR_BATCH | 0x0011 | FreeRTOS → Linux | 传感器批量数据 |
 

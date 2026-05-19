@@ -99,6 +99,9 @@ void master_recv_task(void *pvParameters);
 void master_judge_task(void *pvParameters);
 void master_cmd_task(void *pvParameters);
 
+void master_lora_rx_ctrl(int enable);
+int  master_lora_rx_is_enabled(void);
+
 MasterNodeInfo_t *master_get_node_info(uint8_t node_id);
 void master_recv_wave_data(uint8_t node_id, uint16_t count);
 
@@ -112,5 +115,7 @@ uint16_t master_flash_load_wave_data(uint8_t node_id, uint8_t *buf, uint16_t len
 void master_flash_erase_wave(uint8_t node_id);
 
 MasterDownloadBuf_t *master_get_download_buf(void);
+
+int rpmsg_send_lora_recv_log(const uint8_t *raw_data, uint16_t raw_len);
 
 #endif /* __MASTER_H */

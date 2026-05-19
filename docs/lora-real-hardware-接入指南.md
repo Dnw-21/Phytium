@@ -3,8 +3,8 @@
 > **目标**：将 ATK-MWCC68D LoRa 模块接到飞腾派 PE2204，替换当前的仿真数据，
 > 实现 FreeRTOS 从核通过 UART3 直接收发 GD32 终端节点的真实 LoRa 数据。
 >
-> **当前状态**：FreeRTOS 仿真模式 `USE_LORA_SIMULATION=1`，所有数据由软件生成。
-> **目标状态**：`USE_LORA_SIMULATION=0`，数据从真实 LoRa 模块通过 UART3 进入 FreeRTOS。
+> **当前状态**：`USE_LORA_SIMULATION=0`，UART3 驱动已实现，数据从真实 LoRa 模块通过 UART3 进入 FreeRTOS。
+> **新增功能**：LoRa RX 开关控制 (`DEVICE_LORA_CTRL 0x0022`) — 可通过 CLI 或测试面板随时启用/禁用接收。
 
 ***
 
@@ -263,11 +263,12 @@ AT+RESET
 
 ### 5.1 需要修改的文件清单
 
-| 文件                           | 修改内容                                    | 优先级 |
+| 文件                           | 修改内容                                    | 状态 |
 | ---------------------------- | --------------------------------------- | :-: |
-| `freertos/src/master_recv.c` | 1. 关闭仿真 2. 实现 `master_lora_uart_recv()` | ★★★ |
-| `freertos/src/master_cmd.c`  | 修改 TX 路径，通过 UART3 发送指令到终端               | ★★☆ |
-| `freertos/inc/data_frame.h`  | 确认帧结构定义与 GD32 一致（通常无需修改）                | ★☆☆ |
+| `freertos/src/master_recv.c` | 1. 关闭仿真 2. 实现 `master_lora_uart_recv()` | ✅ 已完成 |
+| `freertos/src/master_cmd.c`  | 修改 TX 路径，通过 UART3 发送指令到终端               | ✅ 已完成 |
+| `freertos/src/lora_uart.c`   | UART3 PL011 驱动 (RX环形缓冲 + TX发送 + 帧提取) | ✅ 新增 |
+| `freertos/src/rpmsg-echo_os.c` | 新增 DEVICE_LORA_CTRL(0x0022) RX开关控制 | ✅ 已完成 |
 
 ### 5.2 步骤一：关闭仿真模式
 

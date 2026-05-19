@@ -388,11 +388,23 @@ FAULT_LIST、health_score等）都已在前一轮移植中实现。
 
 ### 问题 16: `/dev/rpmsg0` Device or resource busy
 
-**现象**: `master_receiver` 启动时报 `open /dev/rpmsg0: Device or resource busy`
+**现象**: `master_receiver` / `lora_ctrl` 启动时报 `open /dev/rpmsg0: Device or resource busy`
 
-**根因**: `dashboard_server` 进程(PID 450)已占用 `/dev/rpmsg0`
+**根因**: `dashboard_server` 进程已占用 `/dev/rpmsg0`
 
-**解决**: `sudo kill -9 450` 终止 dashboard_server
+**解决**: `sudo kill -9 <PID>` 终止 dashboard_server 即可
+
+**补充 (2026-05-19)**: `dashboard_server` 由 systemd 服务 `openamp.service` 管理，
+直接 kill 后会被 systemd 自动重启，导致 EBUSY 持续出现。必须先停止服务再杀进程：
+
+```bash
+sudo systemctl stop openamp.service
+sudo killall dashboard_server
+# 如果仍然 EBUSY, 需要 unbind/rebind 通道:
+sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/drivers/rpmsg_chrdev/unbind'
+sleep 1
+sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind'
+```
 
 ### 链路验证结果 ✅
 
@@ -408,3 +420,118 @@ FAULT_LIST、health_score等）都已在前一轮移植中实现。
 - FreeRTOS 侧 master_judge_task 检测到 SEVERITY_DANGER 故障
 - 命令通过 RPMsg 正确传输到 Linux master_receiver
 - 757 次读取中 756 次为空（NONBLOCK I/O 正常现象），1 次成功接收命令
+
+---
+## 2026-05-19: LoRa 真实硬件接入——精简数据链路
+
+### 背景
+
+原链路: **仿真器 → 帧解析 → 共享内存存储 → 故障判决 → 命令生成 → RPMsg → Linux**。
+
+问题: 仿真阶段全链路正常，但接入真实 LoRa 硬件后终端用户只需要 **看到从终端节点接收的原始数据**，不需要主控下发命令给终端节点。启动时还看到 `[CMD #001] REQ_WAVE`，这是握手时注入的测试命令。
+
+目标: **LoRa 数据单向展示** — GD32终端 → LoRa无线 → 飞腾派UART3 → FreeRTOS → RPMsg → Linux 终端显示。不发送任何命令。
+
+### 问题 17: 波特率错误 (9600 → 115200)
+
+**现象**: 对接 LoRa 模块后收不到任何数据。
+
+**根因**: 原 `lora_uart.c` 配置 9600，GD32 终端和 LoRa 模块通信波特率为 115200。
+
+**解决**: 修改 `lora_uart.c` 中 UART3 PL011 波特率寄存器：
+
+```
+原值 (9600):  IBRD=651, FBRD=3
+新值 (115200): IBRD=54,  FBRD=16
+计算: 100MHz / (16 × 115200) = 54.2535 → IBRD=54, FBRD=16
+```
+
+### 问题 18: UART3 引脚接错
+
+**现象**: 所有 UART (AMA0~AMA3) 读取均为 0 字节。
+
+**根因**: LoRa 模块接线错误，未按接入指南连接。按 [lora-real-hardware-接入指南.md](lora-real-hardware-接入指南.md) 后修正:
+
+| 飞腾派 Pin | 信号 | LoRa模块 |
+|:----------:|------|:--------:|
+| Pin 8 | UART3_TXD | RXD |
+| Pin 10 | UART3_RXD | TXD |
+| Pin 6 | GND | GND |
+| Pin 1 | VCC_3.3V | VCC |
+| Pin 7 | GPIO2_10 | AUX/MD0 |
+
+**教训**: Linux 端 `stty` 设波特率无效——UART3 设备由 FreeRTOS CPU3 独占操作寄存器，Linux PL011 驱动也与 FreeRTOS 共享同一硬件。
+
+### 问题 19: 测试命令注入 (移除)
+
+**现象**: master_receiver 启动后立即显示 `[CMD #001] node=0 cmd=REQ_WAVE(ext)(0x10)`。
+
+**根因**: [rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) 中 `case DEVICE_MASTER_DATA` 握手时硬编码了测试命令:
+```c
+/* 测试：用 rpmsg_send_master_cmd 回发测试命令 */
+{
+    uint8_t params[2] = {0, 0};
+    int tr = rpmsg_send_master_cmd(0, 0x10, params, 2);
+    (void)tr;
+}
+```
+
+**解决**: 删除该代码块。握手仅保存 `g_ept` 并使能接收注入管线。
+
+### 问题 20: 帧长度字段 bug
+
+**现象**: [lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) 的 `lora_uart_recv_frame()` 将长度字段写为全零。
+
+**根因**: `SYNC_TAIL2` 状态机中 `s_state = SYNC_HDR1; s_data_len = 0;` 执行在 `buf[2]=(s_data_len>>8)` 之前，导致长度恒为 0。
+
+**修复**:
+```c
+// 修复前: 先清零再用
+s_state = SYNC_HDR1;
+s_data_len = 0;
+buf[2] = (uint8_t)(s_data_len >> 8);  // 恒为 0 ← BUG
+
+// 修复后: 用 s_idx(=s_data_len) 写，清零在写之后
+buf[2] = (uint8_t)(s_idx >> 8);
+buf[3] = (uint8_t)(s_idx);
+s_state = SYNC_HDR1;
+s_data_len = 0;
+```
+
+### 问题 21: 数据链路精简
+
+**目的**: 终端用户只需要看到 LoRa 接收的原始数据，不需要判决/命令/加密等管线。
+
+**修改范围**:
+
+| 文件 | 修改 |
+|------|------|
+| [rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) | 删除握手时测试命令注入 (7行) |
+| [master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | 移除 `master_recv_inject_data()` 调用，不再走判决管线 |
+| [lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | 修复帧长度 bug |
+| [master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c) | 重写，只显示 `DEVICE_LORA_DATA` hex 数据 |
+
+**精简后数据路径**:
+```
+GD32终端 → LoRa无线 → 飞腾派UART3(Pin8/10)
+  → FreeRTOS CPU3 (lora_uart.c: lora_uart_poll + lora_uart_recv_frame)
+    → rpmsg_send_lora_recv_log() → RPMsg DEVICE_LORA_DATA(0x0023)
+      → Linux master_receiver: printf("[#N] len=%d  XX XX XX...")
+```
+
+**不发生**: 帧解析、判决引擎、命令生成、加密、命令下发。纯单向显示。
+
+### 问题 22: master_receiver 权限问题
+
+**现象**: `open /dev/rpmsg0: Permission denied`
+
+**根因**: root 创建的字符设备默认仅 root 可读写。
+
+**解决**:
+```bash
+sudo chmod 666 /dev/rpmsg0
+```
+或通过 udev 规则固化:
+```bash
+echo 'KERNEL=="rpmsg*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-rpmsg.rules
+```

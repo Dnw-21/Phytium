@@ -11,6 +11,7 @@
 
 #define DEVICE_MASTER_DATA    0x0020U
 #define DEVICE_MASTER_CMD     0x0021U
+#define DEVICE_LORA_CTRL      0x0022U
 #define DEVICE_MASTER_TEST    0x0030U
 #define DEVICE_CORE_CHECK     0x0003U
 
@@ -156,6 +157,8 @@ static void menu_main(void)
         "│  6. 混沌加密验证      测试encrypt/decrypt往返一致性    │\n"
         "│  7. 连续收包监控      观察FreeRTOS侧生成的所有命令      │\n"
         "│                                                      │\n"
+        "│  8. LoRa RX 开关      启用/禁用 LoRa 数据接收          │\n"
+        "│                                                      │\n"
         "│  a. 自动化测试套件    运行全部自动化测试               │\n"
         "│                                                      │\n"
         "│  q. 退出                                              │\n"
@@ -293,6 +296,82 @@ static void do_monitor(int fd)
            count, elapsed, elapsed > 0 ? (float)count / elapsed : 0);
 }
 
+static void do_lora_ctrl(int fd)
+{
+    printf("\n─── LoRa RX 开关 ───\n");
+    printf("  当前尝试查询状态...\n");
+
+    /* Query current state */
+    ProtocolData tx;
+    memset(&tx, 0, sizeof(tx));
+    tx.command = DEVICE_LORA_CTRL;
+    tx.length  = 1;
+    tx.data[0] = 0x02; /* QUERY */
+
+    write(fd, &tx, 6 + tx.length);
+    usleep(200000);
+
+    /* Read all pending responses */
+    int current_state = -1;
+    for (int i = 0; i < 50; i++) {
+        ProtocolData rx;
+        ssize_t r = read(fd, &rx, sizeof(rx));
+        if (r >= 8 && rx.command == DEVICE_LORA_CTRL) {
+            current_state = rx.data[0];
+            printf("  当前状态: LoRa RX = %s\n",
+                   current_state ? "ENABLED (接收中)" : "DISABLED (已暂停)");
+            break;
+        }
+        usleep(10000);
+    }
+
+    if (current_state < 0) {
+        printf("  无法获取当前状态 (FreeRTOS可能未启动)\n");
+        return;
+    }
+
+    printf("\n  选择操作:\n");
+    printf("    [1] 开启 LoRa 接收\n");
+    printf("    [0] 关闭 LoRa 接收\n");
+    printf("    [q] 返回\n");
+    printf("  选择: ");
+    fflush(stdout);
+
+    char ch = getchar();
+    while (getchar() != '\n');
+
+    uint8_t subcmd;
+    const char *action;
+    if (ch == '1') {
+        subcmd = 0x01; action = "START";
+    } else if (ch == '0') {
+        subcmd = 0x00; action = "STOP";
+    } else {
+        printf("  取消\n");
+        return;
+    }
+
+    memset(&tx, 0, sizeof(tx));
+    tx.command = DEVICE_LORA_CTRL;
+    tx.length  = 1;
+    tx.data[0] = subcmd;
+
+    printf("  发送: LoRa RX %s...\n", action);
+    write(fd, &tx, 6 + tx.length);
+    usleep(200000);
+
+    for (int i = 0; i < 50; i++) {
+        ProtocolData rx;
+        ssize_t r = read(fd, &rx, sizeof(rx));
+        if (r >= 8 && rx.command == DEVICE_LORA_CTRL) {
+            printf("  确认: LoRa RX = %s\n",
+                   rx.data[0] ? "ENABLED" : "DISABLED");
+            break;
+        }
+        usleep(10000);
+    }
+}
+
 static void do_flash_check(int fd)
 {
     printf("\n─── Flash状态查询 ───\n");
@@ -357,6 +436,7 @@ int main(void)
         case '5': do_flash_check(rpmsg_fd);     break;
         case '6': do_encrypt_test(rpmsg_fd);    break;
         case '7': do_monitor(rpmsg_fd);         break;
+        case '8': do_lora_ctrl(rpmsg_fd);       break;
         case 'a':
             system("clear");
             system("/home/user/demo/run_tests.sh --all 2>&1");

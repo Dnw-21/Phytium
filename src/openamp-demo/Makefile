@@ -16,19 +16,22 @@ SLAVE_DIR = remote-core
 # 目标文件
 TARGET_MASTER = $(BUILD_DIR)/rpmsg_master
 TARGET_MASTER_RECV = $(BUILD_DIR)/master_receiver
+TARGET_LORA_CTRL = $(BUILD_DIR)/lora_ctrl
 TARGET_SLAVE = $(BUILD_DIR)/rpmsg_slave.elf
 
 # 源文件
 MASTER_SRCS = $(MASTER_DIR)/rpmsg_master.c
 MASTER_RECV_SRCS = $(MASTER_DIR)/master_receiver.c
+LORA_CTRL_SRCS = $(MASTER_DIR)/lora_ctrl.c
 SLAVE_SRCS = $(SLAVE_DIR)/rpmsg_slave.c
 
 # 目标文件
 MASTER_OBJS = $(BUILD_DIR)/rpmsg_master.o
 MASTER_RECV_OBJS = $(BUILD_DIR)/master_receiver.o
+LORA_CTRL_OBJS = $(BUILD_DIR)/lora_ctrl.o
 SLAVE_OBJS = $(BUILD_DIR)/rpmsg_slave.o
 
-all: master master-recv slave
+all: master master-recv lora-ctrl slave
 
 master: $(BUILD_DIR) $(TARGET_MASTER)
 	@echo ""
@@ -38,6 +41,11 @@ master: $(BUILD_DIR) $(TARGET_MASTER)
 master-recv: $(BUILD_DIR) $(TARGET_MASTER_RECV)
 	@echo ""
 	@echo "✅ Master Receiver编译完成: $(TARGET_MASTER_RECV)"
+	@echo ""
+
+lora-ctrl: $(BUILD_DIR) $(TARGET_LORA_CTRL)
+	@echo ""
+	@echo "✅ LoRa Control编译完成: $(TARGET_LORA_CTRL)"
 	@echo ""
 
 slave: $(BUILD_DIR) $(TARGET_SLAVE)
@@ -63,6 +71,14 @@ $(TARGET_MASTER_RECV): $(MASTER_RECV_OBJS)
 $(MASTER_RECV_OBJS): $(MASTER_RECV_SRCS)
 	$(CC) $(CFLAGS_MASTER) -c $< -o $@
 	@echo "[BUILD] 编译Master Receiver源码"
+
+$(TARGET_LORA_CTRL): $(LORA_CTRL_OBJS)
+	$(CC) $(CFLAGS_MASTER) $^ -o $@
+	@echo "[BUILD] 链接LoRa Control"
+
+$(LORA_CTRL_OBJS): $(LORA_CTRL_SRCS)
+	$(CC) $(CFLAGS_MASTER) -c $< -o $@
+	@echo "[BUILD] 编译LoRa Control源码"
 
 $(TARGET_SLAVE): $(SLAVE_OBJS)
 	$(CC) $(CFLAGS_SLAVE) $^ -o $@

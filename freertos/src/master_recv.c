@@ -1,6 +1,7 @@
 #include "master.h"
 #include "chaos_encrypt.h"
 #include "log.h"
+#include "lora_uart.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -21,7 +22,7 @@ static uint8_t calc_frame_crc8(const uint8_t *data, uint16_t len);
  *  当前用仿真函数自驱动验证全链路；接入真实硬件后切换宏定义即可。
  * ========================================================================== */
 
-#define USE_LORA_SIMULATION  1     /* 1=仿真模式, 0=真实LoRa UART */
+#define USE_LORA_SIMULATION  0     /* 1=仿真模式, 0=真实LoRa UART */
 
 static uint16_t master_sim_lora_data(uint8_t *buf, uint16_t max_len);
 static uint16_t master_lora_uart_recv(uint8_t *buf, uint16_t max_len);
@@ -67,38 +68,8 @@ static uint16_t master_recv_lora_data(uint8_t *buf, uint16_t max_len)
  * ========================================================================== */
 static uint16_t master_lora_uart_recv(uint8_t *buf, uint16_t max_len)
 {
-    /*
-     * TODO: 真实 LoRa UART 数据接收
-     *
-     * 预期实现框架:
-     *
-     *   static uint8_t  ring_buf[2048];
-     *   static uint16_t ring_rd = 0;
-     *   static uint16_t ring_wr = 0;
-     *
-     *   uint16_t avail = (ring_wr - ring_rd) & 0x07FF;
-     *   if (avail < 7) return 0;   // 至少需要帧头(4B) + 帧尾(3B)
-     *
-     *   // 在 ring_buf 中搜索帧头 0xAA 0x55
-     *   uint16_t search = ring_rd;
-     *   while (search != ring_wr) {
-     *       if (ring_buf[search] == 0xAA
-     *           && ring_buf[(search + 1) & 0x07FF] == 0x55) break;
-     *       search = (search + 1) & 0x07FF;
-     *   }
-     *   if (search == ring_wr) { ring_rd = search; return 0; }
-     *
-     *   // 读取 LEN = data_len
-     *   // ...出帧逻辑与 inject_data 的 parse_frame 一致...
-     *
-     *   ring_rd = (search + frame_total) & 0x07FF;
-     *   memcpy(buf, &ring_buf[search], frame_total);
-     *   return frame_total;
-     */
-
-    (void)buf;
-    (void)max_len;
-    return 0;
+    lora_uart_poll();
+    return lora_uart_recv_frame(buf, max_len);
 }
 
 #define SIM_NODES             3
@@ -558,25 +529,66 @@ void master_recv_inject_data(const uint8_t *data, uint16_t len)
  *    IDLE            → 等待 DATA_TYPE_STATUS / DATA_TYPE_WAVE / DATA_TYPE_FAULT_LIST
  *    RECV_NODE_RAW   → 累积 DATA_TYPE_NODE_RAW, 满后保存到 Flash/共享内存
  *    RECV_FLASH_WAVE → 累积 DATA_TYPE_FLASH_WAVE, 满后保存波形到 Flash/共享内存
+ *
+ *  LoRa RX 开关:
+ *    通过 RPMsg DEVICE_LORA_CTRL(0x0022) 控制 g_lora_rx_enabled
+ *    - subcmd=0x00: 关闭接收 (暂停UART读取)
+ *    - subcmd=0x01: 开启接收 (恢复UART读取)
+ *    默认: 开启
  *============================================================================*/
+static int g_lora_rx_enabled = 1;
+
+void master_lora_rx_ctrl(int enable)
+{
+    g_lora_rx_enabled = enable ? 1 : 0;
+    if (enable)
+        log_info("LoRa RX ENABLED");
+    else
+        log_info("LoRa RX DISABLED");
+}
+
+int master_lora_rx_is_enabled(void)
+{
+    return g_lora_rx_enabled;
+}
+
 void master_recv_task(void *pvParameters)
 {
     uint8_t  raw_buf[MAX_FRAME_BUF];
     uint16_t raw_len;
+    unsigned int raw_bytes = 0;
+    unsigned int loop_cnt = 0;
 
     (void)pvParameters;
 
-    log_info("Recv task started");
+    lora_uart_init();
+    log_info("Recv task started (LoRa UART mode)");
 
     while (1) {
-        raw_len = master_recv_lora_data(raw_buf, sizeof(raw_buf));
-        if (raw_len == 0) {
-            vTaskDelay(10 / portTICK_PERIOD_MS);
+        if (!g_lora_rx_enabled) {
+            vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
         }
+        raw_len = master_recv_lora_data(raw_buf, sizeof(raw_buf));
+        if (raw_len == 0) {
+            loop_cnt++;
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+        } else {
+            raw_bytes += raw_len;
+            loop_cnt++;
+            rpmsg_send_lora_recv_log(raw_buf, raw_len);
+            vTaskDelay(1 / portTICK_PERIOD_MS);
+        }
 
-        master_recv_inject_data(raw_buf, raw_len);
-
-        vTaskDelay(1 / portTICK_PERIOD_MS);
+        if (loop_cnt >= 500) {
+            loop_cnt = 0;
+            uint8_t hb[8];
+            hb[0] = 'L'; hb[1] = 'R'; hb[2] = 'H'; hb[3] = 'B';
+            hb[4] = (raw_bytes >> 24) & 0xFF;
+            hb[5] = (raw_bytes >> 16) & 0xFF;
+            hb[6] = (raw_bytes >> 8) & 0xFF;
+            hb[7] = raw_bytes & 0xFF;
+            rpmsg_send_lora_recv_log(hb, 8);
+        }
     }
 }

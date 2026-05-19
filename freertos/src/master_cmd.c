@@ -1,19 +1,21 @@
 #include "master.h"
 #include "chaos_encrypt.h"
 #include "log.h"
+#include "lora_uart.h"
 #include <string.h>
 
 static uint8_t g_enc_buf[128];
 static uint8_t g_lora_pkt[256];
 
 /*
- * master_send_cmd_to_linux: 通过RPMsg将指令发送到Linux侧
+ * master_send_cmd_to_linux: 通过RPMsg将指令发送到Linux侧(监控)并通过UART3发送到LoRa
  *
  * 移植说明:
  *   原GD32通过 LoRa_SendData_Direct() 直接发送指令到终端节点。
  *   移植后架构:
- *     FreeRTOS → RPMsg → Linux → LoRa模块 → 终端节点
- *   当前LoRa模块未接，此函数为stub，仅log。
+ *     FreeRTOS → UART3 → LoRa模块 → 终端节点 (命令下发)
+ *     FreeRTOS → RPMsg → Linux (监控记录)
+ *   LoRa模块直连FreeRTOS CPU3侧UART3, Linux不直接操作LoRa。
  *
  *   cmd_node_id: 目标节点ID
  *   cmd_code:    命令码 (CMD_REQUEST_WAVEFORM 等)
@@ -45,11 +47,14 @@ static void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *para
     memcpy(&g_lora_pkt[5], g_enc_buf, enc_len);
 
     /*
-     * 发送方式:
-     *   1. RPMsg → Linux → LoRa (当LoRa接Linux侧时)
-     *   2. 直接UART → LoRa (当LoRa接FreeRTOS侧时)
-     *   当前使用RPMsg转发方式。
+     * 双路发送:
+     *   1. UART3 → LoRa 模块 → 终端节点 (直接发)
+     *   2. RPMsg → Linux (监控/记录)
      */
+    uint16_t pkt_len = 5 + enc_len;
+    lora_uart_send(g_lora_pkt, pkt_len);
+    log_debug("CMD sent via UART3: node%d code=0x%02X len=%d", node_id, cmd_code, pkt_len);
+
     int ret = rpmsg_send_master_cmd(node_id, cmd_code, params, param_len);
     if (ret >= 0) {
         MasterNodeInfo_t *n = master_get_node_info(node_id);
@@ -66,8 +71,6 @@ static void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *para
         log_warn("CMD node%d send failed, ret=%d, retry=%d",
                  node_id, ret, n ? n->cmd_retry : 0);
     }
-
-    (void)g_lora_pkt;
 }
 
 void master_cmd_task(void *pvParameters)

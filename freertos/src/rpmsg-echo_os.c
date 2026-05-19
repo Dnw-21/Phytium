@@ -69,6 +69,8 @@
 #define DEVICE_SENSOR_BATCH   0x0011U /* 传感器批量(合并优化) */
 #define DEVICE_MASTER_DATA    0x0020U /* 主控数据: Linux→FreeRTOS (LoRa帧转发) */
 #define DEVICE_MASTER_CMD     0x0021U /* 主控命令: FreeRTOS→Linux (指令转发) */
+#define DEVICE_LORA_CTRL      0x0022U /* LoRa RX控制: Linux→FreeRTOS (开/关/状态查询) */
+#define DEVICE_LORA_DATA      0x0023U /* LoRa接收数据: FreeRTOS→Linux (收到的原始帧) */
 #define SENSOR_PACKET_COUNT   10      /* 每次发送的传感器数据包数量 */
 
 /* 边缘异常检测阈值 */
@@ -82,6 +84,8 @@
 /* External functions */
 extern int init_system();
 extern void master_recv_inject_data(const uint8_t *data, uint16_t len);
+extern void master_lora_rx_ctrl(int enable);
+extern int  master_lora_rx_is_enabled(void);
 /************************** Variable Definitions *****************************/
 static volatile int shutdown_req = 0;
 
@@ -348,6 +352,28 @@ int rpmsg_send_master_cmd(uint8_t node_id, uint8_t cmd_code,
     return ret;
 }
 
+/*
+ * rpmsg_send_lora_recv_log: FreeRTOS→Linux LoRa接收数据上报
+ *
+ * 将从UART3/LoRa收到的原始帧数据透传到Linux侧显示，
+ * 方便调试和监控LoRa通信状态。
+ *
+ * RPMsg消息格式:
+ *   [4B command=DEVICE_LORA_DATA][2B length=N][NB raw_data]
+ */
+int rpmsg_send_lora_recv_log(const uint8_t *raw_data, uint16_t raw_len)
+{
+    if (!g_ept) return -1;
+    if (raw_len > MAX_DATA_LENGTH) raw_len = MAX_DATA_LENGTH;
+
+    ProtocolData tx_data;
+    tx_data.command = DEVICE_LORA_DATA;
+    tx_data.length = raw_len;
+    memcpy(tx_data.data, raw_data, raw_len);
+
+    return rpmsg_send(g_ept, &tx_data, 6 + raw_len);
+}
+
 /*-----------------------------------------------------------------------------*
  *  RPMSG endpoint callbacks
  *-----------------------------------------------------------------------------*/
@@ -405,16 +431,36 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data, size_t len,
              */
             g_ept = ept;
 
-            /* 测试：用 rpmsg_send_master_cmd 回发测试命令 */
-            {
-                uint8_t params[2] = {0, 0};
-                int tr = rpmsg_send_master_cmd(0, 0x10, params, 2);
-                (void)tr; /* 静默: handshake test cmd sent */
-            }
-
             if (protocol_data.length > 0 && protocol_data.length <= MAX_DATA_LENGTH) {
                 master_recv_inject_data((const uint8_t *)protocol_data.data,
                                         protocol_data.length);
+            }
+            break;
+        }
+        case DEVICE_LORA_CTRL:
+        {
+            /*
+             * LoRa RX 开关控制: Linux→FreeRTOS
+             * protocol_data.data[0]: 0x00=STOP, 0x01=START, 0x02=QUERY
+             * 响应: 回发 DEVICE_LORA_CTRL, data[0]=当前状态
+             */
+            if (protocol_data.length >= 1) {
+                uint8_t subcmd = (uint8_t)protocol_data.data[0];
+                if (subcmd == 0x01) {
+                    master_lora_rx_ctrl(1);
+                } else if (subcmd == 0x00) {
+                    master_lora_rx_ctrl(0);
+                }
+                /* 回发当前状态 */
+                uint8_t resp_data[4];
+                resp_data[0] = (uint8_t)master_lora_rx_is_enabled();
+                resp_data[1] = subcmd;
+                ProtocolData resp;
+                resp.command = DEVICE_LORA_CTRL;
+                resp.length  = 2;
+                resp.data[0] = resp_data[0];
+                resp.data[1] = resp_data[1];
+                rpmsg_send(ept, &resp, 8);
             }
             break;
         }

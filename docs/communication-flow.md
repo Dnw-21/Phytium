@@ -1,6 +1,6 @@
 # OpenAMP 异构多核通信流程详解
 
-> **更新**: 2026-05-18 | **当前架构**: Linux主核 + FreeRTOS从核 (GD32移植版)
+> **更新**: 2026-05-19 | **当前架构**: Linux主核 + FreeRTOS从核 (LoRa真实硬件接入 + 精简链路)
 
 ## 1. 通信架构总览
 
@@ -10,23 +10,20 @@
 │                                                                   │
 │  Linux 主核 (CPU0-2)               FreeRTOS 从核 (CPU3)          │
 │  ┌────────────────────────┐      ┌───────────────────────────┐  │
-│  │  master_receiver       │      │  RpmsgEchoTask (Prio=4)    │  │
-│  │  src/openamp-demo/     │      │  rpmsg-echo_os.c           │  │
-│  │  linux-master/         │      │                            │  │
-│  │  master_receiver.c     │      │  ┌─ DEVICE_MASTER_DATA ←──┼──┤
-│  │       ↕                │      │  └─ DEVICE_MASTER_CMD  ──→┼──┤
-│  │  /dev/rpmsg0           │RPMsg │                            │  │
-│  │  /dev/rpmsg_ctrl0      │←────→│  master_recv_task(Prio=4) │  │
-│  │       ↕                │SGI 9 │  master_recv.c             │  │
-│  │  rpmsg_char.ko         │      │                            │  │
-│  │  virtio_rpmsg_bus      │      │  master_judge_task(Prio=5) │  │
-│  │  homo_remoteproc       │      │  master_judge.c            │  │
-│  └───────────┬────────────┘      │                            │  │
-│              │                   │  master_cmd_task(Prio=3)   │  │
-│              │    ┌──────────────┴──────────────────────────┐ │  │
-│              └────│ 共享内存 0xB0100000 (409MB)              │ │  │
-│                   │ vring0(TX) + vring1(RX) + 缓冲区 + 固件  │ │  │
-│                   └─────────────────────────────────────────┘ │  │
+│  │  master_receiver       │      │  master_recv_task(Prio=4) │  │
+│  │  (只显示LoRa原始数据)  │      │  master_recv.c            │  │
+│  │       ↕                │      │       ↕                    │  │
+│  │  /dev/rpmsg0           │RPMsg │  lora_uart.c (PL011)      │←─┤ LoRa模块
+│  │       ↕                │←────→│  115200 8N1 轮询          │  │ UART3
+│  │  rpmsg_char.ko         │SGI 9 │  0x2800f000               │  │ 0xAA55帧
+│  │  virtio_rpmsg_bus      │      │       ↕                    │  │
+│  │  homo_remoteproc       │      │  rpmsg_send_lora_recv_log │  │
+│  └───────────┬────────────┘      │  (DEVICE_LORA_DATA 0x0023)│  │
+│              │                   └──────────────┬────────────┘  │
+│              │    ┌─────────────────────────────┴───────────┐   │
+│              └────│ 共享内存 0xB0100000 (409MB)              │   │
+│                   │ vring0(TX) + vring1(RX) + 缓冲区 + 固件  │   │
+│                   └─────────────────────────────────────────┘   │
 │                                                                   │
 │              ┌──────────────────────────┐                        │
 │              │  IPI 中断 (GICv3 SGI 9)  │                        │
@@ -35,211 +32,96 @@
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. 完整数据流: FreeRTOS 接收到数据处理 → Linux 接收并展示
+## 2. 数据流: LoRa终端节点 → Linux终端显示
 
-### 第1步: 数据到达 FreeRTOS 从核
+### 当前架构 (精简模式, 2026-05-19)
 
-**数据来源**:
+```
+GD32终端节点 ──LoRa无线──→ LoRa模块(UART) ──UART3──→ FreeRTOS CPU3
+  → lora_uart_poll() 轮询RX FIFO
+    → lora_uart_recv_frame() 帧同步 + CRC8校验 + 组帧
+      → rpmsg_send_lora_recv_log() 透传原始帧
+        → RPMsg DEVICE_LORA_DATA (0x0023)
+          → Linux master_receiver → printf hex
+```
 
-LoRa 模块通过 UART 连接到 **FreeRTOS CPU3 侧**，Linux 不直接操作 LoRa。数据由 `master_recv_lora_data()` 统一入口获取，通过 `USE_LORA_SIMULATION` 宏一键切换仿真/真实硬件：
+**关键设计决策**:
+- **不进行帧解析** (不走 parse_frame / 判决引擎 / 命令生成)
+- **不发送任何命令** 给终端节点
+- **单向数据流**: 终端 → 主控显示
+- **USE_LORA_SIMULATION = 0** (真实硬件模式)
+- **Linux 的 ttyAMA3 驱动仍绑定**，但不影响 FreeRTOS 直接操作寄存器
 
+### 第1步: LoRa模块 → UART3 RX
+
+**LoRa模块连接**:
+
+| 飞腾派 Pin | 信号 | LoRa模块 | 线色 |
+|:----------:|------|:--------:|:----:|
+| Pin 8 | UART3_TXD | RXD | 黄色 |
+| Pin 10 | UART3_RXD | TXD | 橙色 |
+| Pin 6 | GND | GND | 黑色 |
+| Pin 1 | VCC_3.3V | VCC | 红色 |
+
+详见 [lora-real-hardware-接入指南.md](lora-real-hardware-接入指南.md)
+
+**UART 配置** — [lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c):
+- 基址: `0x2800f000` (UART3, PL011)
+- 波特率: **115200** 8N1 (IBRD=54, FBRD=16, 时钟=100MHz)
+- RX ring buffer: 4096 字节
+- 轮询模式 (无中断, FreeRTOS task 每 10ms 调用 `lora_uart_poll()`)
+
+### 第2步: 帧提取
+
+**LoRa 帧格式** (与 GD32 终端一致):
+```
+[0xAA][0x55][LEN_H][LEN_L][ DATA(N字节) ][CRC8][0x55][0xAA]
+帧总长 = 7 + N
+```
+
+**函数**: `lora_uart_recv_frame()` — [lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c)
+- 状态机: SYNC_HDR1→HDR2→LEN_H→LEN_L→DATA→CRC→TAIL1→TAIL2
+- CRC8 校验通过才返回帧
+- 返回完整帧 buffer (含 0xAA 0x55 帧头和 0x55 0xAA 帧尾)
+
+### 第3步: RPMsg 透传 (FreeRTOS→Linux)
+
+**新增端点**: `DEVICE_LORA_DATA 0x0023`
+
+**函数**: `rpmsg_send_lora_recv_log()` — [rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c)
 ```c
-#define USE_LORA_SIMULATION  1     /* 1=仿真模式, 0=真实LoRa UART */
+int rpmsg_send_lora_recv_log(const uint8_t *raw_data, uint16_t raw_len)
+{
+    ProtocolData tx_data;
+    tx_data.command = DEVICE_LORA_DATA;
+    tx_data.length = raw_len;
+    memcpy(tx_data.data, raw_data, raw_len);
+    return rpmsg_send(g_ept, &tx_data, 6 + raw_len);
+}
 ```
 
-| 方式 | 函数 | 文件 | 状态 |
-|------|------|------|------|
-| **数据模拟器 (当前)** | `master_sim_lora_data()` | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | **已实现 (自驱动)** |
-| **真实LoRa UART (预留)** | `master_lora_uart_recv()` | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | **预留接口，待填入UART驱动** |
-| RPMsg注入 (备选) | `master_recv_inject_data()` | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | 可用 |
-
-**接口层调用关系**:
-```
-master_recv_lora_data(buf, max_len)          ← 统一入口
-  ├─ USE_LORA_SIMULATION=1 → master_sim_lora_data()      ← 当前使用
-  └─ USE_LORA_SIMULATION=0 → master_lora_uart_recv()     ← 预留硬件接口
-       → 从 UART RX 环形缓冲区提取完整帧 (0xAA55...CRC8...0x55AA)
+**调用点**: [master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) — `master_recv_task`:
+```c
+raw_len = master_recv_lora_data(raw_buf, sizeof(raw_buf));
+if (raw_len > 0) {
+    rpmsg_send_lora_recv_log(raw_buf, raw_len);  // 透传到Linux
+}
 ```
 
-**数据模拟器路径** (当前可验证, 无需任何外部依赖, 上电自动运行):
+### 第4步: Linux 显示
+
+**程序**: [master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c)
+
+**行为**: 只监听 `DEVICE_LORA_DATA`，收到即打印 hex:
 ```
-master_recv_task (每10ms循环)
-  → master_recv_lora_data(raw_buf, 270)
-    → master_sim_lora_data(buf, max_len)  ← ★ 内部状态机
-      Phase 0: 等待300ms (SIM_INIT_WAIT=30次×10ms)
-      Phase 1: 构造 FaultUploadHeader_t 帧 (SEVERITY_DANGER, FAULT_OVER_VOLTAGE)
-      Phase 2: 分批发送 80个 NodeSample_t (10个/帧, 共8帧)
-      Phase 3: 等待500ms (留给judge判决)
-      循环: 轮转 3个节点 (node 0/1/2, 不同故障类型)
-  → master_recv_inject_data(raw_buf, raw_len)  ← 复用注入管线
-    → parse_frame() → CRC8校验通过 → 按rx_type分流
-      → process_status_header()  (记录节点故障)
-      → process_node_raw()       (累积采样点)
+[#1] len=20  AA 55 00 10 83 2A 07 AD 5F 65 3E 85 A6 DF 6F 3D D9 7B 56 90
+[#2] len=132 AA 55 00 80 08 8A 65 F7 86 22 60 77 36 CB 9F 5A ...
 ```
 
-**真实LoRa UART预留接口** (`master_lora_uart_recv`):
-```
-待接入步骤:
-  1. 将 USE_LORA_SIMULATION 改为 0
-  2. 在 master_lora_uart_recv() 中实现:
-     - UART3 初始化 (9600 baud, 8N1)
-     - RX 中断/DMA → ring_buf[2048]
-     - 帧头搜索 (0xAA 0x55) → LEN读取 → CRC8校验 → 返回一帧
-  3. 配合外设初始化: UART3时钟/GPIO复用(GPIO2_10/2_11)/中断配置
-```
-
-**RPMsg注入路径** (备选, 用于调试):
-```
-Linux (master_receiver.c)
-  → write() → /dev/rpmsg0
-    → rpmsg_char.ko
-      → virtio_rpmsg_bus
-        → vring0 (共享内存)
-          → SGI 9 中断 → FreeRTOS
-
-FreeRTOS (rpmsg-echo_os.c)
-  → platform_poll() 检测到消息
-    → rpmsg_endpoint_cb()
-      → case DEVICE_MASTER_DATA (0x0020):
-          → master_recv_inject_data(data, len)
-```
-
-### 第2步: LoRa帧解析
-
-**文件**: [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c)
-**任务**: `master_recv_task` (优先级4)
-
-```
-master_recv_task()
-  ├── 获取原始数据
-  └── parse_frame(raw_data, raw_len, out_data, out_len, out_type, out_timestamp)
-      ├── 帧同步头检测: 0xAA 0x55
-      ├── CRC8 校验: calc_frame_crc8()
-      └── 按数据类型分流:
-          ├── 故障/状态头 → process_status_header()
-          │   解析 FaultUploadHeader_t / NodeUploadData_t
-          │   记录节点ID、故障类型、严重等级、采样率等
-          │   [数据结构定义: freertos/inc/data_frame.h]
-          │
-          ├── 状态采样数据 → process_node_raw()
-          │   按节点累积采样点 (NodeSample_t)
-          │   完整后 → master_flash_save_node_data()
-          │   [存储: freertos/src/master_sys.c → g_status_buf[]]
-          │
-          ├── 波形头 → process_wave_header()
-          │   解析 WaveChunkHeader_t (采样率、采样点数)
-          │   [存储: freertos/src/master_sys.c → master_flash_erase_wave()]
-          │
-          ├── 波形数据 → process_flash_wave()
-          │   按偏移量写入波形数据
-          │   [存储: freertos/src/master_sys.c → g_wave_buf[]]
-          │
-          └── 故障列表 → process_fault_list()
-              解析有效故障条目
-```
-
-### 第3步: 故障判决
-
-**文件**: [freertos/src/master_judge.c](file:///home/alientek/Phytium/freertos/src/master_judge.c)
-**任务**: `master_judge_task` (优先级5, 最高)
-**周期**: 1000ms
-
-```
-master_judge_task()
-  └── 每1秒遍历 MASTER_MAX_NODES (10) 个节点:
-      ├── 检查 g_nodes[i] 状态
-      ├── 离线检测: now - last_recv_time > 15000ms → is_online = 0
-      └── 故障判定:
-          如果 severity >= SEVERITY_WARNING && fault_type != FAULT_NONE:
-            构造 MasterInternalCmd_t:
-              cmd_type = MASTER_CMD_REQ_WAVE
-              node_id  = i
-              sample_rate = 6000
-              duration_ms = 250
-            → xQueueSend(g_master_cmd_queue, &cmd)
-```
-
-### 第4步: 命令生成与加密
-
-**文件**: [freertos/src/master_cmd.c](file:///home/alientek/Phytium/freertos/src/master_cmd.c)
-**任务**: `master_cmd_task` (优先级3, 最低)
-
-```
-master_cmd_task()
-  └── xQueueReceive(g_master_cmd_queue, &cmd)  // 阻塞等待
-      └── switch(cmd.cmd_type):
-          ├── MASTER_CMD_REQ_WAVE:
-          │   send_lora_cmd(node_id, CMD_REQUEST_WAVEFORM, params, 2)
-          ├── MASTER_CMD_REQ_FAULT_LIST:
-          │   send_lora_cmd(node_id, CMD_REQUEST_FAULT_LIST, NULL, 0)
-          ├── MASTER_CMD_CLEAR_FLASH:
-          │   send_lora_cmd(node_id, CMD_CLEAR_FLASH, NULL, 0)
-          └── MASTER_CMD_WAVE_COLLECT:
-              send_lora_cmd(node_id, CMD_START_WAVE_COLLECT, params, 2)
-
-send_lora_cmd():
-  ├── chaos_encrypt_packet()   ← 混沌加密 [freertos/src/chaos_encrypt.c]
-  └── rpmsg_send_master_cmd()  ← RPMsg发送 [freertos/src/rpmsg-echo_os.c]
-```
-
-### 第5步: 跨核 RPMsg 传输 (FreeRTOS → Linux)
-
-**发送方文件**: [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c)
-**函数**: `rpmsg_send_master_cmd(node_id, cmd_code, params, param_len)`
-
-```
-rpmsg_send_master_cmd()
-  ├── 构造 ProtocolData:
-  │   command = DEVICE_MASTER_CMD (0x0021)
-  │   length  = 2 + param_len
-  │   data[0] = node_id
-  │   data[1] = cmd_code
-  │   data[2..] = params
-  └── rpmsg_send(g_ept, &tx_data, 6 + tx_data.length)
-      ├── 写入 vring1 (共享内存 RX vring)
-      └── 触发 IPI 中断 → Linux
-
-【物理路径】
-FreeRTOS CPU3:
-  rpmsg_send() → virtio_queue_notify() → 写入 GICv3 SGI 9 寄存器
-  → 中断路由到 Linux CPU0-2
-
-Linux 内核:
-  rproc_vq_interrupt() → virtio_rpmsg_bus → rpmsg_char.ko
-  → 数据到达 /dev/rpmsg0 读缓冲区
-```
-
-### 第6步: Linux 应用接收与处理
-
-**文件**: [src/openamp-demo/linux-master/master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c)
-
-```
-main() 启动:
-  ├── open("/dev/rpmsg_ctrl0")        ← 打开控制设备
-  ├── ioctl(CREATE_EPT, "rpmsg-openamp-demo-channel")  ← 创建RPMsg端点
-  └── open("/dev/rpmsg0")             ← 打开数据通道
-
-while(running):
-  └── read(rpmsg_fd, rx_buf)
-      └── 解析 ProtocolData:
-          ├── command = DEVICE_MASTER_CMD (0x0021):
-          │   print_master_cmd():
-          │     node_id = pkt->data[0]
-          │     cmd_code = pkt->data[1]
-          │     → 打印: "[CMD] node=X cmd=REQ_WAVE(0x10)"
-          └── (后续可用) DEVICE_MASTER_DATA → 打印LoRa帧内容
-```
-
-### 第7步: (后续) Linux → LoRa模块 → 终端节点
-
-```
-待实现路径:
-master_receiver
-  → 解析 DEVICE_MASTER_CMD
-  → 获取命令参数 (node_id, cmd_code, params)
-  → 通过 UART3 发送到 ATK-MWCC68D LoRa 模块
-    → LoRa 模块无线发送
-      → 终端节点接收并执行命令
+**运行**:
+```bash
+ssh user@192.168.88.11
+~/Phytium/demo/master_receiver
 ```
 
 ## 3. 数据格式定义
@@ -283,19 +165,12 @@ master_receiver
 
 | 环节 | 步骤 | 文件路径 | 核心函数 |
 |------|------|---------|---------|
-| 数据到达 | 1 | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | `master_sim_lora_data()` → `master_recv_lora_data()` (自驱动模拟) / `master_recv_inject_data()` (RPMsg注入) |
-| RPMsg接收 | 1 | [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) | `rpmsg_endpoint_cb()` → `DEVICE_MASTER_DATA` |
-| 帧解析 | 2 | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | `parse_frame()` → CRC8 + 数据分流 |
-| 数据结构 | 2 | [freertos/inc/data_frame.h](file:///home/alientek/Phytium/freertos/inc/data_frame.h) | `NodeSample_t`, `FaultUploadHeader_t` 等 |
-| 状态存储 | 2 | [freertos/src/master_sys.c](file:///home/alientek/Phytium/freertos/src/master_sys.c) | `master_flash_save_node_data()` |
-| 波形存储 | 2 | [freertos/src/master_sys.c](file:///home/alientek/Phytium/freertos/src/master_sys.c) | `master_flash_save_wave_data()` |
-| 故障判决 | 3 | [freertos/src/master_judge.c](file:///home/alientek/Phytium/freertos/src/master_judge.c) | `master_judge_task()` 1秒周期 |
-| 命令入队 | 3 | [freertos/src/master_judge.c](file:///home/alientek/Phytium/freertos/src/master_judge.c) | `xQueueSend(g_master_cmd_queue)` |
-| 命令加密 | 4 | [freertos/src/master_cmd.c](file:///home/alientek/Phytium/freertos/src/master_cmd.c) | `chaos_encrypt_packet()` |
-| 命令发送 | 4 | [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) | `rpmsg_send_master_cmd()` |
-| 跨核传输 | 5 | 共享内存 + SGI 9 | RPMsg over VirtIO |
-| Linux接收 | 6 | [src/openamp-demo/linux-master/master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c) | `read()` → `print_master_cmd()` |
-| LoRa发送 | 7 | (待实现) | Linux UART → LoRa模块 → 终端节点 |
+| LoRa接收 | 1 | [freertos/src/lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | `lora_uart_init()`, `lora_uart_poll()`, `lora_uart_recv_frame()` |
+| UART3寄存器 | 1 | [freertos/src/lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | PL011 轮询, 115200-8N1 |
+| 帧透传 | 3 | [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) | `rpmsg_send_lora_recv_log()` |
+| 任务调度 | 2-3 | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | `master_recv_task()` (每10ms读取UART) |
+| Linux显示 | 4 | [src/openamp-demo/linux-master/master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c) | `read()` → hex 打印 |
+| RPMsg头 | — | [freertos/inc/master.h](file:///home/alientek/Phytium/freertos/inc/master.h) | `DEVICE_LORA_DATA 0x0023` 声明 |
 
 ## 5. 启动流程
 
@@ -346,31 +221,29 @@ echo stop > /sys/class/remoteproc/remoteproc0/state
   → FPsciCpuOff()  → CPU3 下电
 ```
 
-## 7. 关于 LoRa 模拟的说明
+## 7. 当前状态: LoRa 真实硬件接入
 
-**当前状态**: LoRa模块未接入硬件，但通过 `master_sim_lora_data()` 可自驱动验证全链路。
+**当前模式**: `USE_LORA_SIMULATION = 0` (真实LoRa UART)
 
 ```
-【当前可验证路径】(无需LoRa模块, 无需Linux注入, 上电自动运行)
-master_sim_lora_data() ← 状态机自动生成帧
-  → master_recv_lora_data() → master_recv_task 获取
-    → master_recv_inject_data() → 复用完整注入管线
-      → parse_frame() → CRC8校验 → 帧解析
-        → process_status_header()  [节点0: FAULT_OVER_VOLTAGE, DANGER]
-        → process_node_raw()       [80个NodeSample_t → 共享内存Flash]
-      → master_judge_task (1s) → 检测到DANGER → xQueueSend(MASTER_CMD_REQ_WAVE)
-      → master_cmd_task → send_lora_cmd()
-        → chaos_encrypt_packet() 加密命令
-        → rpmsg_send_master_cmd() → RPMsg明文 → Linux
-          → master_receiver.c: "[CMD] node=0 cmd=REQ_WAVE(0x10)"
-  循环: node 0(过压) → node 1(欠压) → node 2(骤升) → node 0...
+【当前数据路径】(物理LoRa模块已接入)
+GD32终端 → LoRa无线 → ATK-MWCC68D(LoRa模块) → UART3(Pin8/10)
+  → FreeRTOS CPU3 (lora_uart.c: PL011 轮询, 115200-8N1)
+    → lora_uart_poll() 读取UART RX FIFO字节 → 4096字节环形缓冲区
+      → lora_uart_recv_frame() 帧同步(C状态机) + CRC8校验 + 组帧
+        → master_recv_task → rpmsg_send_lora_recv_log() → RPMsg
+          → Linux master_receiver → printf hex 显示
 
-【物理LoRa完整路径】(需要LoRa模块)
-终端节点 → LoRa无线 → ATK-MWCC68D → UART3 → FreeRTOS
-  → master_recv → judge → cmd → chaos_encrypt → LoRa TX → 终端节点
+【仿真模式】 (USE_LORA_SIMULATION=1, 留作回归测试)
+master_sim_lora_data() 状态机自驱动构造LoRa帧
+  → 注入检测管线，可用于验证判决/命令/加密等完整闭环
 ```
 
-## 8. 混沌加密安全边界
+**数据流不经过**: 帧解析(parse_frame)、判决引擎(master_judge)、命令生成(master_cmd)、混沌加密。纯单向显示。
+
+## 8. 混沌加密安全边界 (精简模式下不启用)
+
+**注意**: 当前精简模式下数据流不经过加密/解密管线。但加密模块代码保留以备后续需要下发命令时启用。
 
 **加密区域** = LoRa空中无线链路 (对抗电磁监听、重放攻击)
 
@@ -379,37 +252,27 @@ master_sim_lora_data() ← 状态机自动生成帧
                             │  密文传输     │
                             │  [sync][cipher│
                             │   text...]    │
-                            └──┬────────┬──┘
-                  ┌────────────▼┐      ┌▼────────────┐
-                  │  主控下发    │      │  节点上报    │
-                  │ LoRa TX     │      │ LoRa RX     │
-                  └──────┬──────┘      └──────┬──────┘
-                         │                    │
-         ┌───────────────▼── FreeRTOS ────────▼───────────┐
-         │ 1. 加密命令下发:                                │
-         │    master_cmd_task → send_lora_cmd()             │
-         │    → chaos_encrypt_packet() → LoRa TX            │
-         │                                                 │
-         │ 2. 解密数据接收:                                │
-         │    LoRa RX → chaos_decrypt_packet(sync_code)     │
-         │    → process_status_header/process_node_raw()   │
-         │                                                 │
-         │ 3. ★ RPMsg 明文 (不经过LoRa空间, 无需加密)     │
-         │    rpmsg_send_master_data(plaintext)             │
-         │    rpmsg_send_master_cmd(plaintext)              │
-         └──────────────┬─ RPMsg 明文 ──────────────────────┘
+                            └──────┬───────┘
+                   ┌───────────────▼──────────┐
+                   │  终端节点上报 (密文)      │
+                   │  LoRa TX                 │
+                   └───────────────┬──────────┘
+                                   │
+         ┌─────────────────────────▼── FreeRTOS ───────────────┐
+         │ (精简模式: 不对数据解密，直接透传原始帧到Linux)      │
+         │ LoRa RX → lora_uart_recv_frame()                    │
+         │   → rpmsg_send_lora_recv_log(raw_frame)             │
+         │                                                     │
+         │ RPMsg 透传原始密文帧                                 │
+         └──────────────┬─ RPMsg (原始帧) ─────────────────────┘
                         │
-         ┌──────────────▼── Linux (CPU0-2) ───────────────┐
-         │  master_receiver.c:                              │
-         │    → handle_master_data(raw)  // 明文payload      │
-         │    → handle_master_cmd(raw)   // 明文cmd参数      │
-         └─────────────────────────────────────────────────┘
+         ┌──────────────▼── Linux (CPU0-2) ───────────────────┐
+         │  master_receiver.c:                                  │
+         │    → printf hex (原始帧，含密文数据)                  │
+         └─────────────────────────────────────────────────────┘
 ```
 
-**设计原则**: FreeRTOS侧是加密/解密的唯一入口。
-- 命令**生成**在 FreeRTOS 侧 (master_judge_task 判决后自动生成，不依赖Linux)
-- 命令**加密**在 FreeRTOS 侧 (send_lora_cmd → chaos_encrypt_packet)
-- RPMsg 明文副本仅供 Linux 监控/日志/UI，Linux 不参与决策闭环
+**保留的加密模块**: [freertos/src/chaos_encrypt.c](file:///home/alientek/Phytium/freertos/src/chaos_encrypt.c)
 
 ## 9. 异核通信实现位置
 
@@ -422,3 +285,44 @@ master_sim_lora_data() ← 状态机自动生成帧
 | Linux 应用层 | [src/openamp-demo/linux-master/master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c) | `/dev/rpmsg0` read/write |
 
 **通道数量**: 1个 (`rpmsg-openamp-demo-channel`)，双向复用，通过command字段区分消息。
+
+## 10. LoRa RX 开关控制
+
+通过 RPMsg 命令 `DEVICE_LORA_CTRL (0x0022)` 实时控制 LoRa 数据接收的启停。
+
+### 10.1 协议
+
+```
+Linux → FreeRTOS (控制):
+  [4B 0x0022][2B len=1][1B subcmd]
+  subcmd: 0x00=STOP, 0x01=START, 0x02=QUERY
+
+FreeRTOS → Linux (响应):
+  [4B 0x0022][2B len=2][1B state][1B subcmd_echo]
+  state: 0=DISABLED, 1=ENABLED
+```
+
+### 10.2 使用方式
+
+```bash
+# 方式1: CLI 工具
+./demo/lora_ctrl start     # 开启 LoRa 接收
+./demo/lora_ctrl stop      # 关闭 LoRa 接收
+./demo/lora_ctrl status    # 查询状态
+```
+
+### 10.3 实现原理
+
+```
+FreeRTOS master_recv_task 主循环:
+  while(1):
+    if (!g_lora_rx_enabled):     ← DEVICE_LORA_CTRL 设置此标志
+      vTaskDelay(100ms)          ← 空闲等待，停止 UART 读取
+      continue
+    lora_uart_poll()             ← 读取 UART3 RX FIFO 字节
+    raw_len = lora_uart_recv_frame()  ← 帧提取
+    if (raw_len > 0)
+        rpmsg_send_lora_recv_log()  ← 透传到 Linux
+```
+
+默认上电后 `g_lora_rx_enabled = 1`（自动开始接收），可通过 Linux 命令随时关闭。关闭后不会丢失数据（终端节点仍在发送），只是 FreeRTOS 不再从 UART RX FIFO 读取字节。重新开启后恢复正常接收。

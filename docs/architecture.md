@@ -1,6 +1,6 @@
 # Phytium PE2204 异构多核系统架构全景
 
-> **更新**: 2026-05-18 | **状态**: 代码移植完成，LoRa模块待接入硬件验证
+> **更新**: 2026-05-19 | **状态**: LoRa真实硬件接入，UART3 115200 精简链路打通
 
 ## 1. 系统架构总图
 
@@ -156,6 +156,8 @@ LoRa 模块通过 UART3 直连 **FreeRTOS CPU3 侧**，Linux 不直接操作 LoR
 | ------------------------------- | -------------------- | ------------------------ | --- |
 | `DEVICE_MASTER_DATA` (0x0020)   | **Linux → FreeRTOS** | LoRa原始帧转发给FreeRTOS处理     | 已实现 |
 | `DEVICE_MASTER_CMD` (0x0021)    | **FreeRTOS → Linux** | FreeRTOS指令经RPMsg转发到Linux | 已实现 |
+| `DEVICE_LORA_CTRL` (0x0022)    | Linux → FreeRTOS     | LoRa RX启用/禁用控制            | 已实现 |
+| `DEVICE_LORA_DATA` (0x0023)    | **FreeRTOS → Linux** | LoRa接收到原始帧透传到Linux用于显示 | 已实现 |
 | `DEVICE_SENSOR_BATCH` (0x0011)  | FreeRTOS → Linux     | 传感器批量数据 (优化后)            | 已实现 |
 | `DEVICE_SENSOR_DATA` (0x0010)   | FreeRTOS → Linux     | 传感器逐个数据 (旧，保留)           | 保留  |
 | `DEVICE_CORE_CHECK` (0x0003)    | 双向                   | 心跳检查                     | 已实现 |
