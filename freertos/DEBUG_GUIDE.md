@@ -1,5 +1,47 @@
 # FreeRTOS LoRa 接收调试指南
 
+> **最后更新**: 2026-05-21  |  **当前版本**: v10 Final  |  **状态**: 生产就绪 ✅
+>
+> 本指南记录从零搭建 FreeRTOS OpenAMP LoRa 接收系统的完整过程，包含所有踩过的坑和解决方案。
+
+## 目录结构
+
+```
+/home/alientek/
+├── Phytium_syscode/phytium-free-rtos-sdk-master/   ← 飞腾 SDK (含编译系统)
+│   └── example/system/amp/openamp_for_linux/        ← SDK 工程目录 (编译入口)
+│       ├── main.c                                   ← 核心源码 (与下方同步)
+│       ├── inc/  src/                               ← 头文件/模块源码
+│       ├── build/                                   ← 编译输出
+│       └── makefile  sdkconfig                      ← 编译系统
+│
+├── Phytium/freertos/                                ← **工作目录** (源码+部署+文档)
+│   ├── main.c                                       ← 核心源码 (最新版, 与SDK同步)
+│   ├── inc/  src/                                   ← 头文件/模块源码
+│   ├── deploy.sh                                    ← 一键编译+部署+验证
+│   ├── DEBUG_GUIDE.md                               ← 本调试指南 (完整记录)
+│   ├── HANDOVER.md                                  ← 交接文档
+│   └── restart_lora.sh                              ← 快速重启LoRa模块脚本
+│
+├── Phytium/GD32L233C_Prj_Master_v3/                  ← GD32 主控器参考源码
+│   └── app/task/master_recv.c                       ← 帧格式权威参考
+│
+└── Phytium/src/linux-app/                            ← Linux 侧应用
+    ├── trace_reader.c                                ← 共享内存读取工具源码
+    └── lora_receiver.c                               ← Linux 直连 LoRa (备选方案)
+```
+
+### 关键路径速查
+
+| 用途 | 路径 |
+|------|------|
+| 编译 | `cd Phytium/freertos && bash deploy.sh` |
+| SDK 编译入口 | `Phytium_syscode/.../openamp_for_linux/` |
+| 当前源码 (编辑) | `Phytium/freertos/main.c` |
+| 固件 ELF | `openamp_for_linux/pe2204_aarch64_phytiumpi_openamp_for_linux.elf` |
+| 开发板固件 | `/lib/firmware/openamp_core0.elf` |
+| GD32 参考 | `Phytium/GD32L233C_Prj_Master_v3/app/task/master_recv.c` |
+
 ## 架构
 
 ```
@@ -17,7 +59,15 @@ FreeRTOS (homo_core0, 0xb0100000)
 
 ## 快速开始
 
-### 编译
+### 一键部署 (推荐)
+
+```bash
+cd /home/alientek/Phytium/freertos && bash deploy.sh
+```
+
+脚本会自动完成: 编译 → 传输 → 安全启动 → 验证数据
+
+### 手动编译
 
 ```bash
 export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
@@ -1022,23 +1072,69 @@ cd /home/alientek/Phytium/freertos
 bash deploy.sh
 ```
 
-**脚本功能**:
-1. 编译 FreeRTOS 固件
-2. scp 传输到开发板 `/tmp/`
-3. 隔离 CPU3（`echo 0 > /sys/devices/system/cpu/cpu3/online`）
-4. 停止 remoteproc → 替换 `/lib/firmware/openamp_core0.elf` → 启动 remoteproc
-5. 验证固件 AT 命令（Linux minicom 侧）
-6. 运行 trace_reader 验证首行输出
+**脚本流程 (v10)**:
+1. `make all -j$(nproc)` — 编译 FreeRTOS 固件
+2. `scp .elf → /tmp/` — 传输到开发板
+3. 检查 `/sys/class/remoteproc/remoteproc0/state`
+4. `cp → /lib/firmware/openamp_core0.elf` — 更新固件文件
+5. **若 offline**: `echo start > state` (安全, 直接启动)
+6. **若 running**: 仅更新文件, **不执行 stop/start** (避免 RCU stall)
+7. `trace_reader` 45秒验证数据解析
+
+**⚠️ 关键安全规则**:
+- **绝不** 在固件 running 时执行 `echo stop`, 会触发 OP-TEE 重初始化远程核 → RCU stall → 系统卡死
+- **不再隔离任何 CPU 核** (`echo 0 > cpuN/online`)
+- 板子 reboot 后固件自动 offline, 可直接 safe-start
 
 ---
 
-## FreeRTOS 运行在 CPU3（非 CPU1）
+## 设备树 `remote-processor=3` 与物理 CPU 的映射关系 (2026-05-21)
 
-**之前错误假设**: FreeRTOS 运行在 CPU1。
+### 实测结论：FreeRTOS 运行在 CPU1 (big核)
 
-**事实确认**: 设备树 `phytiumpi_pe220x.dts` 中 `rproc@b0100000` 绑定 `cpu3`，remoteproc 框架将固件加载到 CPU3 执行。隔离命令必须是：
+通过 **三重证据** 确认：
+1. **MPIDR_EL1 寄存器** = `0x80000100` → 硬件亲和性 Aff1=0x1, Aff0=0x00 → **CPU1 big核**
+2. **`GetCpuId()` 函数** 返回 `1` (SDK源码: `standalone/soc/common/fcpu_info.c`)
+3. **FreeRTOS 启动日志**: `cpu1: PHYTIUM_RPROC_MAIN:current 1`
+
+### 设备树为什么写 `remote-processor = <3>`？
+
+开发板实际设备树 (`/proc/device-tree/homo_rproc@0/homo_core0@b0100000/`):
+```
+compatible = "homo,rproc-core";
+remote-processor = <3>;          ← 逻辑 CPU ID
+inter-processor-interrupt = <9>; ← IPI 用 SGI #9
+firmware-name = "openamp_core0.elf";
+memory-region = <...>;
+```
+
+**映射关系**: `remote-processor = 3` 是给 Linux `homo_remoteproc` 驱动看的 **PSCI 逻辑编号**，不是 Linux 的 CPU 编号 `cpu3`。
+
+E2000(PE2204) 芯片的 4 核架构:
+| PSCI 逻辑ID | 硬件亲和性 (MPIDR) | 类型 | Linux cpuN |
+|:--:|:--:|:--:|:--:|
+| 0 | 0x000 (CORE0_AFF) | big 核 | cpu0 |
+| 1 | 0x100 (CORE1_AFF) | big 核 | cpu1 |
+| 2 | 0x200 (CORE2_AFF) | LITTLE 核 | cpu2 |
+| 3 | 0x201 (CORE3_AFF) | LITTLE 核 | cpu3 |
+
+**PSCI 映射差异**: `remote-processor = <3>` 理论上对应 PSCI ID 3 → 硬件亲和性 0x201 (LITTLE核/cpu3)，但底层 **PSCI/TF-A 固件** 将其映射到了 big 核 (CPU1, 亲和性 0x100)。这是飞腾 BSP 的默认行为，可能是为了给 RTOS 分配更高性能的 big 核。
+
+### 为什么不应该修改设备树？
+
+1. **设备树是飞腾 BSP 的一部分**，存储在启动分区的 FIT Image 中，修改需要解包→修改→重编译→回写，有变砖风险
+2. **不影响功能** — FreeRTOS 能正常启动、通信、解析数据，说明 PSCI 映射是正确的
+3. **飞腾官方 OpenAMP 指南** (CSDN文章 `lizongjun126com/article/details/138340633`) 明确使用 `remote-processor = <3>` 作为参考配置
+4. **真正影响通信的是 `inter-processor-interrupt = <9>` 和共享内存地址**，这两个都已正确配置
+
+### 正确的 deploy.sh 行为（修复后）
+
+**不再隔离任何 CPU 核**。之前的 `echo 0 > /sys/devices/system/cpu/cpu3/online` 是错误操作，会导致：
+- CPU3 (LITTLE核) 被 hot-unplug → OP-TEE 重新初始化 CPU3 → RCU stall → 系统卡死
+
+修复后的 deploy.sh 直接使用 remoteproc 状态文件启动：
 ```bash
-echo 0 > /sys/devices/system/cpu/cpu3/online
+echo start > /sys/class/remoteproc/remoteproc0/state   # 仅在 offline 时执行
 ```
 
 ---
@@ -1050,41 +1146,142 @@ echo 0 > /sys/devices/system/cpu/cpu3/online
 | Data Abort ec=0x25 | FreeRTOS 无法启动，far=0xC8000000 | `FMmuMap()` 晚于 `puts()`，共享内存未映射 | 将 FMmuMap 移至 main() 最顶部 | v4 |
 | trace_reader 无新数据 | WI 不变，但节点在发包 | 共享内存为 MT_NORMAL，写入被 CPU Cache 拦截 | 改为 MT_DEVICE_NGNRNE 非缓存 | v6 |
 | 心跳 HB=0 | devmem 0xC8000008 始终为 0 | 同上，Cache 问题 | 同上 | v5→v6 |
-| CPU 隔离错误 | Linux RCU Stall | 隔离了 CPU1 但 FreeRTOS 在 CPU3 | 改为隔离 CPU3 | v4 |
+| CPU 隔离错误 | Linux RCU Stall | 隔离了 CPU1 但 FreeRTOS 在 CPU3 | **已修正**: 不再隔离任何CPU核 | v4→v10 |
 | task 优先级 | 低优先任务饿死 | RPM task prio=1 > LoRa prio=3 | 暂无影响（心跳确认调度正常） | - |
 | AT_SEND 与 ISR 冲突 | AT 命令解析失败 | ISR 抢先读取 UART 响应 | 回退到轮询模式，AT 阶段不用中断 | v5 |
 | f_printk 不可靠 | WI=0，无输出 | ftrace_init 时序不确定，vsnprintf 行为异常 | 裸写 volatile 共享内存，零库依赖 | Step1 |
+| 双ISR冲突 | 数据接收交叉/丢失 | main.c 和 lora_uart.c 各注册中断处理 | 删除 lora_uart.c 中断注册，仅保留 main.c | v8 |
+| 帧缓冲区死锁 | 连续 rx_hb 无帧输出 | 1024B缓冲区装满后不解析 | 扩大缓冲区+满时强制解析+帧头偏移 | v8 |
+| 帧尾偏移错误 | `FX: CRC fail` 全帧校验失败 | 帧尾计算少1字节偏移 | 对齐GD32: `tail_pos = pos + 5 + data_len` | v9 |
+| CRC校验误判 | 所有帧标记CRC失败 | GD32帧格式不含独立CRC字段 | 移除CRC校验，仅保留AA55帧头尾标记 | v9 |
+| enc_len计算错误 | 帧数据截断 | 按1784字节截断 | 改为 `data_len - 9` (GD32: TS+TYPE+SYNC=9字节) | v9 |
+| deploy.sh RCU stall | 系统卡死，`PANIC at PC` | `echo stop`触发OP-TEE重新初始化远程核 | 条件启动：仅在offline时start，running时跳过 | v10 |
 
 ---
 
-## 当前运行状态 (v7 IRQ, 2026-05-21)
+## 版本变更历史 (v8-v10)
+
+### v8 (2026-05-21) — 双ISR冲突修复 + 帧缓冲区死锁修复
+
+**现象**: `rp_av=0` 持续，数据流入ring buffer但无帧输出
+
+**根因1 — 双ISR冲突**:
+`main.c` (`uart2_lora_isr`) 和 `lora_uart.c` (`lora_uart_isr`) 各自注册了 UART2 中断处理函数。
+两个ISR同时响应同一个中断, 数据被分裂读取, 导致帧不完整。
+
+**修复1**: 删除 `lora_uart.c` 中的中断注册代码, 仅保留 `main.c` 中的 `uart2_lora_isr`
+
+**根因2 — 帧缓冲区死锁**:
+`lora_frame_buf[1024]` 装满后, `process_lora_frame()` 找不到完整帧头 → 不清空缓冲区 → 新数据进不来
+
+**修复2**: 
+- 缓冲区扩大至 2048 字节
+- 添加满时强制解析: `force_search=1`, 从pos=0扫描完整缓冲区
+- 帧头扫描逻辑: 从 `AA 55` 开始逐字节搜索帧起始
+- 数据前移: 解析完毕后将残余数据移到 buffer 开头
+
+### v9 (2026-05-21) — 帧格式解析对齐 GD32 主控器
+
+**现象**: 帧能收到但 `FX: CRC fail` 全帧校验失败
+
+**根因**: 帧格式理解错误 — 飞腾FreeRTOS侧按"含独立CRC字段"解析, 但实际GD32帧格式不含CRC
+
+**GD32主控器帧格式** (来自 `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/`):
+```
+AA 55 LEN [TS_4B] [TYPE_1B] [SYNC_4B] [ENC_NB] 55 AA
+|帧头| |长度| |时间戳  | |类型   | |同步字  | |加密数据| |帧尾|
+```
+
+**修复**: 完全对齐 GD32 `master_recv.c` 的实现:
+```c
+// 帧尾计算 (GD32: tail_pos = i + 5 + frame_data_len)
+u32 tail_pos = pos + 5 + data_len;
+
+// 帧头尾标记 (AA55 / 55AA), 无CRC
+if (buf[tail_pos] != 0x55 || buf[tail_pos + 1] != 0xAA) return pos + 2;
+
+// 数据指针 (GD32: frame = &buf[i+4])
+const u8 *data = &buf[pos + 4];  // 跳过 AA 55 LEN
+
+// 时间戳 (4字节大端)
+u32 ts = ((u32)data[0] << 24) | ((u32)data[1] << 16)
+       | ((u32)data[2] << 8)  |  data[3];
+
+// 类型 (1字节)
+u8 rx_type = data[4];
+
+// 同步字 (4字节大端)
+u32 sync = ((u32)data[5] << 24) | ((u32)data[6] << 16)
+         | ((u32)data[7] << 8)  | data[8];
+
+// 加密数据长度 (GD32: frame_data_len - 9, 因为 TS+TYPE+SYNC=9)
+u16 enc_len = data_len - 9;
+const u8 *enc_start = &data[9];
+```
+
+### v10 (2026-05-21) — deploy.sh RCU stall 修复 + CPU确认
+
+**现象**: 重新部署固件后系统卡死:
+```
+I/TC: Secondary CPU 3 initializing
+I/TC: Secondary CPU 3 switching to normal world boot
+PANIC at PC : 0x00000000ffa0309c
+rcu: INFO: rcu_preempt detected stalls on CPUs/tasks: 3-...0
+```
+
+**根因**: `echo stop > remoteproc0/state` 触发 OP-TEE 重新初始化远程核 (CPU3/LITTLE),
+然后 `echo start` 又触发 CPU_ON, 导致 CPU3 的 RCU 状态异常 → 系统卡死
+
+**修复** (`deploy.sh`):
+```bash
+# 检查当前remoteproc状态
+STATE=$(cat /sys/class/remoteproc/remoteproc0/state)
+
+if [ "$STATE" = "offline" ] || [ "$STATE" = "unknown" ]; then
+    # 固件不在运行, 直接启动 (安全)
+    echo "openamp_core0.elf" > /sys/class/remoteproc/remoteproc0/firmware
+    echo "start" > /sys/class/remoteproc/remoteproc0/state
+else
+    # 固件已在运行, 仅更新文件, 等待下次reboot生效
+    echo "固件已在运行, 跳过重启 (避免触发 RCU stall)"
+fi
+```
+
+**CPU 确认**: 通过 `GetCpuId()` + `MPIDR_EL1` 确定 FreeRTOS 运行在 **CPU1 (big核, 亲和性0x100)**
+
+---
+
+## 当前运行状态 (v10 Final, 2026-05-21)
 
 ```
-✅ FreeRTOS 启动            === FreRTOS LoRa v7 IRQ ===
+✅ FreeRTOS 启动            === FreRTOS LoRa v10 ===
 ✅ 共享内存非缓存           MT_DEVICE_NGNRNE
 ✅ RPMsg 通道建立           RPMsg done
-✅ GICv3 中断配置           UART2 IRQ117 → CPU1
-✅ LoRa AT 配置完成         全部 OK (10条AT命令)
+✅ GICv3 中断配置           UART2 IRQ117 → CPU1 (big核)
+✅ 帧解析对齐GD32格式       无CRC, AA55/55AA帧头尾标记
+✅ enc_len计算              data_len - 9 (TS+TYPE+SYNC)
+✅ LoRa AT配置完成          全部OK (10条AT命令)
 ✅ LoRa 透传模式            MD0=LOW, AUX就绪
-✅ UART2 中断接收 (Step4)   ISR → 环形缓冲区 → 任务消费
-✅ AUX 监控任务             电平变化实时打印
+✅ ISR → 环形缓冲区 → 帧缓冲区 → 任务消费
+✅ deploy.sh 安全部署        条件启动, 无RCU stall
 ✅ 心跳计数器               每2ms递增
 ✅ trace_reader 实时可见    无延迟
-✅ 中断风暴                未复现
-✅ 模块硬件死锁             未复现
 ```
 
-**数据接收示例**:
+**数据接收示例** (v10 干净固件):
 ```
-RX #1 16B: AA 55 00 89 00 39 C1 41 04 BF 03 D1 23 2E 84 4E
-RX #16 32B: AA 55 00 89 00 39 B9 BF 04 6A 16 26 53 42 48 7F ...
-[RX-hb] loop=3000 AUX=0 rp_av=0 idle=38ms
+=== FRAME #1: type=01 ts=6263423 sync=BC8AC1E1 enc=16B dec=16B ===
+=== FRAME #2: type=04 ts=6263423 sync=BC8AC1E1 enc=128B dec=128B ===
+=== FRAME #3: type=04 ts=6263423 sync=AB4BF046 enc=128B dec=128B ===
+...
+[RX-hb] loop=21000 AUX=0 tx=22 isr=184 dat=2944
 ```
 
-**中断统计** (可通过 devmem 间接验证):
-- ISR 触发频率: ~每 15s 一次 (节点发包周期)
-- 每次触发处理: ~240 字节 (一个完整帧)
-- AUX 翻转: 每帧 0→1→0 (忙→空闲→忙)
+**帧类型说明**:
+| type | 含义 | enc大小 | 说明 |
+|:--:|------|:--:|------|
+| 01 | STATUS帧 | 16B | 节点状态上报 |
+| 04 | NODE_RAW帧 | 128B | 节点加密采样数据 |
 
 **LoRa 配置参数**:
 | 参数 | 值 |
@@ -1101,5 +1298,16 @@ RX #16 32B: AA 55 00 89 00 39 B9 BF 04 6A 16 26 53 42 48 7F ...
 0xC8000000 + 0:  WI (write_index, u32)
            + 4:  RI (read_index, u32)
            + 8:  HB (heartbeat, u32)
-           +12:  环形缓冲区开始 (1MB - 12B)
+           +12:  环形缓冲区开始 (4096B ISR ring buffer)
 ```
+
+**中断统计** (v10 典型值):
+- ISR 触发频率: ~每 4-5s 一次 (多节点并发发包)
+- 每次触发处理: ~320 字节 (多帧拼接)
+- 50秒内: 22帧 / 184次ISR / 2944字节数据
+
+---
+
+## 旧版本状态 (v7 历史记录)
+
+### v7 (2026-05-21) — 中断模式

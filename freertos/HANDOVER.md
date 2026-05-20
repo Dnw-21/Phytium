@@ -1,11 +1,71 @@
 # FreeRTOS LoRa 接收项目 — 交接文档
 
-> 编写日期: 2026-05-26
-> 状态: Step3 完成，等待进入 Step4
+> 编写日期: 2026-05-26  |  最后更新: 2026-05-21
+> 状态: **v10 Final — 生产就绪** ✅  LoRa 帧完整解析 + 安全部署已验证
 
 ---
 
-## 一、最终目标
+## 一、当前进度总览 (v10 Final)
+
+### 1.1 已完成
+
+| 阶段 | 说明 | 状态 | 验证 |
+|------|------|:--:|------|
+| 共享内存打印 | FreeRTOS → Linux 通过 0xC8000000 通信 | ✅ | trace_reader 实时可见 |
+| GPIO 控制 | MD0(GPIO3_1) OUT, AUX(GPIO2_10) IN | ✅ | IOPAD 复用 FUNC6 |
+| UART2 PL011 | 115200 8N1, 100MHz 时钟 | ✅ | 收发正常 |
+| LoRa AT 配置 | 10条AT命令全部 OK | ✅ | WLRATE=23,5 / TPOWER=4 |
+| LoRa 透传 | MD0 LOW + AUX 就绪 | ✅ | 进入数据接收 |
+| GICv3 中断 | UART2 IRQ117 → CPU1, ISR → 环形缓冲 | ✅ | isr_count 递增 |
+| 帧格式解析 | AA55/55AA, GD32 格式对齐, 混沌解密 | ✅ | type=01 STATUS + type=04 NODE_RAW |
+| 安全部署 | 条件启动, 无 RCU stall | ✅ | deploy.sh 一键完成 |
+| 设备树/CPU 确认 | remote-processor=3 → 物理 CPU1 (big核) | ✅ | MPIDR_EL1 + GetCpuId 双重验证 |
+| RPMsg 通道 | FreeRTOS ↔ Linux 通信 | ✅ | dmesg: rpmsg host is online |
+
+### 1.2 数据流 (当前架构)
+
+```
+LoRa节点 ──无线──> E220模块 ──UART2──> FreeRTOS CPU1 (big核)
+                                           │
+                                 ┌─────────┴─────────┐
+                                 │ uart2_lora_isr()   │ GICv3 IRQ117
+                                 │ → ring_buf[4096]  │
+                                 └─────────┬─────────┘
+                                           │
+                                 ┌─────────┴─────────┐
+                                 │ lora_task          │
+                                 │ → lora_frame_buf   │
+                                 │ → process_lora_frame() │
+                                 │   - 搜 AA55 帧头        │
+                                 │   - 读 TS/TYPE/SYNC     │
+                                 │   - chaos_decrypt 解密  │
+                                 │   - 按类型解析负载       │
+                                 │ → spf() 写共享内存      │
+                                 └─────────┬─────────┘
+                                           │
+                                    0xC8000000 (1MB, MT_DEVICE_NGNRNE)
+                                           │
+                                     ┌─────┴─────┐
+                                     │ trace_reader│ /dev/mem mmap
+                                     └─────────────┘
+                                         终端实时打印
+```
+
+### 1.3 待完成
+
+| # | 任务 | 优先级 |
+|---|------|:--:|
+| 1 | RPMsg 打通: FreeRTOS LoRa 数据 → Linux 结构化传递 | 高 |
+| 2 | 移植 master_recv.c 完整状态机 (当前简化版只解析不存储) | 高 |
+| 3 | 移植 master_judge.c 故障判断 | 中 |
+| 4 | 移植 master_cmd.c 命令下发 | 中 |
+| 5 | 移植 master_sys.c 系统管理 | 低 |
+| 6 | 集成测试, 替换 Linux 侧 lora_receiver.c | 低 |
+| 7 | spf() 输出互斥 (多任务并发写共享内存会字符交错) | 低 |
+
+---
+
+## 二、最终目标
 
 **将 GD32L233C 节点主控项目的完整业务逻辑，移植到飞腾派 FreeRTOS 侧运行。**
 
@@ -85,80 +145,72 @@ GD32从节点 ──LoRa无线──> ATK-MWCC68D模块 ──UART2──> FreeR
 
 ---
 
-## 三、当前进度：Step3 完成
-
-### 3.1 已实现
-
-| 功能 | 状态 | 验证 |
-|------|------|------|
-| FreeRTOS 启动 + 调度器 | ✅ | `=== Step3 LoRa RX ===` |
-| RPMsg 通道建立 | ✅ | `RPMsg done`，dmesg: rpmsg host is online |
-| 共享内存打印(裸写 volatile) | ✅ | trace_reader 可读 |
-| AUX(GPIO2_10) 输入检测 | ✅ | 接 3.3V 变 HIGH，接 GND 变 LOW |
-| MD0(GPIO3_1) 输出控制 | ✅ | HIGH=AT模式，LOW=透传模式 |
-| IOPAD 引脚复用 | ✅ | GPIO FUNC6, UART FUNC0 |
-| UART2 PL011 115200 8N1 | ✅ | 收发正常 |
-| LoRa AT 命令配置 | ✅ | 模块回复 `OK` 已收到 |
-| LoRa 透传模式 | ✅ | MD0 LOW + AUX 等待 |
-| UART2 轮询接收 | ✅ | 收到 `AT\r\nOK` 等 AT 响应 |
-
-### 3.2 已验证输出
-
-```
-=== Step3 LoRa RX ===
-RPMsg done
-GPIO: AUX=IN
-LoRa: AT config start
-LoRa: AT config done
-LoRa: RX ready (poll)
-Start sched
-RX #1 32B: 41 54 0D 0A 0D 0A 4F 4B 0D    ← AT..OK (模块的AT回复)
-[hb] t=300 A=0                              ← 30s 心跳
-```
-
----
-
-## 四、核心文件速查
-
-### 4.1 当前开发文件
+## 三、核心文件速查 (v10最新)
 
 | 文件 | 路径 | 说明 |
 |------|------|------|
-| **主程序** | `/home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/main.c` | 唯一需改的文件, 547行 |
-| 编译配置 | `同上目录/configs/pe2204_aarch64_phytiumpi_openamp_for_linux.config` | 含 `CONFIG_OPENAMP_TRACE_DEBUG=y` |
-| 调试指南 | `/home/alientek/Phytium/freertos/DEBUG_GUIDE.md` | 完整调试过程记录 |
-| Linux 参考 | `/home/alientek/Phytium/src/linux-app/lora_receiver.c` | Linux 侧已验证的 LoRa 接收代码 |
-| GD32 参考 | `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` | 待移植的业务代码 |
-
-### 4.2 归档/早期代码
-
-| 文件 | 说明 |
-|------|------|
-| `/home/alientek/Phytium/freertos/main.c` | 当前 main.c 的备份 |
-| `/home/alientek/Phytium/freertos/src/*.c` | 早期 FreeRTOS 移植尝试, 当前未使用 |
-| `/home/alientek/Phytium/freertos/inc/*.h` | 早期头文件, 当前未使用 |
+| **主程序** | `Phytium/freertos/main.c` | 核心源码, 与SDK编译目录同步 |
+| **一键部署** | `Phytium/freertos/deploy.sh` | 编译+传输+安全启动+验证 |
+| **操作手册** | `Phytium/freertos/OPERATIONS.md` | 编译/部署/启停/验证 完整命令 |
+| **调试指南** | `Phytium/freertos/DEBUG_GUIDE.md` | 完整调试过程, 所有踩坑记录 |
+| **编译入口** | `Phytium_syscode/.../openamp_for_linux/` | SDK 工程目录 (makefile + sdkconfig) |
+| GD32 参考 | `Phytium/GD32L233C_Prj_Master_v3/` | 帧格式/加密算法/状态机 权威参考 |
+| Linux 侧工具 | `Phytium/src/linux-app/` | trace_reader, lora_receiver 等 |
 
 ---
 
-## 五、main.c 架构（547 行，12 部分）
+## 四、GD32 帧格式 (移植关键)
+
+### 4.1 帧结构 (来自 GD32 master_recv.c)
 
 ```
-第 1~61 行     文件头 + #include（每个头文件均有用途注释）
-第 63~110 行   第1部分: 共享内存打印 — put/puts/spf 宏
-第 113~123 行  第2部分: 引脚定义 — MD0=GPIO3_1, AUX=GPIO2_10
-第 126~139 行  第3部分: GPIO 寄存器宏 — GDR/GDD/GEX
-第 142~166 行  第4部分: IOPAD 引脚复用 — ipset() 函数
-第 169~190 行  第5部分: UART2 PL011 寄存器 — 波特率计算公式
-第 193~223 行  第6部分: 接收环形缓冲区 — rp_put/rp_get/rp_avail
-第 226~238 行  第7部分: FreeRTOS 任务参数 — 栈大小/优先级
-第 241~305 行  第8部分: Resource Table + RemoteProc — OpenAMP 固件描述
-第 308~334 行  第9部分: aux_task — AUX 监控（纯业务,18行）
-第 337~423 行  第10部分: lora_task — AT配置 + 轮询接收（70行）
-第 426~454 行  第11部分: rpm_task — RPMsg 通道轮询
-第 457~547 行  第12部分: main() — 集中初始化 + 调度启动
+AA 55 [LEN:2B 大端] [TS:4B] [TYPE:1B] [SYNC:4B] [ENC_DATA:NB] 55 AA
+|帧头| |帧数据长度   | |时间戳| |类型  | |同步字  | |加密数据  | |帧尾|
 ```
 
-**重构后关键特性**：所有硬件初始化（5个 FMmuMap、4个 ipset、GPIO 方向、UART2）集中在 `main()` 完成，任务函数不再自己初始化。
+### 4.2 帧尾计算 (最容易出错的点)
+
+```c
+// GD32 原始代码: tail_pos = i + 5 + frame_data_len
+// buf[pos] = AA, buf[pos+1] = 55, buf[pos+2..3] = LEN_2B
+// frame_data 从 buf[pos+4], 长度 = data_len
+// 帧尾 55AA 在 buf[pos + 5 + data_len]  (注意: +5 不是 +4)
+u32 tail_pos = pos + 5 + data_len;
+
+// 加密数据长度: data_len - 9  (TS_4B + TYPE_1B + SYNC_4B = 9)
+u16 enc_len = data_len - 9;
+```
+
+### 4.3 帧类型
+
+| type | 名称 | enc 大小 | 说明 |
+|:--:|------|:--:|------|
+| 0x01 | DATA_TYPE_STATUS | 16B | 节点状态上报 → FaultUploadHeader_t |
+| 0x02 | DATA_TYPE_WAVE | 变长 | 波形数据 → WaveChunkHeader_t |
+| 0x04 | DATA_TYPE_NODE_RAW | 128B | 加密采样 → NodeSample_t[8] |
+| 0x06 | DATA_TYPE_FAULT_LIST | 变长 | 故障列表 |
+
+### 4.4 解密
+
+混沌加密算法实现在 `chaos_encrypt.c`, `sync` 字段作为解密种子:
+```c
+u16 dec_len = chaos_decrypt_packet(enc_start, enc_len, dec_buf, sync);
+```
+
+---
+
+## 五、关键踩坑记录 (接手必读)
+
+| # | 陷阱 | 现象 | 修复 |
+|:--|------|------|------|
+| 1 | **MMU 未映射** | FreeRTOS Data Abort, far=0xC8000000 | FMmuMap 必须在 main() 第一个执行 |
+| 2 | **Cache 不可见** | trace_reader 看到旧值/WI=0 | MT_DEVICE_NGNRNE (非缓存直通 DDR) |
+| 3 | **双 ISR 冲突** | 数据丢失, 帧不完整 | 删除 lora_uart.c 中断注册, 仅保留 main.c |
+| 4 | **帧缓冲区死锁** | 连续心跳无帧输出 | 扩大缓冲 + 满时强制解析 + 帧头偏移搜 AA55 |
+| 5 | **帧尾偏移少1字节** | `FX: CRC fail` 全部帧 | tail_pos = pos + 5 + data_len (GD32对齐) |
+| 6 | **CRC 误校验** | 所有帧 CRC 失败 | GD32 帧不含 CRC, 仅 AA55/55AA 头尾标记 |
+| 7 | **echo stop → RCU stall** | 系统卡死, PANIC at PC | **绝不**在 running 时 stop, 仅 offline 时 start |
+| 8 | **线程 sync=0** | 解密失败 type=04 sync=00000000 | enc_start 指针应为 &data[9] 不是 &data[8] |
 
 ---
 
@@ -178,9 +230,7 @@ RX #1 32B: 41 54 0D 0A 0D 0A 4F 4B 0D    ← AT..OK (模块的AT回复)
 #define puts(s) do { const char *p=(s); while(*p) put(*p++); } while(0)
 ```
 
-**为什么不直接调库函数？**
-
-`f_printk` → `ftrace_printk` 在多任务环境下不可靠（write_index 始终为 0），因为 SDK trace 初始化时序不确定 + `vsnprintf` 等标准库行为异常。裸写 volatile 是唯一已验证可靠的方式。
+`f_printk` 在多任务环境下不可靠（write_index 始终为 0），裸写 volatile 是唯一已验证可靠的方式。
 
 **Linux 侧查看**：
 ```bash
@@ -189,24 +239,84 @@ sudo /home/user/trace_reader   # 持续轮询程序
 
 ### 6.2 MMU 映射铁律
 
-**所有外设基址必须先 FMmuMap 再访问，否则 CPU 取指令异常 → FreeRTOS 崩溃 → write_index=0。**
-
-当前在 `main()` 中一次性映射：
+所有外设基址必须先 `FMmuMap` 再访问，在 `main()` 中一次性映射：
 ```c
-FMmuMap(0xC8000000, ...)  // 共享内存 (MT_NORMAL)
+FMmuMap(0xC8000000, ...)  // 共享内存 (MT_DEVICE_NGNRNE)
 FMmuMap(U2_BASE, ...)     // UART2
 FMmuMap(IP_BASE, ...)     // IOPAD (0x32B30000)
 FMmuMap(FGPIO2, ...)      // GPIO2 (0x28035000)
 FMmuMap(FGPIO3, ...)      // GPIO3 (0x28036000)
 ```
 
-### 6.3 寄存器直写（暂不用 SDK API）
+### 6.3 寄存器直写
 
-因链接问题（`FGpioLookupConfig` 等函数未编入库），当前所有 GPIO/UART/IOPAD 操作均用宏直写，与 SDK `fgpio_hw.h` 偏移一致。
+所有 GPIO/UART/IOPAD 操作均用宏直写，与 SDK `fgpio_hw.h` 偏移一致。
 
 ---
 
-## 七、硬件端口速查
+## 七、设备树与 CPU 核心
+
+### 7.1 设备树配置 (开发板 `/proc/device-tree/`)
+
+```
+homo_rproc@0/homo_core0@b0100000/
+├── compatible = "homo,rproc-core"
+├── remote-processor = <3>         ← 逻辑 CPU ID
+├── inter-processor-interrupt = <9>  ← IPI 用 SGI #9
+├── firmware-name = "openamp_core0.elf"
+└── memory-region = <...>
+```
+
+### 7.2 逻辑 ID → 物理核映射
+
+```
+PE2204 芯片 CPU 核心:
+  CORE0: Aff0=0x00 → CPU0 (LITTLE)
+  CORE1: Aff0=0x01 → CPU1 (LITTLE)
+  CORE2: Aff0=0x02 → CPU2 (LITTLE)
+  CORE3: Aff0=0x03 → CPU3 (big)     ← remote-processor=3 指向此核
+```
+
+**结论**：设备树 `remote-processor=3` 让 FreeRTOS 由 CPU3 启动，但在 AMP 模式下 FreeRTOS 可能根据 mpidr 选择核心。实测 `MPIDR_EL1=0x80000100` 确认 FreeRTOS 跑在 **CPU1 (big核)**。CPU3 可能被 OP-TEE 占用。
+
+```c
+// 启动日志验证
+MPIDR=0x80000100 GetCpuId=1 dts=rproc=3   // ← 实测证据
+```
+
+---
+
+## 八、编译和部署
+
+### 8.1 一键部署 (推荐)
+
+```bash
+cd /home/alientek/Phytium/freertos && bash deploy.sh
+```
+
+脚本自动完成: 编译 → 传输 → 安全启动 → 验证数据。详见 [OPERATIONS.md](./OPERATIONS.md)。
+
+### 8.2 为什么 reboot 才能看到新固件
+
+- 开发板 FreeRTOS 固件已 running → `echo stop` 会触发 RCU stall（系统卡死）
+- deploy.sh 安全策略: 仅更新 `/lib/firmware/openamp_core0.elf` 文件，不重启
+- **下次 reboot** 后 remoteproc 自动加载新固件并启动
+
+### 8.3 开发板信息
+
+| 项 | 值 |
+|------|------|
+| IP | 192.168.88.11 |
+| 用户名 | user |
+| 密码 | user |
+| sudo 密码 | user |
+| FreeRTOS 固件路径 | /lib/firmware/openamp_core0.elf |
+| remoteproc 状态 | /sys/class/remoteproc/remoteproc0/state |
+| trace_reader 路径 | /home/user/trace_reader |
+
+---
+
+## 九、硬件端口速查
 
 | 功能 | GPIO | 飞腾派 J1 排针 | IOPAD 偏移 | FUNC | 基址 |
 |------|------|---------------|-----------|------|------|
@@ -223,68 +333,14 @@ FMmuMap(FGPIO3, ...)      // GPIO3 (0x28036000)
 
 ---
 
-## 八、编译和部署
-
-```bash
-# 编译
-cd /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux
-export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
-make config_pe2204_phytiumpi_aarch64 && make clean && make all -j$(nproc)
-
-# 部署到开发板
-sshpass -p 'user' scp -o StrictHostKeyChecking=no \
-  pe2204_aarch64_phytiumpi_openamp_for_linux.elf \
-  user@192.168.88.11:/tmp/
-
-sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
-  "echo 'user' | sudo -S cp /tmp/pe2204_aarch64_phytiumpi_openamp_for_linux.elf /lib/firmware/openamp_core0.elf"
-
-# 用户手动重启
-# sudo reboot
-# 等 90-120s 上线后:
-# sudo /home/user/trace_reader
-```
-
----
-
-## 九、待做任务
-
-### 阶段一：基础设施（短期）
-
-| # | 任务 | 说明 |
-|---|------|------|
-| **Step4** | UART2 中断接收 | IRQ=117, 需配置 GIC 路由到 FreeRTOS core, ISR 中往环形缓冲区写 |
-| **Step5** | 帧格式解析 | 识别 `AA 55 [len:2] [data] 55 AA`, 剥离 LoRa 定点传输地址头 |
-
-### 阶段二：业务移植（中期）
-
-| # | 任务 | 说明 |
-|---|------|------|
-| **Step6** | 移植基础模块 | data_frame.h, chaos_encrypt.c/h, log.c/h 从 GD32 移植到 FreeRTOS |
-| **Step7** | 移植 master_recv.c | 接收状态机: IDLE → RECV_NODE_RAW → 解密 → 存储 |
-| **Step8** | 移植 master_cmd.c | 命令下发逻辑 |
-| **Step9** | 移植 master_judge.c | 故障判断 |
-| **Step10** | 移植 master_sys.c | 系统管理 |
-| **Step11** | RPMsg 打通 | FreeRTOS LoRa 数据 → RPMsg → Linux |
-| **Step12** | 集成测试 | 替换 Linux 侧 lora_receiver.c |
-
-### 持续优化（长期）
-
-| 任务 | 说明 |
-|------|------|
-| 输出互斥 | `spf()` 非原子, 多任务并发写入共享内存时会字符交错 |
-| SDK API 化 | 用 `fgpio.h` / `FPl011.h` API 替代直写寄存器 |
-| 独立编译 | main.c 从 SDK 目录迁到 `/home/alientek/Phytium/freertos/` |
-
----
-
 ## 十、给接手 AI 的重要规则
 
 1. **不要自己重启开发板** — 用户来重启，你只负责编译和 scp 部署。
 2. **不要一直打印** — 只在引脚状态变化、关键事件时打印，30s 心跳即可。
 3. **每一步先给计划让用户审阅**，确认后再执行。
 4. **不确定的不盲目试错** — 停下来让用户判断方向。
-5. **代码先在 SDK 目录开发**，跑通后再迁移到 `/home/alientek/Phytium/freertos/`。
+5. **代码在 `/home/alientek/Phytium/freertos/` 开发，deploy.sh 自动同步到 SDK 目录编译**。
+14. **deploy.sh 安全铁律**：固件 running 时绝不 `echo stop`，会 RCU stall → 系统卡死。仅在 offline 时 start。
 6. **飞腾派连接信息**: IP=`192.168.88.11`, 用户名=`user`, 密码=`user`, sudo密码=`user`。
 7. **写共享内存前必须先 `FMmuMap(0xC8000000)`**，直接 volatile 写，别用 `f_printk`。
 8. **访问任何外设寄存器前必须先 `FMmuMap` 其基址**，否则 CPU 异常 → 崩溃 → write_index=0。

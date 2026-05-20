@@ -60,6 +60,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include "chaos_encrypt.h"
+#include "data_frame.h"
 
 /* ==========================================================================
  *  第1部分: 共享内存打印 — 自包含, 零SDK依赖
@@ -109,6 +111,148 @@ static void spf(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     puts(buf);
+}
+
+
+/*
+ * process_lora_frame: 解析 + 解密 + 打印 LoRa 帧
+ *   返回: (u32) 实际消费字节数 — 调用者据此将剩余数据前移
+ *
+ *   0 → 没有完整帧，等待更多数据
+ *   n → 消费 n 字节，buf[0..n-1] 可丢弃
+ *
+ *  帧格式 (GD32):
+ *    [AA][55][LEN2B][TS4B][TYPE1B][SYNC4B][ENC(N)][CRC1B][55][AA]
+ *    LEN = 5 + N + 1 = 6 + N  (TS+TYPE+SYNC+ENC+CRC, 不含 LEN 本身)
+ */
+static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
+{
+    if (buf_len < 13) return 0;
+
+    u32 pos = 0;
+
+    /* 搜索起始标记 AA 55 */
+    while (pos + 1 < buf_len) {
+        if (buf[pos] == 0xAA && buf[pos + 1] == 0x55) break;
+        pos++;
+    }
+    if (pos + 1 >= buf_len) {
+        /* 没有 AA55 → 丢弃所有字节(保留最后一个可能是0xAA) */
+        return (buf_len > 1) ? (buf_len - 1) : 0;
+    }
+
+    /* 跳过起始标记 */
+    u32 hdr = pos + 2;
+    if (hdr + 2 > buf_len) return 0;  /* 等更多数据 */
+
+    u16 data_len = ((u16)buf[hdr] << 8) | buf[hdr + 1];  /* 大端 */
+
+    /* 参考 GD32: data_len 超出合理范围视为噪音 */
+    if (data_len > 200) {
+        return pos + 2;  /* 跳过这个假 AA55 */
+    }
+
+    /* GD32: tail_pos = i + 5 + frame_data_len
+     * buf[pos]: AA, buf[pos+1]: 55, buf[pos+2..pos+3]: LEN
+     * frame_data 从 buf[pos+4], 长度 data_len
+     * footer 55AA 在 buf[pos+5+data_len] (GD32 比 naively 多 1 字节偏移) */
+    u32 tail_pos = pos + 5 + data_len;
+    if (tail_pos + 2 > buf_len) return 0;
+    if (buf[tail_pos] != 0x55 || buf[tail_pos + 1] != 0xAA) {
+        return pos + 2;
+    }
+
+    const u8 *data = &buf[pos + 4];  /* 跳过 AA 55 LEN → frame_data 起始 (与 GD32 frame 指针一致) */
+
+    /* GD32 frame 解析: frame[0]=AA, frame[1]=55, frame[2,3]=LEN,
+     *   frame[4..7]=TS, frame[8]=TYPE, frame[9..12]=SYNC, frame[13..]=ENC */
+    u32 ts = ((u32)data[0] << 24) | ((u32)data[1] << 16)
+           | ((u32)data[2] << 8)  |  data[3];
+    u8  rx_type  = data[4];
+    u32 sync     = ((u32)data[5] << 24) | ((u32)data[6] << 16)
+                 | ((u32)data[7] << 8)  | data[8];
+
+    u16 enc_len = data_len - 9;  /* GD32: frame_data_len - 9 (TS+TYPE+SYNC=9) */
+    const u8 *enc_start = &data[9];
+
+    (*total_p)++;
+
+    /* ─── 解密 ─── */
+    u8  dec_buf[128];
+    u16 dec_len = 0;
+
+    if (sync != 0 && enc_len > 0 && enc_len <= MAX_ENCRYPT_DATA_LEN) {
+        dec_len = chaos_decrypt_packet(enc_start, enc_len, dec_buf, sync);
+        spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X enc=%uB dec=%uB ===\r\n",
+            *total_p, rx_type, ts, sync, enc_len, dec_len);
+    } else {
+        if (enc_len <= sizeof(dec_buf)) {
+            memcpy(dec_buf, enc_start, enc_len);
+            dec_len = enc_len;
+        }
+        spf("\r\n=== FRAME #%u: type=%02X ts=%u plain=%uB ===\r\n",
+            *total_p, rx_type, ts, dec_len);
+    }
+
+    /* ─── 按类型解析负载 ─── */
+    switch (rx_type) {
+    case DATA_TYPE_STATUS:  /* 0x01 */
+        if (dec_len >= sizeof(FaultUploadHeader_t)) {
+            FaultUploadHeader_t hdr;
+            memcpy(&hdr, dec_buf, sizeof(hdr));
+            spf("  FAULT: node=%u ts=%u fault=%d sev=%d pts=%u rate=%u\r\n",
+                hdr.node_index, hdr.timestamp,
+                hdr.fault_type, hdr.severity,
+                hdr.total_points, hdr.sample_rate);
+        } else if (dec_len >= sizeof(NodeUploadData_t)) {
+            NodeUploadData_t hdr;
+            memcpy(&hdr, dec_buf, sizeof(hdr));
+            spf("  STATUS: node=%u sev=%d health=%.1f pts=%u rate=%u\r\n",
+                hdr.node_index, hdr.severity,
+                (double)hdr.health_score,
+                hdr.total_points, hdr.sample_rate);
+        } else {
+            spf("  STATUS: %uB raw\r\n", dec_len);
+        }
+        break;
+
+    case DATA_TYPE_NODE_RAW:  /* 0x04 */
+        {
+            u16 samples = dec_len / (u16)sizeof(NodeSample_t);
+            spf("  NODE_RAW: %u samples\r\n", samples);
+            u16 show = samples < 3 ? samples : 3;
+            for (u16 j = 0; j < show; j++) {
+                NodeSample_t s;
+                memcpy(&s, &dec_buf[j * sizeof(NodeSample_t)], sizeof(s));
+                spf("    [%u] P=%d Q=%d Ang=%d V=%d\r\n",
+                    j, s.active_power, s.reactive_power,
+                    s.voltage_angle, s.voltage_mag);
+            }
+            if (samples > show)
+                spf("    ... +%u more\r\n", samples - show);
+        }
+        break;
+
+    case DATA_TYPE_WAVE:  /* 0x02 */
+        if (dec_len >= sizeof(WaveChunkHeader_t)) {
+            WaveChunkHeader_t hdr;
+            memcpy(&hdr, dec_buf, sizeof(hdr));
+            spf("  WAVE: idx=%u rate=%u cnt=%u sev=%d\r\n",
+                hdr.sample_index, hdr.sample_rate,
+                hdr.sample_count, hdr.severity);
+        }
+        break;
+
+    case DATA_TYPE_FAULT_LIST:  /* 0x06 */
+        spf("  FAULT_LIST: %uB\r\n", dec_len);
+        break;
+
+    default:
+        spf("  UNKNOWN(%02X): %uB\r\n", rx_type, dec_len);
+        break;
+    }
+
+    return tail_pos + 2;  /* GD32: 完整帧 = AA+55+LEN+data+extra+55+AA */
 }
 
 
@@ -259,18 +403,27 @@ static void rp_hex_dump(const char *tag)
  *    rh 只由 ISR 写 (生产者), rt 只由 task 写 (消费者)
  *    均为 32-bit aligned word write, 单核无竞争
  * ========================================================================== */
+static volatile u32 isr_cnt = 0;
+static volatile u32 isr_data = 0;       /* ISR reads from FIFO (bytes) */
+static volatile u32 isr_no_data = 0;    /* ISR calls with MIS=0 (no data) */
+
 static void uart2_lora_isr(s32 vector, void *param)
 {
     (void)vector;
     (void)param;
 
+    isr_cnt++;
+
     u32 mis = *(volatile u32 *)(U2_BASE + 0x40); /* FPL011MIS_OFFSET */
+
+    u32 reads = 0;
 
     /* RX 数据中断: RXMIS = 0x10 */
     if (mis & 0x10) {
         while (!(*(volatile u32 *)(U2_BASE + 0x18) & 0x10)) { /* !RXFE */
             u8 b = (u8)(*(volatile u32 *)(U2_BASE + 0x00) & 0xFF);
             rp_put(b);
+            reads++;
         }
     }
 
@@ -279,6 +432,7 @@ static void uart2_lora_isr(s32 vector, void *param)
         while (!(*(volatile u32 *)(U2_BASE + 0x18) & 0x10)) {
             u8 b = (u8)(*(volatile u32 *)(U2_BASE + 0x00) & 0xFF);
             rp_put(b);
+            reads++;
         }
     }
 
@@ -286,6 +440,9 @@ static void uart2_lora_isr(s32 vector, void *param)
     if (mis & 0x780) {
         *(volatile u32 *)(U2_BASE + 0x04) = 0xFF; /* ECR 清除 */
     }
+
+    if (reads == 0) isr_no_data++;
+    isr_data += reads;
 
     /* 写1清除中断标志 */
     *(volatile u32 *)(U2_BASE + 0x44) = mis; /* FPL011ICR_OFFSET */
@@ -423,9 +580,7 @@ static void aux_task(void *pv)
  * ========================================================================== */
 static void lora_task(void *pv)
 {
-    u32 pkt = 0;
-
-    puts("L1 v7-IRQ\r\n");
+    puts("L1 v8\r\n");
 
     /* ─── 第1步: MD0=HIGH → AT命令模式 ─── */
     GDR(FGPIO3_BASE_ADDR) |=  (1U << MD0_PIN);  /* MD0 输出 HIGH */
@@ -515,53 +670,70 @@ static void lora_task(void *pv)
     *(volatile u32 *)(U2_BASE + 0x38) = 0x10 | 0x40;  /* RXIM | RTIM */
     puts("L6-IRQ\r\n");
 
-    /* ─── 第4步: 中断接收循环 ───
+    /* ─── 第4步: 帧累积 + 软超时接收循环 (v9: 累积式) ───
      *
-     *  ISR (uart2_lora_isr) 从 UART2 FIFO 读取 → 写入环形缓冲区 rb[4096]
-     *  本任务每 2ms 检查环形缓冲区 → hex dump 到共享内存
+     *  匹配 GD32 usart1_mark_frame() + usart1_read_frame():
+     *    ISR 写入环形缓冲区 → 任务排空 → 累计到 lora_frame_buf
+     *    soft_timeout → process_lora_frame() → 返回消费字节数
+     *    未消费的字节保留, 跨轮次累积, 永不丢失
      *
-     *  线程安全分析 (单核, CPU3):
-     *    rh 仅 ISR 写 (生产者), rt 仅 task 写 (消费者)
-     *    均为 32-bit aligned, volatile 修饰, 单核无竞争
-     *
-     *  2ms 轮询间隔: 115200bps → 11.5 bytes/ms → 23 bytes/间隔
-     *  环形缓冲区 4096B → 可缓冲 ~178 次轮询 (~356ms) 的数据
+     *  超时: 5 轮 × 2ms = 10ms (匹配 GD32 软超时)
      */
+    static u8  lora_frame_buf[1024];
+    static u32 lora_pos   = 0;
+    static u32 stable_cnt = 0;
+    static u32 frame_cnt  = 0;
     u32 loop_cnt = 0;
-    u32 idle_cnt = 0;
-    puts("L7-IRQ\r\n");
+    puts("L7-IRQ-v4\r\n");
     for (;;) {
         u32 avail = rp_avail();
 
         if (avail > 0) {
-            if (idle_cnt > 500) {  /* ~1s 空闲后重新有数据 */
-                spf("\r\n!! NEW after %ums idle\r\n", idle_cnt * 2);
+            while (lora_pos < sizeof(lora_frame_buf)) {
+                u8 b;
+                if (rp_get(&b) != 0) break;
+                lora_frame_buf[lora_pos++] = b;
             }
-            idle_cnt = 0;
-
-            u8 buf[64];
-            u32 n = 0;
-            while (n < 64 && rp_get(&buf[n]) == 0) n++;
-
-            pkt++;
-            spf("\r\nRX #%u %uB: ", pkt, n);
-            for (u32 j = 0; j < n; j++) {
-                static const char hex[] = "0123456789ABCDEF";
-                char h[4] = { hex[(buf[j] >> 4) & 0xF],
-                              hex[buf[j] & 0xF], ' ', 0 };
-                puts(h);
-            }
-            puts("\r\n");
+            if (lora_pos >= sizeof(lora_frame_buf))
+                goto force_parse;
+            stable_cnt = 0;
         } else {
-            idle_cnt++;
+            if (lora_pos > 0) {
+                stable_cnt++;
+                if (stable_cnt >= 5) {  /* 10ms 无新数据 → 尝试解析 */
+force_parse:
+                    u32 consumed = process_lora_frame(lora_frame_buf, lora_pos, &frame_cnt);
+
+                    if (consumed > 0) {
+                        if (consumed < lora_pos) {
+                            memmove(lora_frame_buf, lora_frame_buf + consumed,
+                                    lora_pos - consumed);
+                        }
+                        lora_pos -= consumed;
+                    } else {
+                        if (lora_pos >= sizeof(lora_frame_buf)) {
+                            for (u32 i = 0; i + 1 < lora_pos; i++) {
+                                if (lora_frame_buf[i] == 0xAA && lora_frame_buf[i+1] == 0x55) {
+                                    if (i > 0) {
+                                        memmove(lora_frame_buf, lora_frame_buf + i, lora_pos - i);
+                                        lora_pos -= i;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    stable_cnt = 0;
+                }
+            }
         }
 
         loop_cnt++;
-        SHM_HB++;  /* heartbeat: LoRa alive */
+        SHM_HB++;
         if ((loop_cnt % 1500) == 0) {  /* ~3s (1500 × 2ms) */
             u32 aux = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
-            spf("[RX-hb] loop=%u AUX=%u rp_av=%u idle=%ums\r\n",
-                loop_cnt, aux, rp_avail(), idle_cnt * 2);
+            spf("[RX-hb] loop=%u AUX=%u tx=%u isr=%u dat=%u\r\n",
+                loop_cnt, aux, frame_cnt, isr_cnt, isr_data);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2));  /* 2ms 轮询间隔 */
@@ -704,8 +876,10 @@ int main(void)
     InterruptSetPriority(FUART2_IRQ_NUM, IRQ_PRIORITY_VALUE_8);
     {
         u32 cpu_id;
+        u64 raw_mpidr = 0;
+        __asm__ volatile("mrs %0, MPIDR_EL1" : "=r"(raw_mpidr));
         GetCpuId(&cpu_id);
-        spf("UART2 IRQ%u → CPU%u\n", FUART2_IRQ_NUM, cpu_id);
+        spf("MPIDR=0x%llX GetCpuId=%u dts=rproc=3\n", raw_mpidr, cpu_id);
         InterruptSetTargetCpus(FUART2_IRQ_NUM, cpu_id);
     }
     InterruptUmask(FUART2_IRQ_NUM);

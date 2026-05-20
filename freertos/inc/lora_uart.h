@@ -1,24 +1,28 @@
 #ifndef LORA_UART_H
 #define LORA_UART_H
 
-#include <stdint.h>
+#include "ftypes.h"
 
 int      lora_uart_init(void);
 void     lora_uart_poll(void);
-uint16_t lora_uart_recv_frame(uint8_t *buf, uint16_t max_len);
-void     lora_uart_send(const uint8_t *data, uint16_t len);
+u16      lora_uart_recv_frame(u8 *buf, u16 max_len);
+void     lora_uart_send(const u8 *data, u16 len);
 void     lora_uart_send_str(const char *str);
 
+int      lora_uart_read_byte(u8 *byte);
+void     lora_md0_high(void);
+void     lora_md0_low(void);
 int      lora_aux_is_busy(void);
 
-/* GD32 兼容帧边界 API */
-uint16_t lora_uart_get_rx_count(void);
+u16      lora_uart_get_rx_count(void);
 void     lora_uart_clear_buffer(void);
 void     lora_uart_mark_frame(void);
-uint16_t lora_uart_read_frame(uint8_t *buf, uint16_t max_len);
+u16      lora_uart_read_frame(u8 *buf, u16 max_len);
 
-/* 调试统计 */
-unsigned int lora_uart_get_isr_count(void);
-unsigned int lora_uart_get_byte_total(void);
+u32      lora_uart_get_isr_count(void);
+u32      lora_uart_get_byte_total(void);
+
+void     debug_putc(char c);
+void     debug_print(const char *s);
 
 #endif
