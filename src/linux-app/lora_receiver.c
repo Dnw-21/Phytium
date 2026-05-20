@@ -292,31 +292,11 @@ exit_cfg:
 static volatile int g_running = 1;
 static void sig_handler(int s) { (void)s; g_running = 0; }
 
-static void print_hex(const unsigned char *data, int len)
-{
-    printf("  HEX: ");
-    for (int i = 0; i < len && i < 64; i++)
-        printf("%02X ", data[i]);
-    if (len > 64) printf("...(+%d)", len - 64);
-    printf("\n");
-
-    int printable = 0;
-    for (int i = 0; i < len && i < 64; i++)
-        if (data[i] >= 0x20 && data[i] <= 0x7E) printable++;
-    if (printable > len * 2 / 3) {
-        printf("  ASCII: ");
-        for (int i = 0; i < len && i < 64; i++)
-            putchar((data[i] >= 0x20 && data[i] <= 0x7E) ? data[i] : '.');
-        printf("\n");
-    }
-}
-
 static void print_frame(const unsigned char *data, int len)
 {
     int offset = 0;
 
     /* 检测并剥离 LoRa 定点传输地址头 (3字节: addr_hi, addr_lo, chn) */
-    /* 如果前3字节不是 AA 55, 可能是 LoRa TMODE 地址头 */
     if (len >= 6 && !(data[0] == 0xAA && data[1] == 0x55)) {
         uint16_t lora_addr = ((uint16_t)data[0] << 8) | data[1];
         uint8_t  lora_chn  = data[2];
@@ -327,27 +307,41 @@ static void print_frame(const unsigned char *data, int len)
         }
     }
 
-    /* GD32 协议帧解析 */
-    if (len >= 10 && data[offset] == 0xAA && data[offset+1] == 0x55) {
-        uint16_t data_len = ((uint16_t)data[offset+2] << 8) | data[offset+3];
-        uint16_t dev_id   = ((uint16_t)data[offset+4] << 8) | data[offset+5];
-        uint32_t ts       = ((uint32_t)data[offset+6] << 24) | ((uint32_t)data[offset+7] << 16)
-                          | ((uint32_t)data[offset+8] << 8)  | data[offset+9];
-        int header_size = 10; /* AA 55 + len(2) + dev_id(2) + ts(4) */
-        int payload_len = data_len - 6; /* len includes header after AA55: 2(len)+2(dev)+4(ts)=8? no: data_len=0x0089=137 */
+    /* GD32 协议帧解析
+     * 帧格式: AA 55 [len:2] [dev_id:2] [timestamp:2] [type:1] [sync:4] [payload:n]
+     */
+    if (len >= 11 && data[offset] == 0xAA && data[offset+1] == 0x55) {
+        uint16_t data_len  = ((uint16_t)data[offset+2] << 8) | data[offset+3];
+        uint16_t dev_id    = ((uint16_t)data[offset+4] << 8) | data[offset+5];
+        uint16_t timestamp = ((uint16_t)data[offset+6] << 8) | data[offset+7];
+        uint8_t  frm_type  = data[offset+8];
+        uint32_t sync      = ((uint32_t)data[offset+9]  << 24) | ((uint32_t)data[offset+10] << 16)
+                           | ((uint32_t)data[offset+11] << 8)  | data[offset+12];
 
-        printf("  [GD32 Proto] AA 55 | len=%u | dev=0x%04X",
-               data_len, dev_id);
+        printf("  [GD32] AA55 len=%-4u dev=0x%04X ts=0x%04X type=0x%02X\n",
+               data_len, dev_id, timestamp, frm_type);
 
-        /* 对比: 终端发送格式 [DATA] dest_hi dest_lo chn [AA 55 len dev_id ts payload...] */
-        /* 定点模式 LoRa 模块剥掉前3字节地址头后，输出 AA 55 ... */
-        printf("\n  [MATCH] ← \033[32mAA 55 %02X %02X %02X %02X ...\033[0m (终端发送的协议帧头)\n",
-               data[offset+2], data[offset+3], data[offset+4], data[offset+5]);
+        /* 高亮 sync — 对照终端日志中 "Encrypted: sync=0xXXXXXXXX" */
+        printf("  [SYNC] \033[1;33m0x%08X\033[0m ← 对照终端 \"Encrypted: sync=0x%08X\"\n",
+               sync, sync);
+
+        /* 显示 payload 前32字节 — 对照终端 TX Frame payload */
+        int payload_start = offset + 13; /* header(2) + data_len(2) + dev(2) + ts(2) + type(1) + sync(4) */
+        int show_n = (len - payload_start) < 32 ? (len - payload_start) : 32;
+        if (show_n > 0) {
+            printf("  [PLD ] ");
+            for (int i = 0; i < show_n; i++)
+                printf("%02X ", data[payload_start + i]);
+            printf("...\n");
+        }
+
+        printf("  [MATCH] ← 终端发送: \033[32m[DATA] dest_hi dest_lo chn [AA 55 %02X %02X %02X %02X %02X %02X %02X %02X %02X ...]\033[0m\n",
+               data[offset+2], data[offset+3], data[offset+4], data[offset+5],
+               data[offset+6], data[offset+7], data[offset+8],
+               data[offset+9], data[offset+10]);
     } else {
         printf("  [RAW] No GD32 frame header detected\n");
     }
-
-    print_hex(data, len);
 }
 
 /* ==========================================================================
