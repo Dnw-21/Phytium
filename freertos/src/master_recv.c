@@ -15,6 +15,18 @@
 
 static uint8_t calc_frame_crc8(const uint8_t *data, uint16_t len);
 
+static void hex_dump(const char *tag, const uint8_t *data, uint16_t len)
+{
+    char hex[256];
+    uint16_t pos = 0;
+    uint16_t dump_len = len < 64 ? len : 64;
+    for (uint16_t i = 0; i < dump_len && pos < sizeof(hex) - 4; i++) {
+        pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", data[i]);
+    }
+    hex[pos] = '\0';
+    log_info("%s len=%u: %s", tag, len, hex);
+}
+
 /* ==========================================================================
  *  LoRa 接收接口层 — 仿真与真实硬件切换
  *
@@ -48,23 +60,16 @@ static uint16_t master_recv_lora_data(uint8_t *buf, uint16_t max_len)
 }
 
 /* ==========================================================================
- *  真实 LoRa UART 接收 — 后续接入硬件时在此实现
+ *  真实 LoRa UART 接收 — GD32 参考实现
  *
- *  接入步骤:
- *    1. 初始化 PE2204 的 UART3 (或其它UART):
- *       master_lora_uart_init(baud, parity, stop_bits)
- *       配置 GPIO 复用 (TX/RX/AUX 引脚)
- *    2. 配置 UART 接收中断 + DMA:
- *       UART RX ISR → 数据写入环形缓冲区 ring_buf[2048]
- *    3. 本函数从 ring_buf 中提取完整帧:
- *       搜索 0xAA 0x55 帧头 → 读取 LEN → 校验 CRC8 → 返回一帧
- *    4. 没有完整帧时返回 0
+ *  与 GD32 mwcc68_uart.c 的 usart1_read_frame 方案一致:
+ *    ISR (UART3 RX中断) → ring_put() → 环形缓冲区
+ *    任务层软超时 → mark_frame() → read_frame()
  *
- *  涉及的 PE2204 寄存器 (以 UART3 为参考):
- *    UART3_BASE  = 0x2802D000  (需根据硬件确认)
- *    GPIO 复用   = GPIO2_10 (TX), GPIO2_11 (RX)
+ *  本函数保留供外部调用 (如注入数据管线), 但主接收流程
+ *  已改用 master_recv_task 内的软超时检测, 匹配 GD32 设计。
  *
- *  ATK-MWCC68D LoRa模块默认参数: 9600 baud, 8N1
+ *  UART3 配置: 115200-8N1, 基址 0x2800f000, 时钟 100MHz
  * ========================================================================== */
 static uint16_t master_lora_uart_recv(uint8_t *buf, uint16_t max_len)
 {
@@ -556,39 +561,54 @@ void master_recv_task(void *pvParameters)
 {
     uint8_t  raw_buf[MAX_FRAME_BUF];
     uint16_t raw_len;
-    unsigned int raw_bytes = 0;
-    unsigned int loop_cnt = 0;
 
     (void)pvParameters;
 
     lora_uart_init();
-    log_info("Recv task started (LoRa UART mode)");
+    log_info("Recv task started");
 
     while (1) {
         if (!g_lora_rx_enabled) {
             vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
         }
+
+#if USE_LORA_SIMULATION
         raw_len = master_recv_lora_data(raw_buf, sizeof(raw_buf));
         if (raw_len == 0) {
-            loop_cnt++;
             vTaskDelay(10 / portTICK_PERIOD_MS);
         } else {
-            raw_bytes += raw_len;
-            loop_cnt++;
             rpmsg_send_lora_recv_log(raw_buf, raw_len);
             vTaskDelay(1 / portTICK_PERIOD_MS);
         }
+#else
+        {
+            lora_uart_poll();
 
-        if (loop_cnt >= 500) {
-            loop_cnt = 0;
-            uint8_t hb[8];
-            hb[0] = 'L'; hb[1] = 'R'; hb[2] = 'H'; hb[3] = 'B';
-            hb[4] = (raw_bytes >> 24) & 0xFF;
-            hb[5] = (raw_bytes >> 16) & 0xFF;
-            hb[6] = (raw_bytes >> 8) & 0xFF;
-            hb[7] = raw_bytes & 0xFF;
-            rpmsg_send_lora_recv_log(hb, 8);
+            if (lora_uart_get_rx_count() == 0) {
+                vTaskDelay(10 / portTICK_PERIOD_MS);
+            } else {
+                uint16_t prev = lora_uart_get_rx_count();
+                int stable = 0;
+                while (stable < 20) {
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                    lora_uart_poll();
+                    uint16_t cur = lora_uart_get_rx_count();
+                    if (cur == prev) {
+                        stable++;
+                    } else {
+                        prev = cur;
+                        stable = 0;
+                    }
+                }
+                lora_uart_mark_frame();
+                raw_len = lora_uart_read_frame(raw_buf, sizeof(raw_buf));
+                if (raw_len >= 13) {
+                    rpmsg_send_lora_recv_log(raw_buf, raw_len);
+                }
+                vTaskDelay(1 / portTICK_PERIOD_MS);
+            }
         }
+#endif
     }
 }

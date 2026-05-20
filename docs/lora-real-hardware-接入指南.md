@@ -46,7 +46,8 @@
 │                                │ UART3 (0x2800f000)             │ │
 │                                │   TXD = J1 Pin8               │ │
 │                                │   RXD = J1 Pin10              │ │
-│                                │ GPIO2_10 = J1 Pin7 (AUX/MD0) │ │
+│                                │ AUX = J1 Pin7 (GPIO2_10)     │ │
+│                                │ MD0 = J1 Pin11 (GPIO3_1)     │ │
 │                                └──────────┬────────────────────┘ │
 │                                           │                      │
 └───────────────────────────────────────────┼──────────────────────┘
@@ -122,7 +123,7 @@ grep "USE_LORA_SIMULATION" /home/alientek/Phytium/freertos/src/master_recv.c
 | 物料                  | 数量  | 说明                      |
 | ------------------- | --- | ----------------------- |
 | ATK-MWCC68D LoRa 模块 | 2 个 | 一个接飞腾派（主控），一个接 GD32（终端） |
-| 杜邦线（母对母）            | 5 根 | 连接 J1 排针                |
+| 杜邦线（母对母）            | 6 根 | 连接 J1 排针                |
 | USB-TTL 模块          | 1 个 | 用于首次配置 LoRa 模块（临时使用）    |
 | GD32L233C 开发板       | 1 块 | 烧录终端节点程序                |
 
@@ -136,13 +137,15 @@ grep "USE_LORA_SIMULATION" /home/alientek/Phytium/freertos/src/master_recv.c
 |   Pin 8   | UART3\_TXD | UART3 TX    | RXD            |  黄色  |
 |   Pin 10  | UART3\_RXD | UART3 RX    | TXD            |  橙色  |
 |   Pin 1   | VCC\_3.3V  | 3.3V        | VCC            |  红色  |
-|   Pin 7   | GPIO2\_10  | GPIO2\_10   | AUX / MD0      |  蓝色  |
+|   Pin 7   | GPIO2\_10  | GPIO2\_10   | AUX            |  蓝色  |
+|  Pin 11   | GPIO3\_1   | GPIO3\_1    | MD0            |  绿色  |
 
-> **⚠️ 重要**：ATK-MWCC68D 模块的 AUX 引脚连接到 GPIO2\_10，用于：
+> **⚠️ 引脚功能说明**：
 >
-> - 模块状态指示（模块忙时为低电平）
-> - 进入 AT 命令模式（MD0 拉低时上电）
-> - 唤醒模块
+> - **AUX (Pin7, GPIO2\_10)**：模块状态指示（模块忙时为**低电平**），FreeRTOS 读取此引脚判断模块是否可接收/发送数据
+> - **MD0 (Pin11, GPIO3\_1)**：模式控制引脚
+>   - `低电平 (0)` = **透传模式**（正常工作模式，FreeRTOS 初始化时默认设置）
+>   - `高电平 (1)` = **AT 命令配置模式**（用于修改模块参数）
 
 ### 3.3 接线步骤
 
@@ -152,7 +155,8 @@ grep "USE_LORA_SIMULATION" /home/alientek/Phytium/freertos/src/master_recv.c
 4. **连接 TXD**：J1 Pin8 → LoRa 模块 RXD
 5. **连接 RXD**：J1 Pin10 → LoRa 模块 TXD
 6. **连接 AUX**：J1 Pin7 → LoRa 模块 AUX
-7. **检查**：用万用表确认无短路后再上电
+7. **连接 MD0**：J1 Pin11 → LoRa 模块 MD0
+8. **检查**：用万用表确认无短路后再上电
 
 ### 3.4 引脚定义参考
 
@@ -165,8 +169,11 @@ PE2204 UART3 的寄存器基址和中断号来自 SDK：
 #define FUART3_IRQ_NUM     (88 + 30)     // = 118 (GICv3 SPI)
 #define FUART3_CLK_FREQ_HZ 100000000U    // 100MHz
 
-// GPIO2 基址
+// GPIO2 基址 (AUX)
 #define FGPIO2_BASE_ADDR   0x28036000U
+
+// GPIO3 基址 (MD0)
+#define FGPIO3_BASE_ADDR   0x28037000U
 ```
 
 ***
@@ -909,9 +916,11 @@ make run-all         # 全量回归 (在确认通信正常后运行)
 | UART3 IRQ      | 118 (GICv3 SPI) |
 | UART3 时钟       | 100MHz          |
 | GPIO2 基址       | 0x28036000      |
+| GPIO3 基址       | 0x28037000      |
 | UART3 TXD 引脚   | J1 Pin8         |
 | UART3 RXD 引脚   | J1 Pin10        |
-| GPIO2\_10 引脚   | J1 Pin7         |
+| GPIO2\_10 (AUX)  | J1 Pin7         |
+| GPIO3\_1  (MD0)  | J1 Pin11        |
 | GICv3 基址       | 0x30800000      |
 | FreeRTOS CPU 核 | CPU3 (独占)       |
 
