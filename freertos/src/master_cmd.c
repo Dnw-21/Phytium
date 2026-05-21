@@ -1,8 +1,9 @@
 #include "master.h"
 #include "chaos_encrypt.h"
 #include "log.h"
-#include "lora_uart.h"
 #include <string.h>
+
+extern void lora_tx_send_byte(uint8_t b);
 
 static uint8_t g_enc_buf[128];
 static uint8_t g_lora_pkt[256];
@@ -52,8 +53,8 @@ static void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *para
      *   2. RPMsg → Linux (监控/记录)
      */
     uint16_t pkt_len = 5 + enc_len;
-    lora_uart_send(g_lora_pkt, pkt_len);
-    log_debug("CMD sent via UART3: node%d code=0x%02X len=%d", node_id, cmd_code, pkt_len);
+    for (uint16_t i = 0; i < pkt_len; i++) lora_tx_send_byte(g_lora_pkt[i]);
+    log_debug("CMD sent via UART2: node%d code=0x%02X len=%d", node_id, cmd_code, pkt_len);
 
     int ret = rpmsg_send_master_cmd(node_id, cmd_code, params, param_len);
     if (ret >= 0) {

@@ -118,4 +118,15 @@ MasterDownloadBuf_t *master_get_download_buf(void);
 
 int rpmsg_send_lora_recv_log(const uint8_t *raw_data, uint16_t raw_len);
 
+void process_status_header(const uint8_t *payload, uint16_t len, uint16_t src_addr,
+                           MasterDownloadBuf_t *dl, MasterNodeInfo_t *node);
+void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloadBuf_t *dl,
+                      MasterNodeInfo_t *node);
+void process_wave_header(const uint8_t *payload, uint16_t len, MasterDownloadBuf_t *dl,
+                         MasterNodeInfo_t *node, uint16_t src_addr);
+void process_flash_wave(const uint8_t *payload, uint16_t len, MasterDownloadBuf_t *dl,
+                        MasterNodeInfo_t *node);
+void process_fault_list(const uint8_t *payload, uint16_t len, uint16_t src_addr,
+                        MasterNodeInfo_t *node);
+
 #endif /* __MASTER_H */

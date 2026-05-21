@@ -1,6 +1,6 @@
 # FreeRTOS LoRa 接收调试指南
 
-> **最后更新**: 2026-05-21  |  **当前版本**: v10 Final  |  **状态**: 生产就绪 ✅
+> **最后更新**: 2026-05-21  |  **当前版本**: v12-SIM  |  **状态**: S1~S6 ✅ + S8模拟注入部分验证通过 🔶
 >
 > 本指南记录从零搭建 FreeRTOS OpenAMP LoRa 接收系统的完整过程，包含所有踩过的坑和解决方案。
 
@@ -47,7 +47,9 @@
 ```
 FreeRTOS (homo_core0, 0xb0100000)
     │
-    ├── f_printk ──→ 共享内存环形缓冲区 (0xC8000000, 1MB)
+    ├── f_printk ──→ 共享内存环形缓冲区 (0xC8000000, 1MB) ← 已弃用
+    │
+    ├── shm_print (Mutex保护) ──→ 共享内存环形缓冲区 (0xC8000000, 1MB)
     │                    │
     │                    └── Linux /dev/mem mmap ──→ trace_reader
     │
@@ -130,24 +132,53 @@ sudo busybox devmem 0xC8000000 32   # write_index != 0 说明 FreeRTOS 在工作
 
 ## 关键技术点
 
-### 0. f_printk 半可靠 —— 最终方案：裸写共享内存
+### 0. 共享内存打印 —— 最终方案：shm_print 模块 (Mutex 保护)
 
-**教训**: 虽然 `CONFIG_OPENAMP_TRACE_DEBUG=y` 理论上可以让 `f_printk` 走共享内存 trace，
-但实际在 FreeRTOS 多任务环境中，`ftrace_printk` 内部依赖 `trace_buffer_init` → `FMmuMap` 
-的自动初始化时序不确定，且 `vsnprintf` 等标准库函数在某些编译配置下行为异常，
-导致新代码中 `f_printk` 不可靠（write_index 始终为 0）。
+**v11-S1 变更**: 将 `main.c` 中的裸写宏 (`put/puts/spf`) 和 `log.c` 中的 `f_printk` 统一替换为 `shm_print` 模块。
 
-**最终方案**: 绕过所有 SDK trace 函数，直接用 volatile 宏裸写共享内存：
+**为什么需要 Mutex**:
+- 旧方案 `puts/spf` 是宏/函数直接写环形缓冲区，多任务并发写入时字符交错
+- `f_printk` 在多任务环境下不可靠（write_index 始终为 0）
+- `shm_print` 使用 FreeRTOS Mutex 保护，确保每次 `shm_puts`/`shm_spf` 调用是原子的
+
+**关键设计**:
 ```c
-#define SHM_BASE ((volatile u32*)0xC8000000UL)
-#define SHM_WI   SHM_BASE[0]
-#define SHM_BUF  ((volatile char*)(SHM_BASE+3))
+// shm_puts: Mutex 保护的字符串写入
+void shm_puts(const char *s)
+{
+    if (shm_mutex && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        xSemaphoreTake(shm_mutex, portMAX_DELAY);
+    }
+    while (*s) shm_put(*s++);
+    if (shm_mutex && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        xSemaphoreGive(shm_mutex);
+    }
+}
+```
 
+**ISR 安全**: Mutex 绝不能在 ISR 中使用。当前 `uart2_lora_isr` 不调用 `shm_puts/shm_spf`，仅操作环形缓冲区 `rp_put()`。
+
+**初始化顺序**:
+```c
+// main() 中:
+shm_clear();          // 清零 WI/RI/HB + 缓冲区
+shm_print_init();     // 创建 Mutex
+shm_puts("...");      // 此时调度器未启动, 无锁也安全
+// vTaskStartScheduler() 后, 所有任务中的 shm_puts 自动加锁
+```
+
+**文件**:
+- `inc/shm_print.h` — 接口声明
+- `src/shm_print.c` — 实现 (含 Mutex)
+
+**旧方案 (已弃用)**:
+```c
+// 旧: main.c 内联宏, 非线程安全
 #define put(c) do{ u32 w=SHM_WI,r=SHM_BASE[1],n=(w+1)%((1048576-12)); \
                    if(n!=r){SHM_BUF[w]=(c);SHM_WI=n;} }while(0)
 #define puts(s) do{ const char*__p=s; while(*__p)put(*__p++); }while(0)
+static void spf(const char *fmt, ...) { ... puts(buf); }
 ```
-此方案零库函数依赖，Step1 已验证可靠。后续用 `snprintf` + `puts` 实现格式化输出。
 
 ### 1. 共享内存打印 (Step1)
 
@@ -981,6 +1012,22 @@ AT_SEND("AT+ADDR=00,0B")
 
 ## 版本变更历史
 
+### v11-S1 (2026-05-21) — spf() 互斥保护 + log.c 统一输出
+
+**变更**: 将共享内存打印从裸写宏迁移到带 Mutex 保护的 `shm_print` 模块
+
+**新增文件**:
+- `inc/shm_print.h` — 接口: `shm_puts()`, `shm_spf()`, `shm_clear()`, `shm_hb_inc()`, `shm_print_init()`
+- `src/shm_print.c` — 实现: FreeRTOS Mutex 保护, 调度器前无锁, 调度器后自动加锁
+
+**修改文件**:
+- `main.c` — 移除 `SHM_BASE/SHM_WI/SHM_RI/SHM_HB/SHM_BUF/SHM_BSZ` 宏定义和 `put/puts/spf` 实现, 全部替换为 `shm_puts/shm_spf/shm_clear/shm_hb_inc`; `main()` 中 `shm_clear()` + `shm_print_init()` 替代旧清零代码
+- `src/log.c` — `#include "fprintk.h"` → `#include "shm_print.h"`, `f_printk("%s", buf)` → `shm_puts(buf)`
+
+**ISR 安全**: `uart2_lora_isr` 不调用任何 shm_print 函数, 仅操作 `rp_put()` (环形缓冲区)
+
+**验证**: 编译通过, 部署后 trace_reader 输出与 v10 完全一致, 多任务打印无字符交错
+
 ### v7 (2026-05-21) — 中断模式 (Step4)
 - **变更**: 从纯轮询迁移到 GICv3 硬件中断接收
 - **新增**: `uart2_lora_isr` ISR, GICv3配置(Install/Priority/TargetCpus/Umask)
@@ -1251,11 +1298,13 @@ fi
 
 ---
 
-## 当前运行状态 (v10 Final, 2026-05-21)
+## 当前运行状态 (v11-S1, 2026-05-21)
 
 ```
-✅ FreeRTOS 启动            === FreRTOS LoRa v10 ===
+✅ FreeRTOS 启动            === FreeRTOS LoRa v7-S1 (mutex+log) ===
 ✅ 共享内存非缓存           MT_DEVICE_NGNRNE
+✅ shm_print 互斥保护       Mutex 保护多任务打印, ISR 安全
+✅ log.c 统一输出           f_printk → shm_puts (经 Mutex)
 ✅ RPMsg 通道建立           RPMsg done
 ✅ GICv3 中断配置           UART2 IRQ117 → CPU1 (big核)
 ✅ 帧解析对齐GD32格式       无CRC, AA55/55AA帧头尾标记
@@ -1305,6 +1354,291 @@ fi
 - ISR 触发频率: ~每 4-5s 一次 (多节点并发发包)
 - 每次触发处理: ~320 字节 (多帧拼接)
 - 50秒内: 22帧 / 184次ISR / 2944字节数据
+
+---
+
+## S2: 打通 RPMsg 数据管道 (2026-05-21)
+
+### S2 目标
+
+验证 FreeRTOS → Linux 的 RPMsg 通信管道，确认载荷限制，实现 LoRa 帧数据通过 RPMsg 传到 Linux 侧。
+
+### S2 遇到的问题
+
+#### 问题1: rpm_task 被 platform_poll 阻塞
+
+**现象**: rpm_task 调用 `platform_poll()` 后任务卡死，心跳停止。
+
+**原因**: `platform_poll()` 内部在 `CONFIG_USE_OPENAMP_IPI=y` 时调用 WFI 指令等待 IPI 中断，CPU 进入休眠。如果 Linux 侧没有发消息，CPU 永远不会唤醒。
+
+**修复**: 改用 `platform_poll_nonblocking()`，该函数检查 IPI 标志后立即返回，不会阻塞。
+
+```c
+// 修改前 (阻塞)
+platform_poll(&rproc);
+
+// 修改后 (非阻塞)
+platform_poll_nonblocking(&rproc);
+vTaskDelay(pdMS_TO_TICKS(2));
+```
+
+#### 问题2: rpmsg_create_ept 编译错误 — ns_unbind_cb 重定义
+
+**现象**: 编译报错 `'rpmsg_ns_unbind_cb' redefinition`。
+
+**原因**: 自定义的 unbind 回调函数名 `rpmsg_ns_unbind_cb` 与 `rpmsg.h` 中的 typedef 冲突。
+
+**修复**: 将回调函数重命名为 `rpmsg_ept_unbind_cb`。
+
+#### 问题3: rpmsg_send 始终返回 -2003 (RPMSG_ERR_PARAM) — **核心问题**
+
+**现象**: FreeRTOS 侧 `rpmsg_send()` 始终返回 -2003，endpoint 的 `dest_addr` 始终为 `RPMSG_ADDR_ANY (0xFFFFFFFF)`。
+
+**排查过程**:
+
+1. **初步怀疑**: g_ept 为 NULL → 添加调试打印确认 g_ept 非空
+2. **深入分析**: 阅读 `rpmsg_send_offchannel_raw` 源码，发现当 `dst == RPMSG_ADDR_ANY` 时直接返回 `RPMSG_ERR_PARAM`
+3. **追踪 dest_addr**: 为什么 dest_addr 没有被更新？→ 研究 NS (Name Service) 交换机制
+4. **对比两端源码**: 发现关键差异
+
+**根因**:
+
+**Linux 内核的 `rpmsg_create_ept` 不会发送 NS_CREATE 消息！**
+
+| | FreeRTOS (OpenAMP) | Linux (virtio_rpmsg_bus) |
+|---|---|---|
+| 源码位置 | `openamp/lib/rpmsg/rpmsg.c` | `kernel/drivers/rpmsg/virtio_rpmsg_bus.c` |
+| 函数 | `rpmsg_create_ept()` | `__rpmsg_create_ept()` |
+| 发送 NS_CREATE? | **是** — `rpmsg_send_ns_message(ept, RPMSG_NS_CREATE)` | **否** — 只分配地址和注册回调 |
+
+**完整的 NS 交换流程**:
+
+```
+FreeRTOS rpmsg_create_ept("rpmsg-openamp-demo-channel", src=0, dst=ANY)
+  → 发送 NS_CREATE 消息
+  → Linux rpmsg_ns_cb 收到
+  → rpmsg_create_channel() 创建 rpmsg_device
+  → 用户 bind rpmsg_chrdev → /dev/rpmsg_ctrl0
+
+Linux 用户态 ioctl(RPMSG_CREATE_EPT_IOCTL)
+  → rpmsg_eptdev_create() → 创建 /dev/rpmsg0
+
+Linux 用户态 open("/dev/rpmsg0")
+  → rpmsg_eptdev_open()
+  → rpmsg_create_ept()  ← 这里不发 NS_CREATE!
+  → FreeRTOS 侧 dest_addr 不会通过 NS 消息更新
+```
+
+**OpenAMP 中 dest_addr 的三种更新机制**:
+
+1. **NS 消息** — `rpmsg_virtio_ns_callback` 收到 NS_CREATE 时更新 → 但 Linux 不发 NS，此路不通
+2. **首条数据消息** — `rpmsg_virtio_rx_callback` 中:
+   ```c
+   if (ept->dest_addr == RPMSG_ADDR_ANY) {
+       ept->dest_addr = rp_hdr->src;  // 从收到的第一条消息获取远端地址
+   }
+   ```
+3. **自定义回调** — 我们的 `rpmsg_endpoint_cb` 中 `ept->dest_addr = src;`
+
+**由于机制1不可用，只有机制2和3可用，前提是 Linux 先发一条消息。**
+
+**修复方案**:
+
+在 `rpmsg_recv.c` 打开 endpoint 设备后，先发送一条 ECHO_REQ 消息:
+
+```c
+RpmsgPkt hello;
+memset(&hello, 0, sizeof(hello));
+hello.command = CMD_ECHO_REQ;
+hello.length  = 5;
+memcpy(hello.data, "HELLO", 5);
+write(fd, &hello, RPMSG_PKT_HDR_SIZE + hello.length);
+```
+
+FreeRTOS 收到后:
+1. `rpmsg_virtio_rx_callback` 更新 `dest_addr = rp_hdr->src`
+2. `rpmsg_endpoint_cb` 再次确认 `ept->dest_addr = src`
+3. ECHO_REQ 处理回复 ECHO_RESP → 验证双向通信
+4. 之后 FreeRTOS → Linux 的 `rpmsg_send()` 不再返回 -2003
+
+#### 问题4: rpmsg_recv.c 中 eptinfo.dst 设置错误
+
+**现象**: `eptinfo.dst = 0xFFFFFFFF` (RPMSG_ADDR_ANY)。
+
+**原因**: 参考了错误的示例代码。SDK 示例中 `dst_addr = 0`（FreeRTOS endpoint 的 src 地址）。
+
+**修复**: `eptinfo.dst = 0;`
+
+### S2 修改的文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `main.c` | rpm_task 改用 `platform_poll_nonblocking`; 添加 `rpmsg_endpoint_cb`/`rpmsg_ept_unbind_cb`; 添加 `rpmsg_send_lora_raw`; 在 rpm_task 中添加定时心跳发送; 心跳中增加 dest_addr 调试信息 |
+| `inc/rpmsg_proto.h` | 新建 — 定义 RPMsg 消息协议结构体 (RpmsgPkt) 和命令常量 |
+| `src/linux-app/rpmsg_recv.c` | 新建 — Linux 侧 RPMsg 接收程序, 使用 rpmsg_char ioctl 创建 endpoint, 打开后先发 ECHO_REQ 绑定 dest_addr |
+| `deploy.sh` | 修复 cp 命令因符号链接报错 |
+
+### S2 验证结果
+
+```
+[4] ECHO_REQ sent (11 bytes), waiting for response...
+[4] ECHO_RESP received: cmd=0x0041 len=5 ✅           ← 双向通信 OK
+
+[04:08:00 PKT #1] cmd=0x0030(HEARTBEAT) len=4 total=10B  ← FreeRTOS→Linux 心跳 OK
+[04:08:10 PKT #2] cmd=0x0030(HEARTBEAT) len=4 total=20B  ← 第二个心跳 OK
+
+[RPM-hb] ept=0xb0131758 dest=0x400 tx=4 err=0 poll=0     ← dest_addr=0x400, 4次成功, 0次错误
+```
+
+**结论**: RPMsg 管道双向通信完全打通。ECHO 请求/响应验证双向，心跳包验证 FreeRTOS→Linux 持续传输。
+
+### S2 关键经验
+
+1. **Linux 内核 rpmsg_create_ept 不发 NS_CREATE** — 这是 OpenAMP (FreeRTOS) 和 virtio_rpmsg_bus (Linux) 的行为差异，文档中很少提及
+2. **dest_addr 绑定需要 Linux 先发消息** — Linux 侧程序打开 endpoint 后必须先 write() 一条消息，FreeRTOS 才能获得远端地址
+3. **platform_poll 会阻塞** — FreeRTOS 多任务环境下必须用 `platform_poll_nonblocking`
+4. **eptinfo.dst 应设为 0** — 对应 FreeRTOS 侧 endpoint 的 src 地址，不是 RPMSG_ADDR_ANY
+
+## S3: 移植 master_recv.c 完整状态机 (2026-05-21)
+
+### S3 目标
+
+将 `process_lora_frame` 中的简单打印逻辑替换为 `master_recv.c` 中的完整状态机处理，实现帧解析→解密→按类型分发→数据累积的完整流程。
+
+### S3 改动方案
+
+**架构决策**: 不启动独立的 `master_recv_task`，而是将状态机处理函数融入 `lora_task` 的 `process_lora_frame` 调用点。
+
+原因:
+- `lora_task` 已有成熟的 ISR ring buffer + 软超时帧收集逻辑
+- `master_recv_task` 有自己的 UART 读取逻辑（`lora_rx_avail`/`lora_rx_read_byte`），与当前 ISR 方式冲突
+- 只需要替换帧处理逻辑，不需要替换帧收集逻辑
+
+**改动内容**:
+
+1. `process_lora_frame` (main.c): switch 分支从"打印调试"改为"调用状态机处理函数"
+2. `master_recv.c`: 5 个 `static` 处理函数改为非 static，供 main.c 调用
+3. `master.h`: 添加 5 个处理函数的声明
+4. `main.c`: 添加 `#include "master.h"` + 调用 `master_init()`
+
+### S3 修改的文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `main.c` | `process_lora_frame` switch 分支调用状态机函数; 添加 `#include "master.h"`; 添加 `master_init()` 调用 |
+| `src/master_recv.c` | 5 个处理函数从 `static` 改为非 static |
+| `inc/master.h` | 添加 5 个处理函数的声明 |
+
+### S3 验证结果
+
+```
+[00:00:00.000] [INFO]  Master init: 10 nodes, cmd_q=5, DLbuf=1296B, SHM=[S:64000B W:64000B]
+[RPM-hb] ept=0xb0132858 dest=0x400 tx=5 err=0 poll=0
+[4] ECHO_RESP received: cmd=0x0041 len=5 ✅
+[04:19:33 PKT #1] cmd=0x0030(HEARTBEAT) len=4 total=10B
+[04:19:43 PKT #2] cmd=0x0030(HEARTBEAT) len=4 total=20B
+```
+
+**结论**: master_init 初始化成功，RPMsg 管道正常，状态机函数已集成。待 LoRa 节点发数据后可验证完整状态机流程。
+
+---
+
+## S8: 模拟数据注入测试 (2026-05-21)
+
+### 目标
+
+在无远程 LoRa 节点的情况下，通过构造模拟 LoRa 帧注入 `process_lora_frame`，验证状态机逻辑（混沌解密、帧类型分发、数据累积、共享内存写入）。
+
+### 背景
+
+LoRa 节点在1km外室内发送，飞腾派收不到信号。`isr=21`（仅AT配置响应），`tx=0`（无帧解析）。需要不依赖外部硬件来验证软件链路。
+
+### 实现方案
+
+1. **`build_lora_frame()`** — 构造完整 LoRa 帧
+   - 格式：AA55 + LEN:2B + TS:4B + TYPE:1B + SYNC:4B + 混沌加密载荷 + 1B保留 + 55AA
+   - 使用真实的 `chaos_encrypt_packet()` 加密，确保解密路径也被验证
+2. **`inject_sim_frames()`** — 注入3种模拟帧
+   - STATUS：FaultUploadHeader_t（node=1, severity=WARNING, fault=OVER_VOLTAGE, points=8）
+   - NODE_RAW：8个 NodeSample_t 采样点
+   - FAULT_LIST：4字节故障列表
+3. **自动触发**：lora_task 启动3秒后，如果 `g_real_frame_cnt==0`，自动注入一次
+
+### 踩坑：帧格式1字节保留字段
+
+**现象**：首次部署后 consumed=0，模拟帧全部解析失败。
+
+**调试输出**：
+```
+BUILD: type=01 plen=20 enc=20 sync=03E807D0 dlen=29 total=35
+PLF: tail overflow dlen=29 buf=35 tail=34
+```
+
+**根因分析**：
+
+`process_lora_frame` 中帧尾位置计算为 `tail_pos = pos + 5 + data_len`，而非 `pos + 4 + data_len`。这意味着帧结构中 LEN 和 data 之间有1字节间隔：
+
+```
+pos+0: AA
+pos+1: 55
+pos+2: LEN_H
+pos+3: LEN_L
+pos+4: ??? (1字节保留/CRC)  ← process_lora_frame 跳过此字节
+pos+5: TS[3]  ← data[0] (data = &buf[pos+4], 但 tail_pos 按 pos+5 算)
+...
+tail_pos = pos + 5 + data_len: 55
+tail_pos+1: AA
+```
+
+`build_lora_frame` 原来按 `total = 2+2+data_len+2` 计算，少了这1字节，导致 `tail_pos+2 > buf_len`。
+
+**修复**：
+```c
+u32 total = 2 + 2 + data_len + 1 + 2;  // +1 保留字节
+// ...
+out[p++] = 0x00;  // 1字节保留
+out[p++] = 0x55; out[p++] = 0xAA;
+```
+
+### 验证结果
+
+修复后3帧模拟数据全部正确解析：
+
+```
+=== INJECT: sim frames ===
+BUILD: type=01 plen=20 enc=20 sync=03E807D0 dlen=29 total=36
+=== FRAME #1: type=01 ts=1000 sync=03E807D0 enc=20B dec=20B ===
+INJECT STATUS: 36B consumed=36
+
+BUILD: type=04 plen=128 enc=128 sync=24201E54 dlen=137 total=144
+=== FRAME #2: type=04 ts=1000 sync=24201E54 enc=128B dec=128B ===
+INJECT NODE_RAW: 144B consumed=144
+
+BUILD: type=06 plen=4 enc=4 sync=493D532F dlen=13 total=20
+=== FRAME #3: type=06 ts=1000 sync=493D532F enc=4B dec=4B ===
+[00:00:14.800] [INFO]  Fault list: node1=4 valid/4
+INJECT FAULT_LIST: 20B consumed=20
+=== INJECT: done ===
+
+[RX-hb] loop=3000 AUX=0 tx=3 real=3 isr=21 dat=215 rpmsg=0/3
+```
+
+| 验证项 | 结果 |
+|--------|------|
+| 混沌加密/解密 | ✅ enc_len = dec_len，解密正确 |
+| 帧格式解析 | ✅ consumed = total，3帧全部正确消费 |
+| FAULT_LIST 状态机 | ✅ node1=4 valid/4 |
+| real_frame_cnt | ✅ real=3 |
+| RPMsg 发送 | ⚠️ rpmsg=0/3，Linux侧未运行rpmsg_recv，dest_addr未绑定 |
+| STATUS/NODE_RAW 状态机 | ⚠️ 未看到 Fault hdr / SAVE 日志，待下次确认 |
+
+### 待验证项（下次上电后）
+
+1. 确认 `process_status_header` 是否正确设置 dl_buf
+2. 确认 `process_node_raw` 是否正确累积采样点并触发 `master_flash_save_node_data`
+3. 确认 Judge 任务是否联动（severity=WARNING → REQ_WAVE 命令）
+4. Linux 侧运行 rpmsg_recv 后验证 RPMsg 数据传输
+5. 验证通过后删除调试 shm_spf 行
 
 ---
 

@@ -29,7 +29,15 @@ SSH="sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@${BOARD_IP}"
 SCP="sshpass -p 'user' scp -o StrictHostKeyChecking=no"
 SUDO="echo 'user' | sudo -S"
 
-echo "==== 1/6 编译 FreeRTOS 固件 ===="
+DEV_DIR="/home/alientek/Phytium/freertos"
+
+echo "==== 0/7 同步源码到 SDK 目录 ===="
+cp "${DEV_DIR}/main.c" "${SDK_DIR}/main.c"
+cp "${DEV_DIR}/src/"*.c "${SDK_DIR}/src/" 2>/dev/null || true
+cp "${DEV_DIR}/inc/"*.h "${SDK_DIR}/inc/" 2>/dev/null || true
+echo "  done"
+
+echo "==== 1/7 编译 FreeRTOS 固件 ===="
 cd "${SDK_DIR}"
 export AARCH64_CROSS_PATH="${TOOLCHAIN}"
 make config_pe2204_phytiumpi_aarch64
@@ -38,35 +46,35 @@ make all -j$(nproc)
 echo "  ELF: $(ls -lh ${ELF_FILE} | awk '{print $5}')"
 
 echo ""
-echo "==== 2/6 传输固件到开发板 ===="
+echo "==== 2/7 传输固件到开发板 ===="
 ${SCP} "${ELF_FILE}" "user@${BOARD_IP}:/tmp/"
 echo "  done"
 
 echo ""
-echo "==== 3/6 检查 remoteproc 状态 ===="
+echo "==== 3/7 检查 remoteproc 状态 ===="
 STATE=$(${SSH} "${SUDO} cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null" 2>/dev/null || echo "unknown")
 echo "  remoteproc state = ${STATE}"
 
 echo ""
-echo "==== 4/6 更新固件到 ${FW_TARGET} ===="
+echo "==== 4/7 更新固件到 ${FW_TARGET} ===="
 ${SSH} "${SUDO} cp /tmp/${ELF_FILE} ${FW_TARGET} && sync && echo '  firmware updated'"
 
 echo ""
 if [ "${STATE}" = "offline" ] || [ "${STATE}" = "unknown" ]; then
-    echo "==== 5a/6 固件离线, 直接启动 (安全) ===="
+    echo "==== 5a/7 固件离线, 直接启动 (安全) ===="
     ${SSH} "${SUDO} sh -c 'echo openamp_core0.elf > /sys/class/remoteproc/remoteproc0/firmware'"
     ${SSH} "${SUDO} sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'"
     sleep 5
     NEW_STATE=$(${SSH} "${SUDO} cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null" 2>/dev/null || echo "unknown")
     echo "  remoteproc new state = ${NEW_STATE}"
 else
-    echo "==== 5b/6 固件已在运行, 跳过重启 ===="
+    echo "==== 5b/7 固件已在运行, 跳过重启 ===="
     echo "  (避免 echo stop 触发 OP-TEE 重初始化远程核 → RCU stall)"
     echo "  新固件已写入 ${FW_TARGET}, 下次 reboot 生效"
 fi
 
 echo ""
-echo "==== 6/6 验证数据解析 (trace_reader 45s) ===="
+echo "==== 6/7 验证数据解析 (trace_reader 45s) ===="
 ${SSH} "${SUDO} timeout 45 /home/user/trace_reader 2>/dev/null" 2>/dev/null | head -80
 
 echo ""

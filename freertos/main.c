@@ -59,202 +59,192 @@
 #include "fcpu_info.h"          /* GetCpuId() — 获取当前核心编号 */
 #include <string.h>
 #include <stdio.h>
-#include <stdarg.h>
 #include "chaos_encrypt.h"
 #include "data_frame.h"
+#include "shm_print.h"
+#include "rpmsg_proto.h"
+#include "master.h"
 
-/* ==========================================================================
- *  第1部分: 共享内存打印 — 自包含, 零SDK依赖
- *
- *  设计决策: 不使用 f_printk/ftrace_printk。
- *  原因: f_printk 在多任务环境下不可靠 (write_index 始终为0)。
- *  方案: 直接 volatile 宏裸写, 绕开所有SDK依赖链。
- * ========================================================================== */
+static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
 
-/*
- * SHM_BASE: 设备树 reserved-memory 预留的物理内存起始地址
- * 范围: 0xb0100000 ~ 0xc99fffff (409MB, rproc@b0100000)
- * SHM_BUF: 跳过 3 个 u32 头部字段 (wi, ri) 后的实际缓冲区
- * put/puts: 宏实现, 零函数调用开销, volatile 确保每次真正内存访问
- */
-#define SHM_BASE  ((volatile u32 *)0xC8000000UL)
-#define SHM_WI    (SHM_BASE[0])                      /* write_index: 写指针 */
-#define SHM_RI    (SHM_BASE[1])                      /* read_index: 读指针 */
-#define SHM_HB    (SHM_BASE[2])                      /* heartbeat: 3个任务的活心跳 (read via devmem 0xC8000008) */
-#define SHM_BUF   ((volatile char *)(SHM_BASE + 3))  /* 环形缓冲区起始 */
-#define SHM_BSZ   (1024 * 1024 - 12)                 /* 缓冲区大小(1MB-12B) */
+static volatile int g_lora_rx_enabled = 1;
+static volatile u32 g_real_frame_cnt = 0;
+void master_lora_rx_ctrl(int enable) { g_lora_rx_enabled = enable; }
+int  master_lora_rx_is_enabled(void) { return g_lora_rx_enabled; }
 
-/*
- * put: 往环形缓冲区写一个字符
- * 宏展开避免函数调用, volatile 防止编译器将 SHM_WI 缓存在寄存器
- */
-#define put(c) do { \
-    u32 w = SHM_WI, r = SHM_RI, n = (w + 1) % SHM_BSZ; \
-    if (n != r) { SHM_BUF[w] = (c); SHM_WI = n; } \
-} while (0)
+static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p);
 
-/*
- * puts: 往环形缓冲区写一个字符串
- */
-#define puts(s) do { const char *p = (s); while (*p) put(*p++); } while (0)
-
-/*
- * spf: 格式化输出到共享内存
- * 先 vsnprintf 到 256B 栈缓冲区, 再 puts
- * 注意: 非线程安全, 多任务并发写入时可能字符交错
- */
-static void spf(const char *fmt, ...)
+static u32 build_lora_frame(u8 *out, u32 out_sz, u8 type, const u8 *payload, u16 plen)
 {
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    puts(buf);
+    if (plen > 128) return 0;
+    u32 ts = 1000;
+    u8 enc_buf[128];
+    u32 sync;
+    u16 enc_len = chaos_encrypt_packet(payload, plen, enc_buf, &sync);
+    u16 data_len = 4 + 1 + 4 + enc_len;
+    u32 total = 2 + 2 + data_len + 1 + 2;
+    if (total > out_sz) return 0;
+    shm_spf("BUILD: type=%02X plen=%u enc=%u sync=%08X dlen=%u total=%u\r\n",
+        type, plen, enc_len, sync, data_len, total);
+    u32 p = 0;
+    out[p++] = 0xAA; out[p++] = 0x55;
+    out[p++] = (u8)(data_len >> 8); out[p++] = (u8)(data_len & 0xFF);
+    out[p++] = (u8)(ts >> 24); out[p++] = (u8)(ts >> 16);
+    out[p++] = (u8)(ts >> 8);  out[p++] = (u8)(ts & 0xFF);
+    out[p++] = type;
+    out[p++] = (u8)(sync >> 24); out[p++] = (u8)(sync >> 16);
+    out[p++] = (u8)(sync >> 8);  out[p++] = (u8)(sync & 0xFF);
+    memcpy(&out[p], enc_buf, enc_len); p += enc_len;
+    out[p++] = 0x00;
+    out[p++] = 0x55; out[p++] = 0xAA;
+    return p;
 }
 
+static void inject_sim_frames(u32 *frame_cnt)
+{
+    shm_puts("\r\n=== INJECT: sim frames ===\r\n");
+    {
+        FaultUploadHeader_t hdr;
+        memset(&hdr, 0, sizeof(hdr));
+        hdr.data_type   = DATA_TYPE_STATUS;
+        hdr.severity    = SEVERITY_WARNING;
+        hdr.timestamp   = 5000;
+        hdr.fault_type  = FAULT_OVER_VOLTAGE;
+        hdr.node_index  = 1;
+        hdr.total_points = 8;
+        hdr.sample_rate  = 2000;
+        u8 frame[256];
+        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_STATUS,
+                                     (const u8 *)&hdr, sizeof(hdr));
+        if (flen > 0) {
+            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
+            shm_spf("INJECT STATUS: %uB consumed=%u\r\n", flen, consumed);
+        }
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    {
+        NodeSample_t samples[8];
+        memset(samples, 0, sizeof(samples));
+        for (int i = 0; i < 8; i++) {
+            samples[i].active_power   = 1000 + i * 100;
+            samples[i].reactive_power = 200 + i * 20;
+            samples[i].voltage_angle  = 30 + i * 5;
+            samples[i].voltage_mag    = 22000 + i * 100;
+        }
+        u8 frame[256];
+        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_NODE_RAW,
+                                     (const u8 *)samples, sizeof(samples));
+        if (flen > 0) {
+            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
+            shm_spf("INJECT NODE_RAW: %uB consumed=%u\r\n", flen, consumed);
+        }
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    {
+        uint8_t fault_data[4] = { 0x01, 0x02, 0x00, 0x00 };
+        u8 frame[256];
+        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_FAULT_LIST,
+                                     fault_data, sizeof(fault_data));
+        if (flen > 0) {
+            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
+            shm_spf("INJECT FAULT_LIST: %uB consumed=%u\r\n", flen, consumed);
+        }
+    }
+    shm_puts("=== INJECT: done ===\r\n");
+}
 
-/*
- * process_lora_frame: 解析 + 解密 + 打印 LoRa 帧
- *   返回: (u32) 实际消费字节数 — 调用者据此将剩余数据前移
- *
- *   0 → 没有完整帧，等待更多数据
- *   n → 消费 n 字节，buf[0..n-1] 可丢弃
- *
- *  帧格式 (GD32):
- *    [AA][55][LEN2B][TS4B][TYPE1B][SYNC4B][ENC(N)][CRC1B][55][AA]
- *    LEN = 5 + N + 1 = 6 + N  (TS+TYPE+SYNC+ENC+CRC, 不含 LEN 本身)
- */
 static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
 {
     if (buf_len < 13) return 0;
-
     u32 pos = 0;
-
-    /* 搜索起始标记 AA 55 */
     while (pos + 1 < buf_len) {
         if (buf[pos] == 0xAA && buf[pos + 1] == 0x55) break;
         pos++;
     }
-    if (pos + 1 >= buf_len) {
-        /* 没有 AA55 → 丢弃所有字节(保留最后一个可能是0xAA) */
-        return (buf_len > 1) ? (buf_len - 1) : 0;
-    }
-
-    /* 跳过起始标记 */
+    if (pos + 1 >= buf_len) { shm_spf("PLF: no AA55 in %uB\r\n", buf_len); return (buf_len > 1) ? (buf_len - 1) : 0; }
     u32 hdr = pos + 2;
-    if (hdr + 2 > buf_len) return 0;  /* 等更多数据 */
-
-    u16 data_len = ((u16)buf[hdr] << 8) | buf[hdr + 1];  /* 大端 */
-
-    /* 参考 GD32: data_len 超出合理范围视为噪音 */
-    if (data_len > 200) {
-        return pos + 2;  /* 跳过这个假 AA55 */
-    }
-
-    /* GD32: tail_pos = i + 5 + frame_data_len
-     * buf[pos]: AA, buf[pos+1]: 55, buf[pos+2..pos+3]: LEN
-     * frame_data 从 buf[pos+4], 长度 data_len
-     * footer 55AA 在 buf[pos+5+data_len] (GD32 比 naively 多 1 字节偏移) */
+    if (hdr + 2 > buf_len) { shm_spf("PLF: too short for LEN\r\n"); return 0; }
+    u16 data_len = ((u16)buf[hdr] << 8) | buf[hdr + 1];
+    if (data_len > 200) { shm_spf("PLF: dlen=%u >200\r\n", data_len); return pos + 2; }
     u32 tail_pos = pos + 5 + data_len;
-    if (tail_pos + 2 > buf_len) return 0;
-    if (buf[tail_pos] != 0x55 || buf[tail_pos + 1] != 0xAA) {
-        return pos + 2;
-    }
-
-    const u8 *data = &buf[pos + 4];  /* 跳过 AA 55 LEN → frame_data 起始 (与 GD32 frame 指针一致) */
-
-    /* GD32 frame 解析: frame[0]=AA, frame[1]=55, frame[2,3]=LEN,
-     *   frame[4..7]=TS, frame[8]=TYPE, frame[9..12]=SYNC, frame[13..]=ENC */
-    u32 ts = ((u32)data[0] << 24) | ((u32)data[1] << 16)
-           | ((u32)data[2] << 8)  |  data[3];
-    u8  rx_type  = data[4];
-    u32 sync     = ((u32)data[5] << 24) | ((u32)data[6] << 16)
-                 | ((u32)data[7] << 8)  | data[8];
-
-    u16 enc_len = data_len - 9;  /* GD32: frame_data_len - 9 (TS+TYPE+SYNC=9) */
+    if (tail_pos + 2 > buf_len) { shm_spf("PLF: tail overflow dlen=%u buf=%u tail=%u\r\n", data_len, buf_len, tail_pos); return 0; }
+    if (buf[tail_pos] != 0x55 || buf[tail_pos + 1] != 0xAA) { shm_spf("PLF: bad tail [%02X][%02X]@%u\r\n", buf[tail_pos], buf[tail_pos+1], tail_pos); return pos + 2; }
+    const u8 *data = &buf[pos + 4];
+    u32 ts = ((u32)data[0] << 24) | ((u32)data[1] << 16) | ((u32)data[2] << 8) | data[3];
+    u8  rx_type = data[4];
+    u32 sync = ((u32)data[5] << 24) | ((u32)data[6] << 16) | ((u32)data[7] << 8) | data[8];
+    u16 enc_len = data_len - 9;
     const u8 *enc_start = &data[9];
-
     (*total_p)++;
-
-    /* ─── 解密 ─── */
+    g_real_frame_cnt++;
     u8  dec_buf[128];
     u16 dec_len = 0;
-
     if (sync != 0 && enc_len > 0 && enc_len <= MAX_ENCRYPT_DATA_LEN) {
         dec_len = chaos_decrypt_packet(enc_start, enc_len, dec_buf, sync);
-        spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X enc=%uB dec=%uB ===\r\n",
+        shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X enc=%uB dec=%uB ===\r\n",
             *total_p, rx_type, ts, sync, enc_len, dec_len);
     } else {
-        if (enc_len <= sizeof(dec_buf)) {
-            memcpy(dec_buf, enc_start, enc_len);
-            dec_len = enc_len;
-        }
-        spf("\r\n=== FRAME #%u: type=%02X ts=%u plain=%uB ===\r\n",
-            *total_p, rx_type, ts, dec_len);
+        if (enc_len <= sizeof(dec_buf)) { memcpy(dec_buf, enc_start, enc_len); dec_len = enc_len; }
+        shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u plain=%uB ===\r\n", *total_p, rx_type, ts, dec_len);
     }
 
-    /* ─── 按类型解析负载 ─── */
+    MasterDownloadBuf_t *dl = master_get_download_buf();
+    uint8_t node_id;
+    if (dl->active) {
+        node_id = dl->node_id;
+    } else {
+        node_id = 0;
+        if (rx_type == DATA_TYPE_STATUS && dec_len >= 3) {
+            uint8_t idx = (dec_len >= 15) ? 10 : 2;
+            node_id = dec_buf[idx];
+        }
+        if (node_id >= MASTER_MAX_NODES) node_id = 0;
+    }
+    uint16_t src_addr = 0x0001 + node_id;
+    MasterNodeInfo_t *node = master_get_node_info(node_id);
+    if (node) {
+        node->is_online = 1;
+        node->last_recv_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    }
+
     switch (rx_type) {
-    case DATA_TYPE_STATUS:  /* 0x01 */
-        if (dec_len >= sizeof(FaultUploadHeader_t)) {
-            FaultUploadHeader_t hdr;
-            memcpy(&hdr, dec_buf, sizeof(hdr));
-            spf("  FAULT: node=%u ts=%u fault=%d sev=%d pts=%u rate=%u\r\n",
-                hdr.node_index, hdr.timestamp,
-                hdr.fault_type, hdr.severity,
-                hdr.total_points, hdr.sample_rate);
-        } else if (dec_len >= sizeof(NodeUploadData_t)) {
-            NodeUploadData_t hdr;
-            memcpy(&hdr, dec_buf, sizeof(hdr));
-            spf("  STATUS: node=%u sev=%d health=%.1f pts=%u rate=%u\r\n",
-                hdr.node_index, hdr.severity,
-                (double)hdr.health_score,
-                hdr.total_points, hdr.sample_rate);
-        } else {
-            spf("  STATUS: %uB raw\r\n", dec_len);
-        }
+    case DATA_TYPE_STATUS:
+        if (dl) dl->active = 0;
+        if (node) process_status_header(dec_buf, dec_len, src_addr, dl, node);
         break;
-
-    case DATA_TYPE_NODE_RAW:  /* 0x04 */
-        {
-            u16 samples = dec_len / (u16)sizeof(NodeSample_t);
-            spf("  NODE_RAW: %u samples\r\n", samples);
-            u16 show = samples < 3 ? samples : 3;
-            for (u16 j = 0; j < show; j++) {
-                NodeSample_t s;
-                memcpy(&s, &dec_buf[j * sizeof(NodeSample_t)], sizeof(s));
-                spf("    [%u] P=%d Q=%d Ang=%d V=%d\r\n",
-                    j, s.active_power, s.reactive_power,
-                    s.voltage_angle, s.voltage_mag);
-            }
-            if (samples > show)
-                spf("    ... +%u more\r\n", samples - show);
-        }
+    case DATA_TYPE_WAVE:
+        if (dl) dl->active = 0;
+        if (node) process_wave_header(dec_buf, dec_len, dl, node, src_addr);
         break;
-
-    case DATA_TYPE_WAVE:  /* 0x02 */
-        if (dec_len >= sizeof(WaveChunkHeader_t)) {
-            WaveChunkHeader_t hdr;
-            memcpy(&hdr, dec_buf, sizeof(hdr));
-            spf("  WAVE: idx=%u rate=%u cnt=%u sev=%d\r\n",
-                hdr.sample_index, hdr.sample_rate,
-                hdr.sample_count, hdr.severity);
-        }
+    case DATA_TYPE_POWER:
+        shm_spf("  POWER: %uB (reserved)\r\n", dec_len);
         break;
-
-    case DATA_TYPE_FAULT_LIST:  /* 0x06 */
-        spf("  FAULT_LIST: %uB\r\n", dec_len);
+    case DATA_TYPE_NODE_RAW:
+        if (node) process_node_raw(dec_buf, dec_len, dl, node);
         break;
-
+    case DATA_TYPE_FLASH_WAVE:
+        if (node) process_flash_wave(dec_buf, dec_len, dl, node);
+        break;
+    case DATA_TYPE_FAULT_LIST:
+        if (dl) dl->active = 0;
+        if (node) process_fault_list(dec_buf, dec_len, src_addr, node);
+        break;
     default:
-        spf("  UNKNOWN(%02X): %uB\r\n", rx_type, dec_len);
+        shm_spf("  UNKNOWN(%02X): %uB\r\n", rx_type, dec_len);
         break;
     }
 
-    return tail_pos + 2;  /* GD32: 完整帧 = AA+55+LEN+data+extra+55+AA */
-}
+    {
+        u32 raw_len = tail_pos + 2 - pos;
+        int r = rpmsg_send_lora_raw(&buf[pos], raw_len);
+        if (r < 0)
+            shm_spf("  RPMsg TX FAIL (%d)\r\n", r);
+        else
+            shm_spf("  RPMsg TX %uB ok\r\n", raw_len);
+    }
 
+    return tail_pos + 2;
+}
 
 /* ==========================================================================
  *  第2部分: 引脚定义 — LoRa 模块硬件引脚映射
@@ -369,6 +359,16 @@ static u32 rp_avail(void)
     return (rh - rt + RB_SZ) % RB_SZ;
 }
 
+uint32_t lora_rx_avail(void) { return rp_avail(); }
+int lora_rx_read_byte(uint8_t *b) { return rp_get(b); }
+
+void lora_tx_send_byte(uint8_t b)
+{
+    while (*(volatile u32 *)(U2_BASE + 0x18) & (1U << 5));  /* wait !TXFF */
+    *(volatile u32 *)(U2_BASE + 0x00) = (u32)b;
+    while (*(volatile u32 *)(U2_BASE + 0x18) & (1U << 5));  /* wait !TXFF */
+}
+
 static void rp_hex_dump(const char *tag)
 {
     u8 buf[128];
@@ -378,13 +378,13 @@ static void rp_hex_dump(const char *tag)
     for (u32 i = 0; i < n; i++)
         if (rp_get(&buf[pos]) == 0) pos++;
     if (pos == 0) return;
-    puts(tag);
+    shm_puts(tag);
     for (u32 j = 0; j < pos; j++) {
         static const char hex[] = "0123456789ABCDEF";
         char h[4] = { hex[(buf[j] >> 4) & 0xF], hex[buf[j] & 0xF], ' ', 0 };
-        puts(h);
+        shm_puts(h);
     }
-    puts("\r\n");
+    shm_puts("\r\n");
 }
 
 
@@ -529,6 +529,75 @@ struct remoteproc_priv dp = {
 /* OpenAMP 运行时状态 */
 static struct remoteproc     rproc;       /* remoteproc 实例 */
 static struct rpmsg_device  *rpdev = NULL; /* RPMsg 设备 */
+static struct rpmsg_endpoint *g_ept = NULL; /* 全局 endpoint (rpm_task 设置) */
+static volatile u32 g_rpmsg_tx_cnt = 0;     /* RPMsg 发送计数 */
+static volatile u32 g_rpmsg_tx_err = 0;     /* RPMsg 发送失败计数 */
+
+static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
+                              size_t len, u32 src, void *priv)
+{
+    (void)priv;
+    (void)src;
+    ept->dest_addr = src;
+
+    if (len < RPMSG_PKT_HDR_SIZE) return RPMSG_SUCCESS;
+
+    RpmsgPkt pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    if (len > sizeof(pkt)) len = sizeof(pkt);
+    memcpy(&pkt, data, len);
+
+    switch (pkt.command) {
+    case CMD_ECHO_REQ: {
+        RpmsgPkt resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.command = CMD_ECHO_RESP;
+        resp.length  = pkt.length;
+        if (pkt.length > RPMSG_MAX_PAYLOAD) pkt.length = RPMSG_MAX_PAYLOAD;
+        memcpy(resp.data, pkt.data, pkt.length);
+        int ret = rpmsg_send(ept, &resp, RPMSG_PKT_HDR_SIZE + resp.length);
+        if (ret < 0) g_rpmsg_tx_err++;
+        else g_rpmsg_tx_cnt++;
+        break;
+    }
+    default:
+        shm_spf("RPMsg rx: cmd=0x%04X len=%u\r\n", pkt.command, pkt.length);
+        break;
+    }
+    return RPMSG_SUCCESS;
+}
+
+static void rpmsg_ept_unbind_cb(struct rpmsg_endpoint *ept)
+{
+    (void)ept;
+    shm_puts("RPMsg: remote unbind\r\n");
+}
+
+static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len)
+{
+    if (!g_ept) return -1;
+
+    u32 offset = 0;
+    while (offset < frame_len) {
+        u32 chunk = frame_len - offset;
+        if (chunk > RPMSG_MAX_PAYLOAD) chunk = RPMSG_MAX_PAYLOAD;
+
+        RpmsgPkt pkt;
+        memset(&pkt, 0, sizeof(pkt));
+        pkt.command = CMD_LORA_RAW;
+        pkt.length  = (u16)chunk;
+        memcpy(pkt.data, frame + offset, chunk);
+
+        int ret = rpmsg_send(g_ept, &pkt, RPMSG_PKT_HDR_SIZE + chunk);
+        if (ret < 0) {
+            g_rpmsg_tx_err++;
+            return ret;
+        }
+        g_rpmsg_tx_cnt++;
+        offset += chunk;
+    }
+    return (int)frame_len;
+}
 
 
 /* ==========================================================================
@@ -542,19 +611,19 @@ static void aux_task(void *pv)
     u32 last = 99;  /* 上次电平 (99=初始未知) */
     u32 tick = 0;   /* 心跳计数器 */
 
-    puts("A1\r\n");
+    shm_puts("A1\r\n");
 
     for (;;) {
         u32 v = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
 
         if (v != last) {
-            spf("A %u->%u\r\n", last, v);
+            shm_spf("A %u->%u\r\n", last, v);
             last = v;
         }
 
         tick++;
-        SHM_HB++;  /* heartbeat: AUX alive */
-        if ((tick % 300) == 0) spf("[hb] t=%u A=%u\r\n", tick, v);
+        shm_hb_inc();
+        if ((tick % 300) == 0) shm_spf("[hb] t=%u A=%u\r\n", tick, v);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -580,13 +649,13 @@ static void aux_task(void *pv)
  * ========================================================================== */
 static void lora_task(void *pv)
 {
-    puts("L1 v8\r\n");
+    shm_puts("L1 v8\r\n");
 
     /* ─── 第1步: MD0=HIGH → AT命令模式 ─── */
     GDR(FGPIO3_BASE_ADDR) |=  (1U << MD0_PIN);  /* MD0 输出 HIGH */
     vTaskDelay(pdMS_TO_TICKS(500));              /* 等 LoRa 模块进入 AT 模式 */
 
-    puts("L2\r\n");
+    shm_puts("L2\r\n");
 
     /*
      * AT 命令序列: Linux 侧已验证格式 + GD32_V3 mwcc68_cfg.h 参数
@@ -594,7 +663,7 @@ static void lora_task(void *pv)
      *       RATE=19.2kbps(WLRATE=23,5), TMODE=FP(TMODE=1),
      *       PACKSIZE=240(PACKSIZE=3), BPS=115200(UART=7,0)
      */
-    puts("LoRa: AT init (verified format)\r\n");
+    shm_puts("LoRa: AT init (verified format)\r\n");
 
     /* 辅助宏: 发送 AT 命令 + 轮询读回响应 (回退轮询模式) */
     #define AT_SEND(s) do { \
@@ -603,16 +672,16 @@ static void lora_task(void *pv)
         while (U2_FR & (1U << 5)); U2_DR = '\r'; \
         while (U2_FR & (1U << 5)); U2_DR = '\n'; \
         vTaskDelay(pdMS_TO_TICKS(200)); \
-        puts(s); puts(": "); \
+        shm_puts(s); shm_puts(": "); \
         for (int _i = 0; _i < 200; _i++) { \
             if (!(U2_FR & (1U << 4))) { \
                 u8 _b = (u8)(U2_DR & 0xFF); \
                 static const char _hx[] = "0123456789ABCDEF"; \
                 char _t[4] = { _hx[(_b >> 4) & 0xF], _hx[_b & 0xF], ' ', 0 }; \
-                puts(_t); \
+                shm_puts(_t); \
             } else { vTaskDelay(pdMS_TO_TICKS(1)); } \
         } \
-        puts("\r\n"); \
+        shm_puts("\r\n"); \
     } while (0)
 
     /* 第1条: AT (初始连通性检查, 重试最多3次) */
@@ -641,22 +710,22 @@ static void lora_task(void *pv)
     vTaskDelay(pdMS_TO_TICKS(100));
     AT_SEND("AT+FLASH=1");        /* 保存到Flash */
 
-    puts("LoRa: AT config done\r\n");
-    puts("L3\r\n");
+    shm_puts("LoRa: AT config done\r\n");
+    shm_puts("L3\r\n");
 
     /* ─── 第2步: MD0=LOW → 透传模式 (匹配 LoRa_ExitConfigMode) ─── */
     GDR(FGPIO3_BASE_ADDR) &= ~(1U << MD0_PIN);
-    puts("L4\r\n");
+    shm_puts("L4\r\n");
 
     /* 等 AUX 变 HIGH (模块切换完成, 最多等 5s) */
     for (int i = 0; i < 50; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
         if ((GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U) break;
     }
-    spf("LoRa: MD0=LOW AUX=%u (ready)\r\n",
+    shm_spf("LoRa: MD0=LOW AUX=%u (ready)\r\n",
         (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U);
-    puts("LoRa: RX ready (IRQ)\r\n");
-    puts("L5\r\n");
+    shm_puts("LoRa: RX ready (IRQ)\r\n");
+    shm_puts("L5\r\n");
 
     /* ─── 第3步: 使能 UART2 硬件中断 (IMSC) ───
      *
@@ -668,26 +737,17 @@ static void lora_task(void *pv)
      *    0x40 = RTIM  (接收超时中断掩码)
      */
     *(volatile u32 *)(U2_BASE + 0x38) = 0x10 | 0x40;  /* RXIM | RTIM */
-    puts("L6-IRQ\r\n");
+    shm_puts("L6-IRQ\r\n");
 
-    /* ─── 第4步: 帧累积 + 软超时接收循环 (v9: 累积式) ───
-     *
-     *  匹配 GD32 usart1_mark_frame() + usart1_read_frame():
-     *    ISR 写入环形缓冲区 → 任务排空 → 累计到 lora_frame_buf
-     *    soft_timeout → process_lora_frame() → 返回消费字节数
-     *    未消费的字节保留, 跨轮次累积, 永不丢失
-     *
-     *  超时: 5 轮 × 2ms = 10ms (匹配 GD32 软超时)
-     */
     static u8  lora_frame_buf[1024];
     static u32 lora_pos   = 0;
     static u32 stable_cnt = 0;
     static u32 frame_cnt  = 0;
     u32 loop_cnt = 0;
-    puts("L7-IRQ-v4\r\n");
+    u32 sim_injected = 0;
+    shm_puts("L7-IRQ-v4\r\n");
     for (;;) {
         u32 avail = rp_avail();
-
         if (avail > 0) {
             while (lora_pos < sizeof(lora_frame_buf)) {
                 u8 b;
@@ -700,14 +760,12 @@ static void lora_task(void *pv)
         } else {
             if (lora_pos > 0) {
                 stable_cnt++;
-                if (stable_cnt >= 5) {  /* 10ms 无新数据 → 尝试解析 */
+                if (stable_cnt >= 5) {
 force_parse:
                     u32 consumed = process_lora_frame(lora_frame_buf, lora_pos, &frame_cnt);
-
                     if (consumed > 0) {
                         if (consumed < lora_pos) {
-                            memmove(lora_frame_buf, lora_frame_buf + consumed,
-                                    lora_pos - consumed);
+                            memmove(lora_frame_buf, lora_frame_buf + consumed, lora_pos - consumed);
                         }
                         lora_pos -= consumed;
                     } else {
@@ -727,16 +785,19 @@ force_parse:
                 }
             }
         }
-
         loop_cnt++;
-        SHM_HB++;
-        if ((loop_cnt % 1500) == 0) {  /* ~3s (1500 × 2ms) */
+        shm_hb_inc();
+        if ((loop_cnt % 1500) == 0) {
             u32 aux = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
-            spf("[RX-hb] loop=%u AUX=%u tx=%u isr=%u dat=%u\r\n",
-                loop_cnt, aux, frame_cnt, isr_cnt, isr_data);
+            shm_spf("[RX-hb] loop=%u AUX=%u tx=%u real=%u isr=%u dat=%u rpmsg=%u/%u\r\n",
+                loop_cnt, aux, frame_cnt, g_real_frame_cnt, isr_cnt, isr_data,
+                g_rpmsg_tx_cnt, g_rpmsg_tx_err);
         }
-
-        vTaskDelay(pdMS_TO_TICKS(2));  /* 2ms 轮询间隔 */
+        if (sim_injected == 0 && loop_cnt > 1500 && g_real_frame_cnt == 0) {
+            inject_sim_frames(&frame_cnt);
+            sim_injected = 1;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -757,19 +818,58 @@ static void rpm_task(void *pv)
     (void)pv;
     struct rpmsg_endpoint le = {0};
 
-    for (int i = 0; i < 500; i++) {
-        platform_poll(&rproc);
+    shm_puts("RPM: start poll\r\n");
+    for (int i = 0; i < 200; i++) {
+        platform_poll_nonblocking(&rproc);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    shm_puts("RPM: poll done\r\n");
 
-    (void)rpmsg_create_ept(&le, rpdev,
-                           RPMSG_SERVICE_NAME, 0,
-                           RPMSG_ADDR_ANY,
-                           NULL, NULL);
+    shm_spf("RPM: rpdev=%p\r\n", (void *)rpdev);
+    int ret = rpmsg_create_ept(&le, rpdev,
+                               RPMSG_SERVICE_NAME, 0,
+                               RPMSG_ADDR_ANY,
+                               rpmsg_endpoint_cb,
+                               rpmsg_ept_unbind_cb);
+    shm_spf("RPM: ept ret=%d\r\n", ret);
+    if (ret) {
+        shm_spf("RPM: ept FAIL (%d)\r\n", ret);
+    } else {
+        g_ept = &le;
+        shm_puts("RPM: ept OK\r\n");
+    }
 
     while (1) {
-        SHM_HB++;  /* heartbeat: RPM alive */
-        platform_poll(&rproc);
+        shm_hb_inc();
+        int poll_ret = platform_poll_nonblocking(&rproc);
+        {
+            static u32 rpm_hb = 0;
+            rpm_hb++;
+            if ((rpm_hb % 5000) == 0 && g_ept && g_ept->dest_addr != RPMSG_ADDR_ANY) {
+                RpmsgPkt hb;
+                memset(&hb, 0, sizeof(hb));
+                hb.command = CMD_HEARTBEAT;
+                hb.length  = 4;
+                hb.data[0] = (rpm_hb >> 24) & 0xFF;
+                hb.data[1] = (rpm_hb >> 16) & 0xFF;
+                hb.data[2] = (rpm_hb >>  8) & 0xFF;
+                hb.data[3] =  rpm_hb        & 0xFF;
+                int r = rpmsg_send(g_ept, &hb, RPMSG_PKT_HDR_SIZE + hb.length);
+                if (r < 0) {
+                    g_rpmsg_tx_err++;
+                    shm_spf("[RPM] HB send FAIL (%d)\r\n", r);
+                } else {
+                    g_rpmsg_tx_cnt++;
+                }
+            }
+            if ((rpm_hb % 2500) == 0) {
+                shm_spf("[RPM-hb] ept=%p dest=0x%lX tx=%u err=%u poll=%d\r\n",
+                    (void *)g_ept,
+                    g_ept ? (unsigned long)g_ept->dest_addr : 0,
+                    g_rpmsg_tx_cnt, g_rpmsg_tx_err, poll_ret);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -817,46 +917,39 @@ int main(void)
             MT_DEVICE_NGNRNE | MT_P_RW_U_RW | MT_NS);
 
     /* ═══ 第3步: 清空共享内存 ═══ */
-    SHM_WI = 0;
-    SHM_RI = 0;
-    SHM_HB = 0;
-    {
-        volatile char *p = SHM_BUF;
-        volatile char *end = p + SHM_BSZ - 1;
-        *end = 0;
-        for (u32 k = 0; k < 65536; k++) p[k] = 0;
-    }
+    shm_clear();
 
-    /* ═══ 第4步: 安全打印 — 此时全部地址已映射 ═══ */
-    puts("\r\n=== FreRTOS LoRa v7 IRQ (2026-05-21) ===\r\n");
-    puts("=== Step4: UART2 GICv3 interrupt + ring buffer ===\r\n");
+    shm_print_init();
+
+    shm_puts("\r\n=== FreeRTOS LoRa v7-S2 (rpmsg-pipe) ===\r\n");
+    shm_puts("=== Step4: UART2 GICv3 interrupt + ring buffer ===\r\n");
 
     /* ═══ 第5步: RPMsg + 外设 + 任务 ═══ */
     if (!platform_create_proc(&rproc, &dp, &kd))
-        puts("FATAL: proc\r\n");
+        shm_puts("FATAL: proc\r\n");
     else {
         rproc.rsc_table = &resources;
         platform_setup_src_table(&rproc, rproc.rsc_table);
         platform_setup_share_mems(&rproc);
         rpdev = platform_create_rpmsg_vdev(&rproc, 0,
                                            VIRTIO_DEV_DEVICE, NULL, NULL);
-        puts("RPMsg done\r\n");
+        shm_puts("RPMsg done\r\n");
     }
-    puts("D2 v3\r\n");
-    puts("D3\r\n");
+    shm_puts("D2 v3\r\n");
+    shm_puts("D3\r\n");
 
     /* ═══ C8: IOMUX 引脚复用 ═══ */
     ipset(IP_C49, 6);   /* C49  → FUNC6=GPIO  (GPIO3_1 / MD0) */
     ipset(IP_A37, 6);   /* A37  → FUNC6=GPIO  (GPIO2_10 / AUX) */
     ipset(IP_A47, 0);   /* A47  → FUNC0=UART  (UART2 TX) */
     ipset(IP_A49, 0);   /* A49  → FUNC0=UART  (UART2 RX) */
-    puts("D4\r\n");
+    shm_puts("D4\r\n");
 
     /* ═══ C9: GPIO 方向配置 ═══ */
     GDD(FGPIO2_BASE_ADDR) &= ~(1U << AUX_PIN);   /* AUX: 输入 */
     GDD(FGPIO3_BASE_ADDR) |=  (1U << MD0_PIN);   /* MD0: 输出 */
     GDR(FGPIO3_BASE_ADDR)  |=  (1U << MD0_PIN);   /* MD0: 初始 HIGH */
-    puts("D5\r\n");
+    shm_puts("D5\r\n");
 
     /* ═══ C10: UART2 初始化 115200 8N1 ═══ */
     U2_CR    = 0;         /* 先禁用UART */
@@ -864,7 +957,7 @@ int main(void)
     U2_FBRD  = 16;        /* 小数部分 */
     U2_LCR_H = 0x70;      /* 8bit + FIFO 使能 */
     U2_CR    = 0x0301;    /* UARTEN | TXE | RXE */
-    puts("D6\r\n");
+    shm_puts("D6\r\n");
 
     /* ═══ Step4: UART2 中断接收 (GICv3) ═══
      *
@@ -879,21 +972,24 @@ int main(void)
         u64 raw_mpidr = 0;
         __asm__ volatile("mrs %0, MPIDR_EL1" : "=r"(raw_mpidr));
         GetCpuId(&cpu_id);
-        spf("MPIDR=0x%llX GetCpuId=%u dts=rproc=3\n", raw_mpidr, cpu_id);
+        shm_spf("MPIDR=0x%llX GetCpuId=%u dts=rproc=3\n", raw_mpidr, cpu_id);
         InterruptSetTargetCpus(FUART2_IRQ_NUM, cpu_id);
     }
     InterruptUmask(FUART2_IRQ_NUM);
     /* UART2 IMSC 将在 lora_task 透传模式下使能, 避免 AT 阶段冲突 */
-    puts("D6-IRQ\r\n");
+    shm_puts("D6-IRQ\r\n");
 
     /* ═══ D11: 创建任务 ═══ */
+    master_init();
     xTaskCreate(rpm_task,  "RPM",  RPM_STK,  NULL, RPM_PRIO,  NULL);
     xTaskCreate(aux_task,  "AUX",  AUX_STK,  NULL, AUX_PRIO,  NULL);
     xTaskCreate(lora_task, "LoRa", LORA_STK, NULL, LORA_PRIO, NULL);
-    puts("D7\r\n");
+    xTaskCreate(master_judge_task, "Judge", MASTER_JUDGE_STK_SIZE, NULL, MASTER_JUDGE_TASK_PRIO, NULL);
+    xTaskCreate(master_cmd_task, "Cmd", MASTER_CMD_STK_SIZE, NULL, MASTER_CMD_TASK_PRIO, NULL);
+    shm_puts("D7\r\n");
 
     /* ═══ D12: 启动调度器 ═══ */
-    puts("Start sched\r\n");
+    shm_puts("Start sched\r\n");
     vTaskStartScheduler();
 
     while (1) vTaskDelay(pdMS_TO_TICKS(1000));

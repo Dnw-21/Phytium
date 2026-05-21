@@ -7,7 +7,7 @@
 #include <string.h>
 #include "FreeRTOS.h"
 #include "task.h"
-#include "fprintk.h"
+#include "shm_print.h"
 
 static LogLevel_t g_log_level = LOG_LEVEL_DEBUG;
 
@@ -37,7 +37,7 @@ static void log_print(LogLevel_t level, const char *format, va_list args)
     pos += vsnprintf(buf + pos, sizeof(buf) - pos, format, args);
     pos += snprintf(buf + pos, sizeof(buf) - pos, "\r\n");
 
-    f_printk("%s", buf);
+    shm_puts(buf);
 }
 
 void log_init(LogLevel_t level)
