@@ -1,8 +1,10 @@
 # Phytium PE2204 LoRa 主控系统
 
-在飞腾派 CEK8903 开发板上实现 **异构多核 LoRa 主控系统**：Linux 主核 (CPU0-2) 负责数据接收/转发，FreeRTOS 从核 (CPU3) 负责 LoRa 帧处理/故障判决/命令生成，通过 OpenAMP/RPMsg 进行核间通信。
+在飞腾派 CEK8903 开发板上实现 **异构多核 LoRa 主控系统**：Linux 主核 (CPU0-2) 负责数据接收，FreeRTOS 从核 (CPU3) 负责 LoRa 帧接收和波形数据输出，通过共享内存 (trace_reader) 读取数据。
 
-> **当前状态**: GD32 v3 代码已全部移植到 FreeRTOS 从核，代码层面 100% 兼容。LoRa 模块通过 UART 直连 **FreeRTOS CPU3 侧** (Linux 不直接操作 LoRa)。当前使用 `master_sim_lora_data()` 仿真器自驱动验证全链路，无需 LoRa 硬件。接入真实模块时只需切换 `USE_LORA_SIMULATION` 宏。
+> **当前状态**: GD32 v3 代码已移植到 FreeRTOS 从核，LoRa 无线链路打通。支持 **FLASH_WAVE (type=0x05) 波形数据完整接收并绘图**。精简单向数据链路：终端→LoRa→UART3→FreeRTOS→共享内存→trace_reader→Python 绘图。
+> 
+> **操作手册**: [docs/operations-guide.md](docs/operations-guide.md) ★ **所有 AI 和开发者请先阅读此文档**
 > 
 > **参考基准**: `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` (最新版)
 
@@ -10,39 +12,48 @@
 
 | 文档 | 内容 |
 |------|------|
+| [docs/operations-guide.md](docs/operations-guide.md) | ★ **操作手册** — 如何运行、测试、验证、绘图 (自包含) |
 | [docs/architecture.md](docs/architecture.md) | ★ **架构全景图** - 硬件布局、内存映射、数据流、所有关键文件 |
 | [docs/freertos-task-flow.md](docs/freertos-task-flow.md) | ★ **FreeRTOS 任务流程** - 4个任务的优先级、代码、交互 |
-| [docs/communication-flow.md](docs/communication-flow.md) | ★ **通信流程详解** - 启动/数据/命令各阶段流程 |
-| [docs/knowledge-base.md](docs/knowledge-base.md) | 知识库 - 硬件配置、驱动架构、编译部署 |
-| [docs/transplant-gd32-to-phytium.md](docs/transplant-gd32-to-phytium.md) | GD32 移植记录 |
-| [docs/optimization-record.md](docs/optimization-record.md) | 性能优化记录 (A1-A4, C2-C3) |
+| [docs/debug-log.md](docs/debug-log.md) | 调试日志 — 27 个已解决问题的完整记录 |
+| [docs/communication-flow.md](docs/communication-flow.md) | 通信流程详解 |
+| [docs/knowledge-base.md](docs/knowledge-base.md) | 知识库 - 硬件配置、驱动架构 |
 | [docs/setup-guide.md](docs/setup-guide.md) | 部署指南 |
-| [docs/debug-log.md](docs/debug-log.md) | 调试日志 |
+| [docs/lora-real-hardware-接入指南.md](docs/lora-real-hardware-接入指南.md) | LoRa 硬件接线指南 |
+| [docs/optimization-record.md](docs/optimization-record.md) | 性能优化记录 |
 
-## 快速开始
+## 快速开始 — 接收波形并绘图
 
-### 启动 OpenAMP 通信
+### 一键部署 + 抓取 + 绘图 (虚拟机端)
 
 ```bash
-# 1. 加载内核模块
-sudo modprobe rpmsg_char rpmsg_ctrl
+cd /home/alientek/Phytium/freertos
 
-# 2. 启动 FreeRTOS 从核 (CPU3)
-echo start | sudo tee /sys/class/remoteproc/remoteproc0/state
+# 1. 编译部署固件 (如已是最新可跳过)
+bash deploy.sh
 
-# 3. 绑定 RPMsg 通道驱动
-echo rpmsg_chrdev | sudo tee /sys/bus/rpmsg/devices/virtio0.rpmsg-openamp-demo-channel.-1.0/driver_override
-echo virtio0.rpmsg-openamp-demo-channel.-1.0 | sudo tee /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind
-
-# 4. 设置设备权限
-sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
-
-# 5. 运行主控数据接收程序
-./demo/master_receiver
-
-# 6. 停止
-echo stop | sudo tee /sys/class/remoteproc/remoteproc0/state
+# 2. 抓取数据并生成波形图
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+  "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
+python3 plot_wave.py trace_wave.txt
+# 输出: waveform.png (FLASH_WAVE 波形图)
 ```
+
+### 开发板端监听 (带实时显示)
+
+```bash
+# 清空历史数据
+echo user | sudo -S sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state'
+sleep 1
+echo user | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+sleep 3
+
+# 实时显示 + 保存文件
+sudo /home/user/trace_reader 2>/dev/null | tee /home/user/trace_wave.txt
+# 看到 [FW_END] 后 Ctrl+C
+```
+
+详细说明见 [docs/operations-guide.md](docs/operations-guide.md)。
 
 ## 项目结构
 
@@ -53,35 +64,31 @@ Phytium/
 ├── Makefile                            # 顶层构建
 │
 ├── freertos/                           # ★ FreeRTOS 从核业务代码
-│   ├── main.c                          #   系统启动入口, 任务创建
+│   ├── main.c                          #   系统启动入口, 任务创建, FLASH_WAVE 逐帧输出
+│   ├── plot_wave.py                    # ★ 波形解析+绘图脚本 ([FW_DAT] 格式)
+│   ├── deploy.sh                       # ★ 一键编译+部署脚本
 │   ├── src/
 │   │   ├── rpmsg-echo_os.c             #   ★ RPMsg通信核心 (OpenAMP端点)
-│   │   ├── master_recv.c               #   LoRa帧接收/解析管线
+│   │   ├── master_recv.c               #   LoRa帧接收管线
 │   │   ├── master_judge.c              #   故障判决任务
-│   │   ├── master_cmd.c                #   命令生成/发送 (RPMsg→Linux)
-│   │   ├── master_sys.c               #   节点管理, 共享内存Flash模拟
-│   │   ├── chaos_encrypt.c            #   混沌加解密算法
-│   │   └── log.c                       #   日志系统
+│   │   └── master_cmd.c                #   命令生成/发送
 │   └── inc/
-│       ├── master.h                    #   主控数据结构/宏定义
-│       ├── data_frame.h                #   LoRa帧数据结构
-│       ├── chaos_encrypt.h             #   混沌加密接口
-│       └── log.h                       #   日志接口
+│       ├── master.h                    #   主控系统定义
+│       ├── data_frame.h                #   数据类型定义 (DATA_TYPE_FLASH_WAVE=0x05)
+│       └── rpmsg_proto.h               #   RPMsg 协议头
 │
-├── src/openamp-demo/                   # Linux 侧 OpenAMP 通信
-│   ├── linux-master/
-│   │   ├── master_receiver.c           #   ★ 主控数据接收 (当前主程序)
-│   │   └── rpmsg_master.c              #   RPMsg echo 测试
-│   ├── remote-core/rpmsg_slave.c       #   从核参考源码
-│   └── Makefile                        #   交叉编译
+├── docs/                               # ★ 文档
+│   ├── operations-guide.md             #   ★ 操作手册 (自包含, 新人和AI首选)
+│   ├── architecture.md                 #   ★ 架构全景图
+│   ├── debug-log.md                    #   调试日志 (27个问题和解决方案)
+│   ├── communication-flow.md           #   通信流程详解
+│   ├── freertos-task-flow.md           #   FreeRTOS 任务流程
+│   ├── setup-guide.md                  #   部署指南
+│   ├── knowledge-base.md               #   知识库
+│   └── lora-real-hardware-接入指南.md  #   LoRa 硬件接线指南
 │
-├── src/linux-app/                      # Linux IoT入口程序
-├── device-tree/                        # 设备树配置文件
-├── demo/                               # 编译好的Linux可执行程序
-├── GD32L233C_Prj_Master/               # GD32原始工程 (参考)
-├── scripts/                            # 部署管理脚本
-├── docs/                               # 项目文档
-└── logs/                               # 运行日志
+└── src/                                # Linux 侧程序 (C交叉编译)
+    └── openamp-demo/linux-master/      #   master_receiver (RPMsg 接收程序)
 ```
 
 ## 硬件平台

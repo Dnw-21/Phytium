@@ -1,6 +1,6 @@
 # Phytium PE2204 LoRa 主控系统 — 项目信息汇总
 
-> **更新**: 2026-05-19 | **状态**: LoRa真实硬件接入，精简链路打通（终端→UART3→RPMsg→Linux显示）
+> **更新**: 2026-05-23 | **状态**: FLASH_WAVE 波形数据接收+绘图打通 | **操作手册**: [docs/operations-guide.md](docs/operations-guide.md)
 
 ## 一、项目基本信息
 
@@ -19,33 +19,22 @@
 ## 二、项目架构概览
 
 ```
-Phytium PE2204 异构四核
-├── Linux 主核 (CPU0-2, SMP)
-│   ├── master_receiver     ← RPMsg 接收/转发 FreeRTOS 数据
-│   ├── sensor_receiver     ← 传感器数据批量接收
-│   ├── dashboard_server    ← Web 监控面板
-│   └── lifecycle_mgr       ← 生命周期管理
-│
-├── FreeRTOS 从核 (CPU3, 独占)
-│   ├── RpmsgEchoTask       ← OpenAMP/RPMsg 通信 (Prio=4)
-│   ├── master_recv_task    ← LoRa 帧接收/解析 (Prio=4)
-│   │   ├── 仿真模式: master_sim_lora_data()  ← 当前使用
-│   │   └── 真实硬件: master_lora_uart_recv()  ← 预留接口
-│   ├── master_judge_task   ← 故障判决 (Prio=5)
-│   └── master_cmd_task     ← 命令生成/发送 (Prio=3)
-│
-├── OpenAMP/RPMsg ←→ 核间通信
-│   ├── 共享内存: 0xB0100000 (409MB)
-│   ├── 中断: GICv3 SGI 9
-│   └── 通道: rpmsg-openamp-demo-channel (1条双向)
-│
-└── 外部接口 — LoRa模块直连FreeRTOS
-    └── ATK-MWCC68D LoRa 模块 ← UART3 + GPIO2_10 → FreeRTOS CPU3
-        (Linux不直接操作LoRa，只通过RPMsg接收处理后的数据)
+GD32终端节点 ──LoRa无线──→ ATK-MWCC68D ──UART3──→ FreeRTOS CPU3 (飞腾派PE2204)
+                                                       │
+                                              共享内存 (trace_reader 读取)
+                                                       │
+                                              Linux终端 / SSH → 虚拟机
+                                                       │
+                                              plot_wave.py → waveform.png
 ```
 
+**关键特性**:
+- **精简单向数据链路**: 终端→LoRa→UART3→FreeRTOS→共享内存→trace_reader→绘图。不发命令、不做判决。
+- **FLASH_WAVE 逐帧输出**: `[FW_DAT]` 格式，不受缓冲区大小限制，支持任意长度波形。
+- **Python 绘图**: `plot_wave.py` 解析 `[FW_DAT]` 格式，支持多波形会话、Big-Endian int16。
+
 > 详细架构见: [docs/architecture.md](docs/architecture.md)
-> 任务流程见: [docs/freertos-task-flow.md](docs/freertos-task-flow.md)
+> 操作步骤见: [docs/operations-guide.md](docs/operations-guide.md)
 
 ## 三、核心代码文件
 
@@ -53,11 +42,14 @@ Phytium PE2204 异构四核
 
 | 文件 | 功能 |
 |------|------|
-| [freertos/main.c](freertos/main.c) | 系统入口，初始化 + 4个任务创建 |
-| [freertos/src/rpmsg-echo_os.c](freertos/src/rpmsg-echo_os.c) | ★ RPMsg通信核心，OpenAMP端点，批量发送，边缘检测 |
-| [freertos/src/master_recv.c](freertos/src/master_recv.c) | LoRa帧接收/解析管线，含 `USE_LORA_SIMULATION` 宏切换仿真/真实UART |
-| [freertos/src/master_judge.c](freertos/src/master_judge.c) | 故障判决，离线检测(15s超时)，波形请求生成 |
-| [freertos/src/master_cmd.c](freertos/src/master_cmd.c) | 命令加密/发送，混沌加密 + RPMsg转发 |
+| [freertos/main.c](freertos/main.c) | ★ 系统入口，FLASH_WAVE 逐帧 hex dump 输出 (`[FW_DAT]` 格式) |
+| [freertos/plot_wave.py](freertos/plot_wave.py) | ★ 波形解析+绘图脚本 (解析 [FW_DAT], 生成 waveform.png) |
+| [freertos/deploy.sh](freertos/deploy.sh) | ★ 一键编译+部署脚本 |
+| [freertos/src/rpmsg-echo_os.c](freertos/src/rpmsg-echo_os.c) | RPMsg通信核心，OpenAMP端点 |
+| [freertos/src/master_recv.c](freertos/src/master_recv.c) | LoRa帧接收管线 |
+| [freertos/src/lora_uart.c](freertos/src/lora_uart.c) | UART3 PL011 驱动 (115200, 轮询) |
+| [freertos/src/master_judge.c](freertos/src/master_judge.c) | 故障判决 (精简链路中不使用) |
+| [freertos/src/master_cmd.c](freertos/src/master_cmd.c) | 命令生成 (精简链路中不使用) |
 | [freertos/src/master_sys.c](freertos/src/master_sys.c) | 节点管理，共享内存Flash模拟(状态区+波形区) |
 | [freertos/src/chaos_encrypt.c](freertos/src/chaos_encrypt.c) | 混沌加解密算法 (原GD32移植) |
 
@@ -118,123 +110,86 @@ make master-recv
 
 ## 六、部署与运行
 
-### 启动流程
+### 当前工作流 (精简链路)
 
 ```bash
-# 1. 加载模块
-sudo modprobe rpmsg_char rpmsg_ctrl
+# 开发板上: 清空历史 + 启动监听
+echo user | sudo -S sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state'
+sleep 1
+echo user | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+sleep 3
+sudo /home/user/trace_reader 2>/dev/null | tee /home/user/trace_wave.txt
 
-# 2. 启动从核
-echo start | sudo tee /sys/class/remoteproc/remoteproc0/state
-
-# 3. 绑定通道
-echo rpmsg_chrdev | sudo tee /sys/bus/rpmsg/devices/virtio0.rpmsg-openamp-demo-channel.-1.0/driver_override
-echo virtio0.rpmsg-openamp-demo-channel.-1.0 | sudo tee /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind
-
-# 4. 权限
-sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
-
-# 5. 运行
-./master_receiver
+# 虚拟机上: 一键抓取 + 绘图
+cd /home/alientek/Phytium/freertos
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+  "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
+python3 plot_wave.py trace_wave.txt
 ```
+
+### 一键编译部署
+
+```bash
+cd /home/alientek/Phytium/freertos
+bash deploy.sh
+```
+
+deploy.sh 自动完成: 同步源码 → 编译 → scp 传输 → 检查 remoteproc → 更新固件 → 验证。
 
 ### 验证命令
 
 ```bash
 cat /sys/class/remoteproc/remoteproc0/state    # running/offline
-ls /sys/bus/rpmsg/devices/                      # 通道设备
-ls /dev/rpmsg*                                  # rpmsg0, rpmsg_ctrl0
+grep -c FW_DAT /home/user/trace_wave.txt       # 波形数据帧数 (>0 = 收到)
 dmesg | grep -i rproc                           # 启动日志
 ```
 
-## 七、测试与监控
+## 七、测试与验证
 
-### 7.1 快速入口
+### 7.1 波形数据接收验证
 
 ```bash
-cd /home/alientek/Phytium/tests
+# 开发板上: 清空历史 + 启动监听
+echo user | sudo -S sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state'
+sleep 1
+echo user | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+sleep 3
+sudo /home/user/trace_reader 2>/dev/null | tee /home/user/trace_wave.txt
 
-make deploy        # 编译+部署测试程序到飞腾派 (交叉编译 → sshpass+scp)
-make run-all       # 跑全部 5 项自动化测试 + 生成报告
-make run-panel     # 交互式测试面板 (手动操作菜单)
-make run-link      # 单项: RPMsg PING 链路测试
-make run-fault     # 单项: 故障注入全覆盖
-make run-stress    # 单项: 压力测试
+# 看到 [FW_END] 后 Ctrl+C, 确认数据
+grep -c 'FW_DAT' /home/user/trace_wave.txt    # > 0
+grep 'FW_END' /home/user/trace_wave.txt       # lost=0
+
+# 虚拟机端: 绘图
+cd /home/alientek/Phytium/freertos
+scp user@192.168.88.11:/home/user/trace_wave.txt .
+python3 plot_wave.py trace_wave.txt
+# 输出: waveform.png
 ```
 
-### 7.2 监控面板
+### 7.2 验证清单
 
-| 方式 | 类型 | 操作 |
-|------|------|------|
-| Web Dashboard | 浏览器 `http://192.168.88.11:8080` | `nohup ./dashboard_server &` |
-| 命令行监控 | 终端 | `./master_receiver` |
-| 交互面板 | 菜单式终端 | `cd tests && make run-panel` |
+- [ ] `deploy.sh` 编译成功
+- [ ] remoteproc 状态 `running`
+- [ ] `trace_reader` 输出含 `[FW_BEG]` 和 `[FW_DAT]`
+- [ ] FLASH_WAVE 帧 ≥ 10 帧，序号连续
+- [ ] `python3 plot_wave.py` 无报错
+- [ ] `waveform.png` 生成成功，波形无明显异常
+- [ ] `[FW_END]` 汇总中 `lost=0`
 
-### 7.3 5 项自动化测试
-
-| 编号 | 测试 | 内容 | 用时 | 通过标准 |
-|:---:|------|------|:---:|------|
-| TC01 | RPMsg Link | PING 往返 (5次) | 20s | 5/5 PONG, RTT<100ms |
-| TC02 | Fault Inject | 故障注入全覆盖 | 60s | 每种组合返回 FAULT_SENT |
-| TC03 | Command TX | 监听主控命令 | 20s | ≥1条 DEVICE_MASTER_CMD |
-| TC04 | Chaos Encrypt | 加解密往返验证 | 10s | 多种长度 100%一致 |
-| TC05 | Stress | 5秒高速注入 | 15s | ACK≥70%, >10faults/s |
-
-### 7.4 测试协议 (FreeRTOS ↔ Linux)
-
-**Linux → FreeRTOS**: `DEVICE_MASTER_TEST(0x0030)` + `TestCtrlPacket_t`
-```
-[subcmd][node_id][fault_type][severity][sample_count][reserved]
-  1B      1B       1B          1B        2B           2B
-```
-- subcmd: 0x01=PING, 0x02=单次故障, 0x03=连续, 0x04=停止, 0x06=加密, 0x07=状态
-
-**FreeRTOS → Linux**: `DEVICE_MASTER_CMD(0x0021)` + `TestRespPacket_t`
-```
-[resp_code][subcmd_echo][node_id][fault_type][processed_count][timestamp_ms]
-  1B         1B          1B       1B          4B              4B
-```
-- resp_code: 0x01=PONG, 0x02=FAULT_SENT, 0x03=RUNNING, 0x04=STOPPED, 0xFF=ERROR
-
-### 7.5 测试报告
-
-每次运行后自动生成：`docs/test_report_YYYYMMDD_HHMMSS.md`
-
-详细操作见：[docs/setup-guide.md](docs/setup-guide.md) 步骤 8-10
-
----
-
-## 八、LoRa 模块接口 (待接入)
-
-| 飞腾派接口 | PE2204引脚 | LoRa模块引脚 | 功能 |
-|-----------|-----------|-------------|------|
-| J1 Pin 8 | UART3_TXD | RXD | 数据发送 |
-| J1 Pin 10 | UART3_RXD | TXD | 数据接收 |
-| J1 Pin 7 | GPIO2_10 | AUX/MD0 | 模式控制 |
-
-设备树: [device-tree/lora-uart.dtso](device-tree/lora-uart.dtso)
-
-## 九、GD32 原始工程
-
-| 项目 | 路径 |
-|------|------|
-| GD32 v1 工程（旧版） | `GD32L233C_Prj_Master/` |
-| **GD32 v3 工程（当前基准）** | `GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` |
-| v3 设计文档 | [GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md](GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/文档/GD32L233C_主控器设计文档.md) |
-| 移植记录 | [docs/transplant-gd32-to-phytium.md](docs/transplant-gd32-to-phytium.md) |
-
-## 十、文档索引
+## 八、文档索引
 
 | 文档 | 内容 |
 |------|------|
+| [docs/operations-guide.md](docs/operations-guide.md) | ★ 操作手册 (自包含, 新人/AI 首选) |
 | [docs/architecture.md](docs/architecture.md) | ★ 架构全景: 硬件布局、内存映射、数据流、文件索引 |
-| [docs/freertos-task-flow.md](docs/freertos-task-flow.md) | ★ FreeRTOS 4任务: 优先级、代码、交互关系 |
-| [docs/communication-flow.md](docs/communication-flow.md) | 通信流程: 启动→数据→命令 |
-| [docs/knowledge-base.md](docs/knowledge-base.md) | 知识库: DT配置、驱动架构、固件编译 |
-| [docs/optimization-record.md](docs/optimization-record.md) | 优化记录: A1-A4, C2-C3 |
+| [docs/debug-log.md](docs/debug-log.md) | 调试日志: 27 个已解决问题的完整记录 |
+| [docs/freertos-task-flow.md](docs/freertos-task-flow.md) | FreeRTOS 任务流程 |
+| [docs/communication-flow.md](docs/communication-flow.md) | 通信流程详解 |
+| [docs/knowledge-base.md](docs/knowledge-base.md) | 知识库 |
 | [docs/setup-guide.md](docs/setup-guide.md) | 部署指南 |
-| [docs/debug-log.md](docs/debug-log.md) | 调试日志 |
+| [docs/optimization-record.md](docs/optimization-record.md) | 性能优化记录 |
 
 ---
 
-**版本**: v3.1 | **基于**: GD32L233C_Prj_Master_v3 移植
+**版本**: v4.0 | **状态**: FLASH_WAVE 波形接收+绘图打通 | **基于**: GD32L233C_Prj_Master_v3

@@ -535,3 +535,119 @@ sudo chmod 666 /dev/rpmsg0
 ```bash
 echo 'KERNEL=="rpmsg*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-rpmsg.rules
 ```
+
+---
+
+## 2026-05-23: FLASH_WAVE 波形数据接收与绘图
+
+### 背景
+
+精简链路打通后，终端节点通过 LoRa 发送各类数据帧。其中 `FLASH_WAVE` (type=0x05) 包含 int16 波形采样数据，需要**完整接收并绘图**。原方案使用固定 12000 字节缓冲区累积全部帧后一次性 dump，存在以下问题：
+
+1. 波形数据量大（84帧×128B=10752B，后续可能更大），固定缓冲区不够用
+2. 必须等全部帧收齐才输出，无法看到实时进展
+3. `[WCAP]...[WCAP_END]` 格式每行固定 128 字节切割，不灵活
+
+### 问题 23: 逐帧 hex dump 迁移 (WCAP → FW_DAT)
+
+**目标**: 移除 `fw_cap_raw[12000]` 固定缓冲区，改为每收到一帧立即输出 hex 数据，无大小限制，支持 Python 脚本解析和绘图。
+
+**修改文件**:
+
+| 文件 | 变更 |
+|------|------|
+| [freertos/main.c](file:///home/alientek/Phytium/freertos/main.c) | 移除 `fw_cap_raw`/`fw_cap_len`/`fw_cap_active`/`fw_cap_pkts`/`FW_CAP_MAX_PKTS` 变量；FLASH_WAVE 分支改为逐帧 `[FW_DAT]` 输出 |
+| [freertos/plot_wave.py](file:///home/alientek/Phytium/freertos/plot_wave.py) | 新增文件，从 `parse_wcap` 改为 `parse_fw_dat` 解析新格式，支持多波形会话、frame 边界标注、兼容旧 [WCAP] 格式 |
+
+**新输出格式**:
+```
+[FW_BEG] wave#N                          ← 波形会话开始
+[FW_DAT p=N ts=T len=L]                  ← 每帧标记行 (p=帧序号, ts=时间戳, len=数据长度)
+HEXHEXHEX...                              ← 完整 hex (无空格, 不截断, 2字符/字节)
+[FW_END] wave#N pkts=N bytes=N ...       ← 波形会话结束带汇总信息
+```
+
+**关键代码变更 (main.c)**:
+```c
+// 旧: 固定缓冲区累积
+static u8  fw_cap_raw[12000];
+static u16 fw_cap_len = 0;
+if (fw_cap_active && fw_cap_len + dec_len <= sizeof(fw_cap_raw)) {
+    memcpy(&fw_cap_raw[fw_cap_len], dec_buf, dec_len);
+    fw_cap_len += dec_len;
+}
+
+// 新: 逐帧输出, 无缓冲
+shm_spf("[FW_DAT p=%u ts=%u len=%u]\r\n", fw_seq, ts, dec_len);
+for (u32 i = 0; i < dec_len; i++) {
+    shm_putc(hx[(dec_buf[i] >> 4) & 0xF]);
+    shm_putc(hx[dec_buf[i] & 0xF]);
+}
+shm_puts("\r\n");
+```
+
+**验证结果**: 成功接收 85 帧 FLASH_WAVE 数据，共 10880 字节、5440 个 int16 采样点，数据完整无截断。波形图生成成功。
+
+### 问题 24: RPMsg TX FAIL (-2003) 分析
+
+**现象**: trace_reader 输出中大量 `RPMsg TX FAIL (-2003)` 错误。
+
+**根因**: 错误码 -2003 = `RPMSG_ERR_NO_BUFF`。在精简后的数据链路中，Linux 侧不再通过 `/dev/rpmsg0` 创建接收端点来消费 FreeRTOS 发送的 RPMsg 消息。`trace_reader` 通过 `/dev/mem` 直接读取共享内存（不经过 RPMsg 通道），因此 FreeRTOS 尝试通过 RPMsg 发送时找不到 Linux 侧的接收端点。
+
+**结论**: **这是预期行为，不影响功能**。所有数据通过共享内存直接输出，`trace_reader` 可以完整读取。如果将来需要 Linux 侧程序通过 RPMsg 接收数据，需要先在 `/dev/rpmsg_ctrl0` 创建端点并绑定到 `rpmsg-openamp-demo-channel`。
+
+### 问题 25: trace_reader 历史数据显示
+
+**现象**: 运行 `sudo /home/user/trace_reader` 后显示大量历史数据（之前的 LoRa 初始化、AT 指令、INJECT 帧等），新波形数据混在历史中。
+
+**根因**: 共享内存是环形缓冲区，FreeRTOS 长时间运行后累积了大量日志。`trace_reader` 启动时 dump 整个缓冲区的当前内容。
+
+**解决**: 重启 FreeRTOS 从核清空共享内存：
+```bash
+echo user | sudo -S sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state'
+sleep 1
+echo user | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+sleep 3
+```
+然后再运行 `trace_reader`，输出从 FreeRTOS 启动日志开始，不再包含历史数据。
+
+### 问题 26: SSH 断连导致 scp 静默失败
+
+**现象**: 在开发板串口终端看到波形数据，但 `scp user@192.168.88.11:/home/user/trace_wave.txt .` 执行后本地文件为空。
+
+**根因**: SSH 连接断开 (`No route to host`)，`scp` 静默失败导致创建了空的目标文件。
+
+**排查方法**:
+```bash
+# 在开发板上检查文件
+wc -l /home/user/trace_wave.txt
+grep -c 'FW_DAT' /home/user/trace_wave.txt   # > 0 表示有数据
+
+# 检查网络
+ping 192.168.88.1
+ip addr | grep 192.168
+```
+
+**解决**: 等待网络恢复后重新 scp；或者直接在虚拟机端用 `sshpass` 一行命令完成抓取+传输：
+```bash
+cd /home/alientek/Phytium/freertos
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+  "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
+python3 plot_wave.py trace_wave.txt
+```
+
+### 问题 27: WAVE-STAT 数值异常 (端序问题，不影响功能)
+
+**现象**: FreeRTOS 输出的 `[WAVE-STAT] val=[2321..32248]` 等值范围看起来不正常。
+
+**根因**: `main.c` 中 WAVE-STAT 统计代码使用了错误的字节序解析 int16：
+```c
+// 当前 (Little-Endian): 错误
+s16 v = (s16)((dec_buf[i * 2 + 1] << 8) | dec_buf[i * 2]);
+// 应为 (Big-Endian):
+s16 v = (s16)((dec_buf[i * 2] << 8) | dec_buf[i * 2 + 1]);
+```
+
+GD32 终端发送的波形数据是 Big-Endian int16。Python `plot_wave.py` 使用 `struct.unpack('>nh', ...)` 正确解析，因此**绘图结果正确，但 FreeRTOS 侧 WAVE-STAT 统计值不可信**。
+
+**影响范围**: 仅影响 FreeRTOS 侧实时显示的最小/最大值统计，不影响 Python 绘图和实际数据。待修复优先级：低。

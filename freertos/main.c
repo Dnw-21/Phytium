@@ -153,6 +153,19 @@ static void inject_sim_frames(u32 *frame_cnt)
     shm_puts("=== INJECT: done ===\r\n");
 }
 
+/* --- 临时统计: FLASH_WAVE 波形包连续性 --- */
+static u32 fw_pkt_cnt = 0;
+static u32 fw_wave_id = 0;
+static u32 fw_seq = 0;
+static u32 fw_lost = 0;
+static u32 fw_first_ts = 0;
+static u32 fw_last_ts = 0;
+static u32 fw_points = 0;
+static u32 fw_total_bytes = 0;
+static u32 fw_min_val = 0xFFFF;
+static u32 fw_max_val = 0;
+static u8  fw_in_wave = 0;
+
 static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
 {
     if (buf_len < 13) return 0;
@@ -179,13 +192,23 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
     g_real_frame_cnt++;
     u8  dec_buf[128];
     u16 dec_len = 0;
-    if (sync != 0 && enc_len > 0 && enc_len <= MAX_ENCRYPT_DATA_LEN) {
-        dec_len = chaos_decrypt_packet(enc_start, enc_len, dec_buf, sync);
-        shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X enc=%uB dec=%uB ===\r\n",
-            *total_p, rx_type, ts, sync, enc_len, dec_len);
-    } else {
-        if (enc_len <= sizeof(dec_buf)) { memcpy(dec_buf, enc_start, enc_len); dec_len = enc_len; }
-        shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u plain=%uB ===\r\n", *total_p, rx_type, ts, dec_len);
+    /* 新版终端不再混沌加密, 直接使用 enc_start 作为 payload (匹配 GD32 V3-2) */
+    if (enc_len <= sizeof(dec_buf)) { memcpy(dec_buf, enc_start, enc_len); dec_len = enc_len; }
+    shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X raw=%uB ===\r\n",
+        *total_p, rx_type, ts, sync, dec_len);
+
+    /* hex dump: 解密后的 payload 原始数据 */
+    {
+        u32 dump_len = dec_len;
+        if (dump_len > 256) dump_len = 256;  /* 最多显示256字节 */
+        for (u32 i = 0; i < dump_len; i++) {
+            static const char hx[] = "0123456789ABCDEF";
+            char h[4] = { hx[(dec_buf[i] >> 4) & 0xF], hx[dec_buf[i] & 0xF], ' ', 0 };
+            shm_puts(h);
+            if ((i + 1) % 16 == 0) shm_puts("\r\n");
+        }
+        if (dump_len % 16 != 0) shm_puts("\r\n");
+        if (dec_len > 256) shm_spf("  ... (%uB total, showing first 256)\r\n", dec_len);
     }
 
     MasterDownloadBuf_t *dl = master_get_download_buf();
@@ -215,15 +238,102 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
     case DATA_TYPE_WAVE:
         if (dl) dl->active = 0;
         if (node) process_wave_header(dec_buf, dec_len, dl, node, src_addr);
+        /* WAVE头标记新波形会话开始, 输出 [FW_BEG] 供绘图脚本识别 */
+        fw_wave_id++;
+        fw_seq = 0;
+        fw_lost = 0;
+        fw_first_ts = 0;
+        fw_last_ts = 0;
+        fw_points = 0;
+        fw_total_bytes = 0;
+        fw_min_val = 0xFFFF;
+        fw_max_val = 0;
+        fw_in_wave = 1;
+        shm_spf("[FW_BEG] wave#%u (from WAVE header)\r\n", fw_wave_id);
         break;
     case DATA_TYPE_POWER:
         shm_spf("  POWER: %uB (reserved)\r\n", dec_len);
         break;
     case DATA_TYPE_NODE_RAW:
         if (node) process_node_raw(dec_buf, dec_len, dl, node);
+        /* 临时: 显示转换后的原始物理值 (÷10000) */
+        {
+            u16 n_s = dec_len / 16;  /* NodeSample_t = 4×int32 = 16B */
+            for (u16 i = 0; i < n_s && i < 8; i++) {
+                int32_t f[4];
+                memcpy(f, &dec_buf[i * 16], 16);
+                shm_spf("  [RAW] s%u: p=%d q=%d ang=%d vmag=%d (÷10000)\r\n",
+                    i, f[0], f[1], f[2], f[3]);
+            }
+        }
         break;
     case DATA_TYPE_FLASH_WAVE:
         if (node) process_flash_wave(dec_buf, dec_len, dl, node);
+        /* --- 逐帧 hex dump + 统计: FLASH_WAVE 波形 --- */
+        {
+            fw_pkt_cnt++;
+
+            if (!fw_in_wave) {
+                /* 没有WAVE头就开始收到FLASH_WAVE, 新建一个波形会话 */
+                fw_wave_id++;
+                fw_seq = 0;
+                fw_lost = 0;
+                fw_first_ts = ts;
+                fw_points = 0;
+                fw_total_bytes = 0;
+                fw_min_val = 0xFFFF;
+                fw_max_val = 0;
+                fw_in_wave = 1;
+                shm_spf("[FW_BEG] wave#%u\r\n", fw_wave_id);
+            }
+
+            /* 逐帧 hex dump: 完整 payload, 不截断, 供 plot_wave.py 解析 */
+            shm_spf("[FW_DAT p=%u ts=%u len=%u]\r\n", fw_seq, ts, dec_len);
+            {
+                static const char hx[] = "0123456789ABCDEF";
+                for (u32 i = 0; i < dec_len; i++) {
+                    char h[3] = { hx[(dec_buf[i] >> 4) & 0xF], hx[dec_buf[i] & 0xF], 0 };
+                    shm_puts(h);
+                }
+            }
+            shm_puts("\r\n");
+            fw_total_bytes += dec_len;
+
+            /* 检查连续性: 每包int16点, timestamp应递增 */
+            if (fw_seq == 0) {
+                fw_first_ts = ts;
+            } else {
+                u32 ts_gap = ts - fw_last_ts;
+                if (ts_gap > 200) {
+                    fw_lost++;
+                    shm_spf("  [WAVE-STAT] GAP! ts_gap=%u ms\r\n", ts_gap);
+                }
+            }
+            fw_last_ts = ts;
+
+            /* 统计int16波形值范围 */
+            u16 pts_in_pkt = dec_len / 2;
+            fw_points += pts_in_pkt;
+            for (u16 i = 0; i < pts_in_pkt; i++) {
+                s16 v = (s16)((dec_buf[i * 2 + 1] << 8) | dec_buf[i * 2]);
+                u16 av = (v < 0) ? (u16)(-v) : (u16)v;
+                if (av < fw_min_val) fw_min_val = av;
+                if (av > fw_max_val) fw_max_val = av;
+            }
+
+            shm_spf("  [WAVE-STAT] wave#%u pkt#%u pts=%u total=%u lost=%u ts=%u val=[%u..%u]\r\n",
+                fw_wave_id, fw_seq, pts_in_pkt, fw_points, fw_lost, ts, fw_min_val, fw_max_val);
+
+            fw_seq++;
+
+            /* 波形接收完毕: dl->active 由 process_flash_wave 在 received_points>=expected_points 时清零 */
+            if (dl && !dl->active) {
+                shm_spf("[FW_END] wave#%u pkts=%u bytes=%u pts=%u lost=%u ts=[%u..%u] val=[%u..%u]\r\n",
+                    fw_wave_id, fw_seq, fw_total_bytes, fw_points, fw_lost,
+                    fw_first_ts, fw_last_ts, fw_min_val, fw_max_val);
+                fw_in_wave = 0;
+            }
+        }
         break;
     case DATA_TYPE_FAULT_LIST:
         if (dl) dl->active = 0;
