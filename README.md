@@ -4,6 +4,8 @@
 
 > **当前状态**: GD32 v3 代码已移植到 FreeRTOS 从核，LoRa 无线链路打通。支持 **FLASH_WAVE (type=0x05) 波形数据完整接收并绘图**。精简单向数据链路：终端→LoRa→UART3→FreeRTOS→共享内存→trace_reader→Python 绘图。
 > 
+> **新增**: **UKF 状态估计 Dashboard** — Web 可视化面板，实时展示发电机转子角度/转速估计值，支持故障检测和节点传输状态监控。详见 [state_estimation/](state_estimation/)
+>
 > **操作手册**: [docs/operations-guide.md](docs/operations-guide.md) ★ **所有 AI 和开发者请先阅读此文档**
 > 
 > **参考基准**: `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` (最新版)
@@ -87,6 +89,12 @@ Phytium/
 │   ├── knowledge-base.md               #   知识库
 │   └── lora-real-hardware-接入指南.md  #   LoRa 硬件接线指南
 │
+├── state_estimation/                   # ★ UKF 状态估计 Dashboard
+│   ├── dashboard_server.py             #   Flask 服务端 + UKF 引擎
+│   ├── templates/dashboard.html        #   Web 可视化面板
+│   ├── ukf_estimation.py               #   UKF 算法核心
+│   └── ...                             #   动态系统模型、测量数据
+│
 └── src/                                # Linux 侧程序 (C交叉编译)
     └── openamp-demo/linux-master/      #   master_receiver (RPMsg 接收程序)
 ```
@@ -158,4 +166,4 @@ MIT License
 
 ---
 
-**版本**: v3.0 | **更新**: 2026-05-18 | **状态**: GD32代码移植完成，LoRa仿真器自驱动运行，真实UART接口预留
+**版本**: v3.1 | **更新**: 2026-05-25 | **状态**: GD32代码移植完成，LoRa仿真器自驱动运行，新增 UKF 状态估计 Dashboard

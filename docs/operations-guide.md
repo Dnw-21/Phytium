@@ -265,3 +265,75 @@ Phytium/docs/                          ← 文档目录
 - [ ] `waveform.png` 文件存在且 > 50KB
 - [ ] 图中波形无明显异常 (短暂毛刺除外，见问题 27)
 - [ ] `[FW_END]` 汇总信息中 `lost=0`
+
+---
+
+## 七、UKF 状态估计 Dashboard (Web 可视化)
+
+> **位置**: `Phytium/state_estimation/`  
+> **功能**: 基于 UKF (无迹卡尔曼滤波) 的动态状态估计实时可视化面板
+
+### 7.1 功能特性
+
+- **实时状态估计**: 展示 3 台发电机的转子角度和转速估计值
+- **真实值对比**: 估计曲线与真实值曲线同步显示
+- **故障时段标记**: 60-80ms 故障区间高亮显示 (仅当时间到达时才显示)
+- **节点传输状态**: 实时显示各节点数据传输量和连接状态
+- **循环播放**: 80ms 数据循环演示，支持开始/暂停/重置控制
+- **明亮主题 UI**: 优化的可读性设计，实时传输指示灯动画
+
+### 7.2 快速启动
+
+```bash
+cd /home/alientek/Phytium/state_estimation
+
+# 安装依赖 (首次运行)
+pip install --break-system-packages flask scipy
+
+# 启动 Dashboard 服务
+python dashboard_server.py
+```
+
+服务启动后访问: **http://localhost:5000**
+
+### 7.3 使用说明
+
+1. **开始演示**: 点击 "开始" 按钮启动 UKF 状态估计循环
+2. **控制播放**: 使用 "暂停" 和 "重置" 控制演示流程
+3. **观察曲线**: 
+   - 实线 = 估计值 (UKF 输出)
+   - 虚线 = 真实值 (参考数据)
+4. **故障检测**: 当时间到达 60ms 时，故障区域会高亮显示
+5. **节点状态**: 右上角显示 3 个节点的实时数据传输状态
+
+### 7.4 文件结构
+
+```
+Phytium/state_estimation/
+├── dashboard_server.py          # Flask 服务端 + UKF 引擎
+├── templates/dashboard.html     # Web 前端 (Chart.js)
+├── ukf_estimation.py            # UKF 算法核心
+├── dynamic_system.py            # 电力系统动态方程
+├── RK4.py                       # 四阶 Runge-Kutta 积分
+├── terminal_controller.py       # 主控端程序 (MATLAB 风格)
+├── node1/2/3_measurements.txt   # 节点测量数据 (80ms)
+├── true_states.csv              # 真实状态参考数据
+└── system_params.mat            # 系统参数
+```
+
+### 7.5 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| 后端 | Python + Flask |
+| 前端 | HTML5 + Chart.js |
+| 算法 | UKF (Unscented Kalman Filter) |
+| 通信 | REST API + 定时轮询 |
+| 主题 | 明亮风格 + CSS 变量 |
+
+### 7.6 注意事项
+
+- Dashboard 使用预置的 80ms 模拟数据进行演示
+- 实际部署时需要接入真实开发板数据 (通过 UART/LoRa)
+- 故障时段 (60-80ms) 会动态显示，不会提前暴露
+- 循环播放时图表会自动清空并重新开始
