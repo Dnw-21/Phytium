@@ -1682,8 +1682,8 @@ function updateChartData(chart, times, arrays, isOverview) {
     chart.options.scales.x.min = 0;
     chart.options.scales.x.max = Math.max(1000, lastT + 500);
   } else {
-    // 主图: 固定窗口大小(10秒)，随数据滚动
-    var windowSize = 10000; // 10秒窗口
+    // 主图: 固定窗口大小(5秒)，随数据滚动
+    var windowSize = 3000; // 3秒窗口
     if (lastT <= windowSize) {
       chart.options.scales.x.min = 0;
       chart.options.scales.x.max = windowSize;

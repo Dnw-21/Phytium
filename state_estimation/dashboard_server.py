@@ -24,6 +24,7 @@ class UKFEngine:
         self.data_ready = threading.Event()
         self.running = False
         self.speed = 0.003  # default ~15s cycle
+        self.steps_per_tick = 1  # 每次循环执行的UKF步数
         self._stop_event = threading.Event()
         self.latest = None
         self.total_elapsed_base = 0.0
@@ -166,6 +167,7 @@ class UKFEngine:
         return 0, 'normal'
 
     def step(self):
+        """UKF状态估计，逻辑与ukf_estimation.py完全一致"""
         from RK4 import RK4
 
         idx = self.step_idx
@@ -174,10 +176,9 @@ class UKFEngine:
 
         k = idx / self.fs
         ps, phase = self._get_phase(k)
-        # UKF始终使用正常状态导纳矩阵，不自己注入故障
-        # 故障信息仅用于显示，测量数据已包含故障特征
-        Ybusm = self.YBUS[:, :, 0]
-        RVm = self.RV[:, :, 0]
+        # 与ukf_estimation.py一致：根据故障状态切换导纳矩阵
+        Ybusm = self.YBUS[:, :, ps]
+        RVm = self.RV[:, :, ps]
 
         try:
             root = cholesky(self.n * self.P)
@@ -199,12 +200,23 @@ class UKFEngine:
         X_tilde1 = np.column_stack([root1, -root1])
         X_sigma = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns)) + X_tilde1
         E11 = np.tile(self.E_abs.reshape(-1, 1), (1, 2 * self.ns)) * np.exp(1j * X_sigma[:self.n, :])
-        V_bus11 = RVm @ E11
-        I_bus11 = Ybusm @ V_bus11
-        PG11 = np.real(np.conj(I_bus11[:self.n, :]) * E11)
-        QG11 = np.imag(np.conj(I_bus11[:self.n, :]) * E11)
-        Vmag11 = np.abs(V_bus11)
-        Vangle11 = np.angle(V_bus11)
+        # 与ukf_estimation.py一致：用dynamic_system中的Kron简约方法计算功率
+        n_bus = Ybusm.shape[0]
+        if n_bus > self.n:
+            g = slice(0, self.n)
+            l = slice(self.n, n_bus)
+            Yll = Ybusm[l, l]
+            Ylg = Ybusm[l, g]
+            Vl = -np.linalg.solve(Yll, Ylg @ E11)
+            I_bus = Ybusm @ np.vstack([E11, Vl])
+            PG11 = np.real(np.conj(I_bus[g, :]) * E11)
+            QG11 = np.imag(np.conj(I_bus[g, :]) * E11)
+        else:
+            I11 = Ybusm @ E11
+            PG11 = np.real(E11 * np.conj(I11))
+            QG11 = np.imag(E11 * np.conj(I11))
+        Vmag11 = np.abs(RVm @ E11)
+        Vangle11 = np.angle(RVm @ E11)
         zbreve = np.vstack([PG11, QG11, Vmag11, Vangle11])
 
         z_hat = zbreve @ self.W
@@ -217,6 +229,7 @@ class UKFEngine:
         except np.linalg.LinAlgError:
             K = P_xz @ np.linalg.pinv(P_zz)
 
+        # 使用terminal_node.py生成的测量数据
         z = self.measurements[:, idx]
         self.X_hat = self.X_hat + K @ (z - z_hat)
         self.P = self.P - K @ P_zz @ K.T
@@ -233,14 +246,10 @@ class UKFEngine:
             'omega_est': self.X_hat[self.n:].tolist(),
         }
 
+        # 真实状态来自terminal_node.py生成的true_states.csv
         if self.X_true is not None:
-            # 优先使用terminal_node.py生成的真实状态数据
             result['delta_true'] = self.X_true[:self.n, idx].tolist()
             result['omega_true'] = self.X_true[self.n:, idx].tolist()
-            # UKF估计值也尽量贴近真实数据（如果差异过大）
-            # 这里可以选择直接用真实数据作为估计值显示
-            result['delta_est'] = self.X_true[:self.n, idx].tolist()
-            result['omega_est'] = self.X_true[self.n:, idx].tolist()
 
         with self.lock:
             h = self.history
@@ -281,17 +290,15 @@ class UKFEngine:
     def run_loop(self):
         self.running = True
         while not self._stop_event.is_set():
-            if self.step_idx >= self.num_samples:
-                # 数据耗尽后：用当前UKF估计状态继续自由运行（无测量更新）
-                self._free_run_step()
-                for _ in range(20):
-                    if self._stop_event.is_set(): break
-                    time.sleep(self.speed / 20.0)
-                continue
-            self.step()
-            for _ in range(20):
-                if self._stop_event.is_set(): break
-                time.sleep(self.speed / 20.0)
+            # 根据速度设置决定每轮执行多少步
+            for _ in range(self.steps_per_tick):
+                if self.step_idx >= self.num_samples:
+                    self._free_run_step()
+                else:
+                    self.step()
+                if self._stop_event.is_set():
+                    break
+            time.sleep(self.speed)
         self.running = False
         self.data_ready.set()
 
@@ -299,8 +306,8 @@ class UKFEngine:
         from RK4 import RK4
         k = self.step_idx / self.fs
         ps, phase = self._get_phase(k)
-        # UKF始终使用正常状态导纳矩阵，不自己注入故障
-        Ybusm = self.YBUS[:, :, 0]
+        # 与ukf_estimation.py一致
+        Ybusm = self.YBUS[:, :, ps]
 
         try:
             root = cholesky(self.n * self.P)
@@ -430,7 +437,20 @@ def control(action):
     elif action == 'speed':
         data = request.get_json()
         if data and 'speed' in data:
-            engine.speed = float(data['speed'])
+            speed_val = float(data['speed'])
+            engine.speed = speed_val
+            # 速度越快(值越小)，每轮执行更多步
+            # 3s周期(最快): steps_per_tick=10, sleep=0.003
+            # 15s周期(默认): steps_per_tick=1, sleep=0.003
+            # 60s周期(最慢): steps_per_tick=1, sleep=0.003
+            if speed_val <= 0.001:
+                engine.steps_per_tick = 20
+            elif speed_val <= 0.003:
+                engine.steps_per_tick = 10
+            elif speed_val <= 0.006:
+                engine.steps_per_tick = 5
+            else:
+                engine.steps_per_tick = 1
     else:
         return jsonify({'status': 'error', 'message': f'Unknown action: {action}'}), 400
     return jsonify({'status': 'ok', 'action': action})

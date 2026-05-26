@@ -342,4 +342,96 @@ freertos/src/wave_decode.c  — 差分编码解码
 1. reboot后模块射频缓冲区可能残留旧数据包(模块不断电)
 2. remoteproc stop/start后AT命令无响应, 必须sudo reboot
 3. send_lora_cmd的len=1问题待排查
+
 ================================================================
+
+十四、Dashboard实时显示面板 — 逻辑说明
+================================================================
+
+1. 整体架构
+----------
+  terminal_node.py  →  数据文件  →  dashboard_server.py  →  浏览器前端
+  (终端端/数据生成)    (中间文件)    (主控端/UKF+Web服务)    (Chart.js显示)
+
+2. 数据流向
+----------
+  Step 1: terminal_node.py 运行，生成以下文件：
+    - system_params.mat    系统参数（YBUS, RV, E_abs, PM, M, D, fault_times等）
+    - true_states.csv      真实状态（δ₁₋₃, ω₁₋₃），6维 × 180000点
+    - node1_measurements.txt  节点1测量数据（PG1,QG1,V1,V4,V5,angle1,4,5）
+    - node2_measurements.txt  节点2测量数据（PG2,QG2,V2,V6,V7,angle2,6,7）
+    - node3_measurements.txt  节点3测量数据（PG3,QG3,V3,V8,V9,angle3,8,9）
+
+  Step 2: dashboard_server.py 启动时 init() 读取：
+    - system_params.mat  →  YBUS, RV, fault_times, total_time 等
+    - nodeX_measurements.txt  →  组合为 measurements 矩阵 (24维 × 180000点)
+    - true_states.csv  →  X_true 矩阵 (6维 × 180000点)，用于前端显示真实值
+
+  Step 3: 用户点击"开始"，dashboard_server.py 逐步执行UKF：
+    - 每步读取 measurements[:, idx] 作为测量输入 z
+    - UKF预测：RK4积分 + Sigma点传播
+    - UKF更新：用测量残差 (z - z_hat) 修正状态估计
+    - 输出：delta_est/omega_est（UKF估计值）+ delta_true/omega_true（真实值）
+
+  Step 4: 前端通过 /history 接口获取数据，Chart.js 渲染图表
+
+3. UKF计算逻辑（与ukf_estimation.py完全一致）
+----------------------------------------------
+  - 故障判断：_get_phase(k) 根据 fault_times 判断当前时刻是否在故障期间
+    fault_times = [(5.0, 5.3), (15.0, 15.3)]
+    ps=0 正常状态, ps=1 故障状态
+
+  - 导纳矩阵切换：Ybusm = YBUS[:, :, ps], RVm = RV[:, :, ps]
+    正常时用 YBUS[:,:,0], 故障时用 YBUS[:,:,1]
+
+  - 测量数据来源：self.measurements[:, idx]
+    完全来自 terminal_node.py 生成的 nodeX_measurements.txt
+
+  - 真实状态来源：self.X_true[:, idx]
+    完全来自 terminal_node.py 生成的 true_states.csv
+
+4. 前端显示逻辑
+--------------
+  主图（δ和ω）：
+    - 固定5秒窗口，随数据滚动
+    - 实线=真实值（来自true_states.csv），虚线=UKF估计值
+    - 故障区域用红色阴影标记（位置来自fault_times）
+
+  整体趋势图：
+    - 显示全部数据范围（0到当前时间）
+    - 仅显示真实值
+
+  故障回放：
+    - 自动捕获故障前后数据快照
+    - 横坐标根据回放数据长度自动调整
+    - 不被后续数据覆盖
+
+  状态指示：
+    - 正常 → 绿色
+    - fault_1/fault_2 → 红色 + 闪电图标
+    - 故障切除 → 绿色 + 勾号
+
+5. 关键说明
+----------
+  ★ dashboard_server.py 不自己生成任何数据
+  ★ 所有测量数据来自 terminal_node.py 生成的文件
+  ★ UKF计算逻辑与 ukf_estimation.py 完全一致
+  ★ 真实值（true）来自 true_states.csv，估计值（est）来自UKF计算
+  ★ 故障标记仅用于显示，不影响UKF计算（UKF本身需要切换导纳矩阵）
+  ★ 修改 terminal_node.py 后必须重新运行，再重启 dashboard_server.py
+
+6. 运行方式
+----------
+  # 1. 生成数据
+  cd /home/alientek/Phytium/state_estimation
+  python terminal_node.py
+
+  # 2. 启动Dashboard
+  python dashboard_server.py
+
+  # 3. 浏览器访问
+  http://localhost:5000
+
+  # 开发板接显示屏方案：
+  方案A：开发板运行浏览器，访问 http://localhost:5000
+  方案B：其他电脑通过局域网访问 http://开发板IP:5000
