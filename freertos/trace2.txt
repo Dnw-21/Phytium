@@ -1,0 +1,2504 @@
+[reader] 0xC8000000 buf=1048576
+
+=== FreeRTOS LoRa v7-S2 (rpmsg-pipe) ===
+=== Step4: UART2 GICv3 interrupt + ring buffer ===
+RPMsg done
+D2 v3
+D3
+D4
+D5
+D6
+MPIDR=0x80000100 GetCpuId=1 dts=rproc=3
+D6-IRQ
+[00:00:00.000] [INFO]  Master init: 10 nodes, cmd_q=5, DLbuf=1296B, SHM=[S:64000B W:64000B]
+D7
+Start sched
+[00:00:00.000] [INFO]  Judge task started
+L1 v8
+[00:00:00.000] [INFO]  Cmd task started
+A1
+A 99->0
+RPM: start poll
+L2
+LoRa: AT init (verified format)
+AT: 41 54 0D 0A 0D 0A 4F 4B 0D 0A 
+AT: 41 54 0D 0A 0D 0A 4F 4B 0D 0A 
+RPM: poll done
+RPM: rpdev=0xb0c78e90
+RPM: ept ret=0
+RPM: ept OK
+AT: 41 54 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+ADDR?: 41 54 2B 41 44 44 52 3F 0D 0A 2B 41 44 44 52 3A 30 30 2C 30 62 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+ADDR=00,0B: 41 54 2B 41 44 44 52 3D 30 30 2C 30 42 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+NETID=0: 41 54 2B 4E 45 54 49 44 3D 30 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+WLRATE=23,5: 41 54 2B 57 4C 52 41 54 45 3D 32 33 2C 35 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+PACKSIZE=3: 41 54 2B 50 41 43 4B 53 49 5A 45 3D 33 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+TMODE=1: 41 54 2B 54 4D 4F 44 45 3D 31 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+TPOWER=4: 41 54 2B 54 50 4F 57 45 52 3D 34 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+UART=7,0: 41 54 2B 55 41 52 54 3D 37 2C 30 0D 0A 0D 0A 4F 4B 0D 0A 
+AT+FLASH=1: 41 54 2B 46 4C 41 53 48 3D 31 0D 0A 0D 0A 4F 4B 0D 0A 
+LoRa: AT config done
+L3
+L4
+A 0->1
+A 1->0
+[RPM-hb] ept=0xb0133858 dest=0xFFFFFFFF tx=0 err=0 poll=0
+LoRa: MD0=LOW AUX=0 (ready)
+LoRa: RX ready (IRQ)
+L5
+L6-IRQ
+L7-IRQ-v4
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=1 err=0 poll=0
+[RX-hb] loop=1500 AUX=0 tx=0 real=0 isr=0 dat=0 rpmsg=1/0
+
+=== INJECT: sim frames ===
+BUILD: type=01 plen=20 enc=20 sync=03E807D0 dlen=29 total=36
+
+=== FRAME #1: type=01 ts=1000 sync=03E807D0 raw=20B ===
+01 01 00 00 88 13 00 00 01 00 00 00 01 00 08 00 
+D0 07 00 00 
+[00:00:14.385] [INFO]  Fault hdr: node1 t=5000 type=1 sev=1 pts=8
+  RPMsg TX 36B ok
+INJECT STATUS: 36B consumed=36
+BUILD: type=04 plen=128 enc=128 sync=03E807D0 dlen=137 total=144
+
+=== FRAME #2: type=04 ts=1000 sync=03E807D0 raw=128B ===
+E8 03 00 00 C8 00 00 00 1E 00 00 00 F0 55 00 00 
+4C 04 00 00 DC 00 00 00 23 00 00 00 54 56 00 00 
+B0 04 00 00 F0 00 00 00 28 00 00 00 B8 56 00 00 
+14 05 00 00 04 01 00 00 2D 00 00 00 1C 57 00 00 
+  ... (128B total, showing first 64)
+[00:00:14.485] [INFO]  SAVE: node1 status 8pts (128B) to SHM
+[00:00:14.485] [INFO]  Node1: status data saved (8 pts)
+  [RAW] s0: p=1000 q=200 ang=30 vmag=22000 (÷10000)
+  [RAW] s1: p=1100 q=220 ang=35 vmag=22100 (÷10000)
+  [RAW] s2: p=1200 q=240 ang=40 vmag=22200 (÷10000)
+  [RAW] s3: p=1300 q=260 ang=45 vmag=22300 (÷10000)
+  [RAW] s4: p=1400 q=280 ang=50 vmag=22400 (÷10000)
+  [RAW] s5: p=1500 q=300 ang=55 vmag=22500 (÷10000)
+  [RAW] s6: p=1600 q=320 ang=60 vmag=22600 (÷10000)
+  [RAW] s7: p=1700 q=340 ang=65 vmag=22700 (÷10000)
+  RPMsg TX 144B ok
+INJECT NODE_RAW: 144B consumed=144
+BUILD: type=06 plen=4 enc=4 sync=03E807D0 dlen=13 total=20
+
+=== FRAME #3: type=06 ts=1000 sync=03E807D0 raw=4B ===
+01 02 00 00 
+[00:00:14.585] [INFO]  Fault list: node1=2 valid/4
+  RPMsg TX 20B ok
+INJECT FAULT_LIST: 20B consumed=20
+=== INJECT: done ===
+[00:00:15.000] [INFO]  Judge: node0 fault, req wave
+[00:00:15.000] [DEBUG] CMD sent via UART2: node0 code=0x10 len=8
+[00:00:15.003] [WARN]  CMD node0 send failed, ret=-1, retry=1
+[00:00:15.003] [INFO]  CMD: req wave node0 fault#0
+[00:00:16.000] [INFO]  Judge: node0 fault, req wave
+[00:00:16.000] [DEBUG] CMD sent via UART2: node0 code=0x10 len=8
+[00:00:16.003] [WARN]  CMD node0 send failed, ret=-1, retry=2
+[00:00:16.003] [INFO]  CMD: req wave node0 fault#0
+[00:00:17.000] [INFO]  Judge: node0 fault, req wave
+[00:00:17.000] [DEBUG] CMD sent via UART2: node0 code=0x10 len=8
+[00:00:17.003] [WARN]  CMD node0 send failed, ret=-1, retry=3
+[00:00:17.003] [INFO]  CMD: req wave node0 fault#0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=4 err=0 poll=0
+[RX-hb] loop=3000 AUX=0 tx=3 real=3 isr=0 dat=0 rpmsg=4/0
+[RX-hb] loop=4500 AUX=0 tx=3 real=3 isr=0 dat=0 rpmsg=4/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=5 err=0 poll=0
+[RX-hb] loop=6000 AUX=0 tx=3 real=3 isr=0 dat=0 rpmsg=5/0
+
+=== FRAME #4: type=01 ts=700637 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 32 CF BC 42 50 00 00 00 
+[00:00:25.071] [DEBUG] Status hdr: node0 sev=0 health=94.4 pts=80
+  RPMsg TX 32B ok
+A 0->1
+
+=== FRAME #5: type=04 ts=700660 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #6: type=04 ts=700749 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #7: type=04 ts=700839 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #8: type=04 ts=700930 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #9: type=04 ts=701020 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #10: type=04 ts=701109 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #11: type=04 ts=701199 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #12: type=04 ts=701289 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #13: type=04 ts=701380 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #14: type=04 ts=701470 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:00:26.025] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:00:26.025] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+[RX-hb] loop=7500 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=16/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=16 err=0 poll=0
+[RX-hb] loop=9000 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=16/0
+[hb] t=300 A=0
+[00:00:30.000] [WARN]  Node1 offline (15515ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=17 err=0 poll=0
+[RX-hb] loop=10500 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=17/0
+[RX-hb] loop=12000 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=17/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=17 err=0 poll=0
+[RX-hb] loop=13500 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=17/0
+[RX-hb] loop=15000 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=17/0
+[00:00:42.000] [WARN]  Node0 offline (15975ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=18 err=0 poll=0
+[RX-hb] loop=16500 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=18/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=18 err=0 poll=0
+[RX-hb] loop=18000 AUX=0 tx=14 real=14 isr=101 dat=1499 rpmsg=18/0
+
+=== FRAME #15: type=01 ts=725659 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:00:50.067] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #16: type=04 ts=725682 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #17: type=04 ts=725773 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #18: type=04 ts=725864 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #19: type=04 ts=725954 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #20: type=04 ts=726044 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=19500 AUX=0 tx=20 real=20 isr=152 dat=2263 rpmsg=24/0
+
+=== FRAME #21: type=04 ts=726134 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #22: type=04 ts=726224 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #23: type=04 ts=726314 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #24: type=04 ts=726404 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #25: type=04 ts=726494 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:00:51.023] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:00:51.023] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=30 err=0 poll=0
+[RX-hb] loop=21000 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=30/0
+[RX-hb] loop=22500 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=30/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=30 err=0 poll=0
+[RX-hb] loop=24000 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=30/0
+[hb] t=600 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=31 err=0 poll=0
+[RX-hb] loop=25500 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=31/0
+[RX-hb] loop=27000 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=31/0
+[00:01:07.000] [WARN]  Node0 offline (15977ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=31 err=0 poll=0
+[RX-hb] loop=28500 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=31/0
+[RX-hb] loop=30000 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=31/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=32 err=0 poll=0
+[RX-hb] loop=31500 AUX=0 tx=25 real=25 isr=202 dat=2998 rpmsg=32/0
+
+=== FRAME #26: type=01 ts=750683 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:01:15.067] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #27: type=04 ts=750705 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #28: type=04 ts=750796 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #29: type=04 ts=750886 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #30: type=04 ts=750976 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #31: type=04 ts=751066 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #32: type=04 ts=751155 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #33: type=04 ts=751246 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #34: type=04 ts=751336 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #35: type=04 ts=751426 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #36: type=04 ts=751516 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:01:16.019] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:01:16.019] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=43 err=0 poll=0
+[RX-hb] loop=33000 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=43/0
+[RX-hb] loop=34500 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=43/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=44 err=0 poll=0
+[RX-hb] loop=36000 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=44/0
+[RX-hb] loop=37500 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=44/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=44 err=0 poll=0
+[RX-hb] loop=39000 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=44/0
+[hb] t=900 A=0
+[00:01:32.000] [WARN]  Node0 offline (15981ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=45 err=0 poll=0
+[RX-hb] loop=40500 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=45/0
+[RX-hb] loop=42000 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=45/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=45 err=0 poll=0
+[RX-hb] loop=43500 AUX=0 tx=36 real=36 isr=303 dat=4497 rpmsg=45/0
+
+=== FRAME #37: type=01 ts=775705 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:01:40.061] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #38: type=04 ts=775727 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #39: type=04 ts=775818 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #40: type=04 ts=775907 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #41: type=04 ts=775997 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #42: type=04 ts=776087 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #43: type=04 ts=776177 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #44: type=04 ts=776268 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #45: type=04 ts=776357 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #46: type=04 ts=776447 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #47: type=04 ts=776537 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:01:41.015] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:01:41.015] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+[RX-hb] loop=45000 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=56/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=57 err=0 poll=0
+[RX-hb] loop=46500 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=57/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=57 err=0 poll=0
+[RX-hb] loop=48000 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=57/0
+[RX-hb] loop=49500 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=57/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=58 err=0 poll=0
+[RX-hb] loop=51000 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=58/0
+[RX-hb] loop=52500 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=58/0
+[00:01:57.000] [WARN]  Node0 offline (15985ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=58 err=0 poll=0
+[RX-hb] loop=54000 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=58/0
+[hb] t=1200 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=59 err=0 poll=0
+[RX-hb] loop=55500 AUX=0 tx=47 real=47 isr=404 dat=5996 rpmsg=59/0
+
+=== FRAME #48: type=01 ts=800727 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:02:05.059] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #49: type=04 ts=800750 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #50: type=04 ts=800839 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #51: type=04 ts=800930 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #52: type=04 ts=801019 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #53: type=04 ts=801109 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=57000 AUX=0 tx=53 real=53 isr=455 dat=6760 rpmsg=65/0
+
+=== FRAME #54: type=04 ts=801199 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+C0 5D 00 00 A0 0F 00 00 00 00 00 00 C0 91 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s1: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s2: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #55: type=04 ts=801289 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #56: type=04 ts=801380 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #57: type=04 ts=801469 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #58: type=04 ts=801559 sync=A5A5A5A5 raw=128B ===
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+C0 5D 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:02:06.011] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:02:06.011] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=70 err=0 poll=0
+[RX-hb] loop=58500 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=70/0
+[RX-hb] loop=60000 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=70/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=71 err=0 poll=0
+[RX-hb] loop=61500 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=71/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=71 err=0 poll=0
+[RX-hb] loop=63000 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=71/0
+[RX-hb] loop=64500 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=71/0
+[00:02:22.000] [WARN]  Node0 offline (15989ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=72 err=0 poll=0
+[RX-hb] loop=66000 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=72/0
+[RX-hb] loop=67500 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=72/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=72 err=0 poll=0
+[RX-hb] loop=69000 AUX=0 tx=58 real=58 isr=505 dat=7495 rpmsg=72/0
+[hb] t=1500 A=0
+
+=== FRAME #59: type=01 ts=825749 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 44 44 BE 42 50 00 00 00 
+[00:02:30.055] [DEBUG] Status hdr: node0 sev=0 health=95.1 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #60: type=04 ts=825772 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s4: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #61: type=04 ts=825862 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #62: type=04 ts=825952 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #63: type=04 ts=826042 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #64: type=04 ts=826132 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s4: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #65: type=04 ts=826222 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #66: type=04 ts=826313 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #67: type=04 ts=826404 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #68: type=04 ts=826494 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #69: type=04 ts=826584 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:02:31.011] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:02:31.011] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=84 err=0 poll=0
+[RX-hb] loop=70500 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=84/0
+[RX-hb] loop=72000 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=84/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=84 err=0 poll=0
+[RX-hb] loop=73500 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=84/0
+[RX-hb] loop=75000 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=84/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=85 err=0 poll=0
+[RX-hb] loop=76500 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=85/0
+[00:02:47.000] [WARN]  Node0 offline (15989ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=85 err=0 poll=0
+[RX-hb] loop=78000 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=85/0
+[RX-hb] loop=79500 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=85/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=86 err=0 poll=0
+[RX-hb] loop=81000 AUX=0 tx=69 real=69 isr=606 dat=8994 rpmsg=86/0
+
+=== FRAME #70: type=01 ts=850773 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 44 44 BE 42 50 00 00 00 
+[00:02:55.053] [DEBUG] Status hdr: node0 sev=0 health=95.1 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #71: type=04 ts=850795 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s4: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #72: type=04 ts=850886 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #73: type=04 ts=850976 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #74: type=04 ts=851066 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #75: type=04 ts=851156 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s4: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #76: type=04 ts=851246 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #77: type=04 ts=851336 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #78: type=04 ts=851426 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #79: type=04 ts=851516 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #80: type=04 ts=851606 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:02:56.007] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:02:56.007] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=82500 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=97/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=97 err=0 poll=0
+[RX-hb] loop=84000 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=97/0
+[hb] t=1800 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=98 err=0 poll=0
+[RX-hb] loop=85500 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=98/0
+[RX-hb] loop=87000 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=98/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=98 err=0 poll=0
+[RX-hb] loop=88500 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=98/0
+[RX-hb] loop=90000 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=98/0
+[00:03:12.000] [WARN]  Node0 offline (15993ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=99 err=0 poll=0
+[RX-hb] loop=91500 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=99/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=99 err=0 poll=0
+[RX-hb] loop=93000 AUX=0 tx=80 real=80 isr=707 dat=10493 rpmsg=99/0
+
+=== FRAME #81: type=01 ts=875795 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 32 CF BC 42 50 00 00 00 
+[00:03:20.049] [DEBUG] Status hdr: node0 sev=0 health=94.4 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #82: type=04 ts=875817 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #83: type=04 ts=875907 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #84: type=04 ts=875997 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #85: type=04 ts=876087 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #86: type=04 ts=876177 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=94500 AUX=0 tx=86 real=86 isr=758 dat=11257 rpmsg=105/0
+
+=== FRAME #87: type=04 ts=876267 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #88: type=04 ts=876357 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #89: type=04 ts=876447 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #90: type=04 ts=876537 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #91: type=04 ts=876627 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:03:21.003] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:03:21.003] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=111 err=0 poll=0
+[RX-hb] loop=96000 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=111/0
+[RX-hb] loop=97500 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=111/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=111 err=0 poll=0
+[RX-hb] loop=99000 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=111/0
+[hb] t=2100 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=112 err=0 poll=0
+[RX-hb] loop=100500 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=112/0
+[RX-hb] loop=102000 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=112/0
+[00:03:37.000] [WARN]  Node0 offline (15997ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=112 err=0 poll=0
+[RX-hb] loop=103500 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=112/0
+[RX-hb] loop=105000 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=112/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=113 err=0 poll=0
+[RX-hb] loop=106500 AUX=0 tx=91 real=91 isr=808 dat=11992 rpmsg=113/0
+
+=== FRAME #92: type=01 ts=900817 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 32 CF BC 42 50 00 00 00 
+[00:03:45.045] [DEBUG] Status hdr: node0 sev=0 health=94.4 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #93: type=04 ts=900840 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #94: type=04 ts=900929 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #95: type=04 ts=901019 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #96: type=04 ts=901110 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #97: type=04 ts=901200 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #98: type=04 ts=901289 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s1: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s2: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s3: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #99: type=04 ts=901379 sync=A5A5A5A5 raw=128B ===
+A8 61 00 00 88 13 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  [RAW] s2: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s3: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s4: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #100: type=04 ts=901469 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #101: type=04 ts=901560 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s6: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #102: type=04 ts=901650 sync=A5A5A5A5 raw=128B ===
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+C0 5D 00 00 88 13 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:03:45.999] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:03:45.999] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s1: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=124 err=0 poll=0
+[RX-hb] loop=108000 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=124/0
+[RX-hb] loop=109500 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=124/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=125 err=0 poll=0
+[RX-hb] loop=111000 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=125/0
+[RX-hb] loop=112500 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=125/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=125 err=0 poll=0
+[RX-hb] loop=114000 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=125/0
+[hb] t=2400 A=0
+[00:04:01.000] [WARN]  Node0 offline (15001ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=126 err=0 poll=0
+[RX-hb] loop=115500 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=126/0
+[RX-hb] loop=117000 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=126/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=126 err=0 poll=0
+[RX-hb] loop=118500 AUX=0 tx=102 real=102 isr=909 dat=13491 rpmsg=126/0
+
+=== FRAME #103: type=01 ts=925839 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:04:10.043] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #104: type=04 ts=925862 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #105: type=04 ts=925953 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #106: type=04 ts=926044 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #107: type=04 ts=926134 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #108: type=04 ts=926224 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #109: type=04 ts=926314 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #110: type=04 ts=926404 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #111: type=04 ts=926494 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #112: type=04 ts=926584 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #113: type=04 ts=926674 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:04:10.997] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:04:10.997] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=120000 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=137/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=138 err=0 poll=0
+[RX-hb] loop=121500 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=138/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=138 err=0 poll=0
+[RX-hb] loop=123000 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=138/0
+[RX-hb] loop=124500 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=138/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=139 err=0 poll=0
+[RX-hb] loop=126000 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=139/0
+[00:04:26.000] [WARN]  Node0 offline (15003ms)
+[RX-hb] loop=127500 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=139/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=139 err=0 poll=0
+[RX-hb] loop=129000 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=139/0
+[hb] t=2700 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=140 err=0 poll=0
+[RX-hb] loop=130500 AUX=0 tx=113 real=113 isr=1010 dat=14990 rpmsg=140/0
+
+=== FRAME #114: type=01 ts=950863 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:04:35.041] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #115: type=04 ts=950885 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #116: type=04 ts=950976 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #117: type=04 ts=951066 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #118: type=04 ts=951156 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #119: type=04 ts=951246 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=132000 AUX=0 tx=119 real=119 isr=1061 dat=15754 rpmsg=146/0
+
+=== FRAME #120: type=04 ts=951335 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #121: type=04 ts=951426 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #122: type=04 ts=951516 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #123: type=04 ts=951606 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #124: type=04 ts=951696 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:04:35.995] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:04:35.995] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=151 err=0 poll=0
+[RX-hb] loop=133500 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=151/0
+[RX-hb] loop=135000 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=151/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=152 err=0 poll=0
+[RX-hb] loop=136500 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=152/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=152 err=0 poll=0
+[RX-hb] loop=138000 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=152/0
+[RX-hb] loop=139500 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=152/0
+[00:04:51.000] [WARN]  Node0 offline (15005ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=153 err=0 poll=0
+[RX-hb] loop=141000 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=153/0
+[RX-hb] loop=142500 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=153/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=153 err=0 poll=0
+[RX-hb] loop=144000 AUX=0 tx=124 real=124 isr=1111 dat=16489 rpmsg=153/0
+[hb] t=3000 A=0
+
+=== FRAME #125: type=01 ts=975885 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:05:00.037] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #126: type=04 ts=975907 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #127: type=04 ts=975998 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+90 65 00 00 88 13 00 00 D0 07 00 00 48 A5 21 00 
+A8 61 00 00 A0 0F 00 00 00 00 00 00 90 99 21 00 
+C0 5D 00 00 88 13 00 00 18 FC FF FF 08 86 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=26000 q=5000 ang=2000 vmag=2205000 (÷10000)
+  [RAW] s2: p=25000 q=4000 ang=0 vmag=2202000 (÷10000)
+  [RAW] s3: p=24000 q=5000 ang=-1000 vmag=2197000 (÷10000)
+  [RAW] s4: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s5: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s6: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #128: type=04 ts=976087 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #129: type=04 ts=976177 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #130: type=04 ts=976267 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #131: type=04 ts=976357 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #132: type=04 ts=976448 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #133: type=04 ts=976537 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #134: type=04 ts=976627 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #135: type=04 ts=976717 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+[00:05:00.989] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:05:00.989] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=165 err=0 poll=0
+[RX-hb] loop=145500 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=165/0
+[RX-hb] loop=147000 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=165/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=165 err=0 poll=0
+[RX-hb] loop=148500 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=165/0
+[RX-hb] loop=150000 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=165/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=166 err=0 poll=0
+[RX-hb] loop=151500 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=166/0
+[00:05:16.000] [WARN]  Node0 offline (15011ms)
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=166 err=0 poll=0
+[RX-hb] loop=153000 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=166/0
+[RX-hb] loop=154500 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=166/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=167 err=0 poll=0
+[RX-hb] loop=156000 AUX=0 tx=135 real=135 isr=1212 dat=17988 rpmsg=167/0
+
+=== FRAME #136: type=01 ts=1000907 sync=A5A5A5A5 raw=16B ===
+01 00 00 00 E8 03 00 00 0C 66 B6 42 50 00 00 00 
+[00:05:25.033] [DEBUG] Status hdr: node0 sev=0 health=91.2 pts=80
+  RPMsg TX 32B ok
+
+=== FRAME #137: type=04 ts=1000930 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 D0 3B 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 40 1F 00 00 A0 43 21 00 
+90 65 00 00 A0 0F 00 00 D0 07 00 00 60 A1 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s2: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s4: p=25000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s5: p=24000 q=5000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s6: p=26000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s7: p=25000 q=4000 ang=-1000 vmag=2198000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #138: type=04 ts=1001019 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #139: type=04 ts=1001110 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #140: type=04 ts=1001199 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #141: type=04 ts=1001289 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 E8 37 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 70 4B 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s1: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+A 0->1
+
+=== FRAME #142: type=04 ts=1001379 sync=A5A5A5A5 raw=128B ===
+C0 5D 00 00 88 13 00 00 00 00 00 00 F0 89 21 00 
+A8 61 00 00 A0 0F 00 00 E8 03 00 00 48 A5 21 00 
+C0 5D 00 00 A0 0F 00 00 00 00 00 00 C0 91 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=24000 q=5000 ang=0 vmag=2198000 (÷10000)
+  [RAW] s1: p=25000 q=4000 ang=1000 vmag=2205000 (÷10000)
+  [RAW] s2: p=24000 q=4000 ang=0 vmag=2200000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s5: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #143: type=04 ts=1001469 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 70 4B 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 D0 3B 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 A0 43 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 58 4F 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2177000 (÷10000)
+  [RAW] s6: p=32000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  RPMsg TX 144B ok
+A 1->0
+
+=== FRAME #144: type=04 ts=1001560 sync=A5A5A5A5 raw=128B ===
+18 79 00 00 88 13 00 00 40 1F 00 00 B8 3F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 88 47 21 00 
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+00 7D 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=31000 q=5000 ang=8000 vmag=2179000 (÷10000)
+  [RAW] s1: p=32000 q=6000 ang=9000 vmag=2181000 (÷10000)
+  [RAW] s2: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s3: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2178000 (÷10000)
+  [RAW] s5: p=33000 q=6000 ang=9000 vmag=2182000 (÷10000)
+  [RAW] s6: p=32000 q=6000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #145: type=04 ts=1001649 sync=A5A5A5A5 raw=128B ===
+E8 80 00 00 88 13 00 00 40 1F 00 00 58 4F 21 00 
+18 79 00 00 70 17 00 00 28 23 00 00 B8 3F 21 00 
+00 7D 00 00 88 13 00 00 40 1F 00 00 88 47 21 00 
+E8 80 00 00 70 17 00 00 28 23 00 00 A0 43 21 00 
+  ... (128B total, showing first 64)
+  [RAW] s0: p=33000 q=5000 ang=8000 vmag=2183000 (÷10000)
+  [RAW] s1: p=31000 q=6000 ang=9000 vmag=2179000 (÷10000)
+  [RAW] s2: p=32000 q=5000 ang=8000 vmag=2181000 (÷10000)
+  [RAW] s3: p=33000 q=6000 ang=9000 vmag=2180000 (÷10000)
+  [RAW] s4: p=31000 q=5000 ang=8000 vmag=2182000 (÷10000)
+  [RAW] s5: p=32000 q=6000 ang=9000 vmag=2178000 (÷10000)
+  [RAW] s6: p=33000 q=5000 ang=8000 vmag=2180000 (÷10000)
+  [RAW] s7: p=32000 q=6000 ang=9000 vmag=2183000 (÷10000)
+  RPMsg TX 144B ok
+
+=== FRAME #146: type=04 ts=1001739 sync=A5A5A5A5 raw=128B ===
+90 65 00 00 A0 0F 00 00 E8 03 00 00 C0 91 21 00 
+A8 61 00 00 88 13 00 00 D0 07 00 00 60 A1 21 00 
+C0 5D 00 00 A0 0F 00 00 00 00 00 00 D8 8D 21 00 
+90 65 00 00 A0 0F 00 00 E8 03 00 00 A8 95 21 00 
+  ... (128B total, showing first 64)
+[00:05:25.987] [INFO]  SAVE: node0 status 80pts (1280B) to SHM
+[00:05:25.987] [INFO]  Node0: status data saved (80 pts)
+  [RAW] s0: p=26000 q=4000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s1: p=25000 q=5000 ang=2000 vmag=2204000 (÷10000)
+  [RAW] s2: p=24000 q=4000 ang=0 vmag=2199000 (÷10000)
+  [RAW] s3: p=26000 q=4000 ang=1000 vmag=2201000 (÷10000)
+  [RAW] s4: p=25000 q=5000 ang=0 vmag=2203000 (÷10000)
+  [RAW] s5: p=24000 q=4000 ang=-1000 vmag=2195000 (÷10000)
+  [RAW] s6: p=25000 q=5000 ang=1000 vmag=2200000 (÷10000)
+  [RAW] s7: p=26000 q=4000 ang=2000 vmag=2202000 (÷10000)
+  RPMsg TX 144B ok
+[RX-hb] loop=157500 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=178/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=178 err=0 poll=0
+[RX-hb] loop=159000 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=178/0
+[hb] t=3300 A=0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=179 err=0 poll=0
+[RX-hb] loop=160500 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=179/0
+[RX-hb] loop=162000 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=179/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=179 err=0 poll=0
+[RX-hb] loop=163500 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=179/0
+[00:05:41.000] [WARN]  Node0 offline (15013ms)
+[RX-hb] loop=165000 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=179/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=180 err=0 poll=0
+[RX-hb] loop=166500 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=180/0
+[RPM-hb] ept=0xb0133858 dest=0x400 tx=180 err=0 poll=0
+[RX-hb] loop=168000 AUX=0 tx=146 real=146 isr=1313 dat=19487 rpmsg=180/0

@@ -41,7 +41,7 @@ def main():
     # 使用 scipy.io.loadmat 读取 .mat 文件
     data = sio.loadmat('system_params.mat')
     
-    # 提取参数（注意：loadmat 返回的是字典，数组形状需要调整）
+    # 提取参数
     YBUS = data['YBUS']
     RV = data['RV']
     E_abs = data['E_abs'].flatten()
@@ -51,18 +51,30 @@ def main():
     n = int(data['n'][0, 0])
     s = int(data['s'][0, 0])
     fs = int(data['fs'][0, 0])
-    num_normal = int(data['num_normal'][0, 0])
-    num_fault = int(data['num_fault'][0, 0])
-    t_SW = float(data['t_SW'][0, 0])
-    t_FC = float(data['t_FC'][0, 0])
+    
+    # 解析故障时间配置
+    if 'fault_times' in data:
+        fault_times = data['fault_times']
+        if fault_times.ndim == 2:
+            fault_times = [(fault_times[i, 0], fault_times[i, 1]) for i in range(fault_times.shape[0])]
+        else:
+            fault_times = [(5.0, 5.3), (15.0, 15.3)]
+    else:
+        fault_times = [(5.0, 5.3), (15.0, 15.3)]
+    
+    # 提取总时间
+    if 'total_time' in data:
+        total_time = float(data['total_time'][0, 0])
+    else:
+        total_time = 180.0
     
     print(f"系统参数加载完成！")
     print(f"  发电机数: {n}, 节点数: {s}")
     print(f"  采样频率: {fs} Hz")
-    print(f"  正常状态点: {num_normal}, 故障状态点: {num_fault}\n")
+    print(f"  总仿真时间: {total_time}秒 ({total_time/60:.1f}分钟)")
     
     # ==================== 第二步：读取节点测量数据 ====================
-    print("正在读取节点数据...")
+    print("\n正在读取节点数据...")
     
     # 检查文件是否存在
     node_files = ['node1_measurements.txt', 'node2_measurements.txt', 'node3_measurements.txt']
@@ -110,7 +122,8 @@ def main():
     print("正在按时间戳组合数据...")
     
     # 使用节点1的时间戳作为基准
-    t_points = node1_time
+    t_points = node1_time * fs  # 转换为采样点索引
+    t_points = t_points.astype(int)
     num_samples = len(t_points)
     
     # 组合测量数据（格式与MATLAB版本一致）
@@ -166,7 +179,7 @@ def main():
     from ukf_estimation import ukf_estimation
     X_est, RMSE_cov, RMSE_actual = ukf_estimation(
         YBUS, RV, E_abs, PM, M, D, n, s, fs, 
-        num_normal, num_fault, t_SW, t_FC, 
+        fault_times, total_time,
         measurements, X_true
     )
     
@@ -174,7 +187,7 @@ def main():
     print("\n正在绘制估计结果...")
     
     from plot_results import plot_results
-    plot_results(X_true, X_est, RMSE_cov, RMSE_actual, t_points, fs, n, num_normal, num_fault)
+    plot_results(X_true, X_est, RMSE_cov, RMSE_actual, t_points, fs, n, fault_times)
     
     # ==================== 显示总结 ====================
     print("\n===========================================")
@@ -182,10 +195,11 @@ def main():
     print("===========================================")
     print("\n仿真参数：")
     print(f"  采样频率: {fs} Hz")
-    print(f"  正常状态点: {num_normal}")
-    print(f"  故障状态点: {num_fault}")
-    print(f"  故障开始: {t_SW * 1000:.1f} ms")
-    print(f"  故障结束: {t_FC * 1000:.1f} ms")
+    print(f"  总仿真时间: {total_time}秒 ({total_time/60:.1f}分钟)")
+    print(f"  数据点总数: {num_samples}")
+    print("  故障配置:")
+    for i, (start, end) in enumerate(fault_times):
+        print(f"    故障{i+1}: {start:.1f}秒 - {end:.1f}秒 (持续{end-start:.2f}秒)")
     print("\n结果已显示在绘图窗口中")
 
 if __name__ == '__main__':

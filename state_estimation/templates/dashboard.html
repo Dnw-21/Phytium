@@ -431,18 +431,22 @@ body {
 /* ===== Main Content ===== */
 .main-content {
   grid-area: main;
-  padding: var(--space-6);
+  padding: var(--space-4);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-3);
+}
+
+.main-content .charts-section:last-of-type {
+  margin-bottom: 20px;
 }
 
 /* ===== Bento Grid - Top Metrics ===== */
 .bento-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 @media (max-width: 1280px) {
@@ -456,11 +460,11 @@ body {
 .bento-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  border-radius: var(--radius);
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-1);
   transition: all var(--transition);
   position: relative;
   overflow: hidden;
@@ -557,7 +561,7 @@ body {
 .nodes-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 @media (max-width: 900px) {
@@ -567,8 +571,8 @@ body {
 .node-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  border-radius: var(--radius);
+  padding: var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -671,21 +675,40 @@ body {
 .charts-section {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  min-height: 0;
 }
 
 @media (max-width: 1100px) {
   .charts-section { grid-template-columns: 1fr; }
 }
 
+.chart-card.main-chart {
+  height: 260px;
+}
+
+.chart-card.overview-chart {
+  height: 140px;
+}
+
+.overview-section {
+  min-height: 0;
+}
+
+.overview-wrap {
+  height: 100px;
+  min-height: 100px;
+  flex: none;
+}
+
 .chart-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-2);
   transition: border-color var(--transition);
   position: relative;
   overflow: hidden;
@@ -748,8 +771,9 @@ body {
 .chart-wrap {
   position: relative;
   width: 100%;
-  height: 320px;
+  height: 100%;
   flex: 1;
+  min-height: 0;
 }
 
 .chart-wrap canvas {
@@ -964,19 +988,19 @@ body {
     <div class="sidebar-section">
       <div class="sidebar-section-title">导航</div>
       <nav class="sidebar-nav">
-        <button class="nav-item active">
+        <button class="nav-item active" id="navMonitor" onclick="switchTab('monitor')">
           <span class="nav-icon">📊</span>
           <span>实时监控</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" id="navHistory" onclick="switchTab('history')">
           <span class="nav-icon">📈</span>
           <span>历史数据</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" id="navConfig" onclick="switchTab('config')">
           <span class="nav-icon">⚙️</span>
           <span>系统配置</span>
         </button>
-        <button class="nav-item">
+        <button class="nav-item" id="navLog" onclick="switchTab('log')">
           <span class="nav-icon">📋</span>
           <span>日志记录</span>
         </button>
@@ -988,23 +1012,23 @@ body {
       <div class="system-info">
         <div class="info-row">
           <span class="label">发电机</span>
-          <span class="value">3 台</span>
+          <span class="value" id="siGen">3 台</span>
         </div>
         <div class="info-row">
           <span class="label">母线</span>
-          <span class="value">9 条</span>
+          <span class="value" id="siBus">9 条</span>
         </div>
         <div class="info-row">
           <span class="label">采样率</span>
-          <span class="value">1000 Hz</span>
+          <span class="value" id="siRate">1000 Hz</span>
         </div>
         <div class="info-row">
           <span class="label">数据点</span>
-          <span class="value">80 (60+20)</span>
+          <span class="value" id="siPts">5000</span>
         </div>
         <div class="info-row">
           <span class="label">故障时段</span>
-          <span class="value">60~80ms</span>
+          <span class="value" id="siFault">2.0~2.05s</span>
         </div>
       </div>
     </div>
@@ -1022,9 +1046,8 @@ body {
     <div class="header-right">
       <span id="phaseLabel" class="phase-badge phase-normal">就绪</span>
       <div class="step-counter">
-        <span class="current" id="stepNum">0</span>
-        <span class="sep">/</span>
-        <span class="total" id="totalNum">--</span>
+        <span class="current" id="elapsedTime">0.0</span>
+        <span class="sep">s</span>
       </div>
       <span id="statusPill" class="status-pill status-ready">
         <span class="dot"></span>
@@ -1040,15 +1063,15 @@ body {
     <div class="bento-grid">
       <div class="bento-card">
         <div class="card-header">
-          <span class="card-label">仿真进度</span>
-          <div class="card-icon accent">📊</div>
+          <span class="card-label">运行时间</span>
+          <div class="card-icon accent">⏱</div>
         </div>
-        <div class="card-value" id="progressValue">0%</div>
-        <div class="card-detail">已完成 <span id="progressDetail">0/80</span> 步</div>
+        <div class="card-value" id="elapsedValue">0.0s</div>
+        <div class="card-detail">仿真已运行时长</div>
       </div>
       <div class="bento-card">
         <div class="card-header">
-          <span class="card-label">当前阶段</span>
+          <span class="card-label">电流阶段</span>
           <div class="card-icon success">✓</div>
         </div>
         <div class="card-value" id="phaseValue">正常</div>
@@ -1057,14 +1080,14 @@ body {
       <div class="bento-card">
         <div class="card-header">
           <span class="card-label">故障检测</span>
-          <div class="card-icon warning">⚠</div>
+          <div class="card-icon warning" id="faultIcon">⚠</div>
         </div>
-        <div class="card-value" id="faultValue">--</div>
+        <div class="card-value" id="faultValue">未检测到</div>
         <div class="card-detail">母线 8-9 三相短路</div>
       </div>
       <div class="bento-card">
         <div class="card-header">
-          <span class="card-label">总数据量</span>
+          <span class="card-label">节点状态</span>
           <div class="card-icon danger">📡</div>
         </div>
         <div class="card-value" id="totalBytes">--</div>
@@ -1120,7 +1143,7 @@ body {
 
     <!-- Charts -->
     <div class="charts-section">
-      <div class="chart-card">
+      <div class="chart-card main-chart">
         <div class="card-header">
           <h3>转子角度 δ (rad)</h3>
           <div class="chart-legends">
@@ -1136,7 +1159,7 @@ body {
           </div>
         </div>
       </div>
-      <div class="chart-card">
+      <div class="chart-card main-chart">
         <div class="card-header">
           <h3>转速 ω (rad/s)</h3>
           <div class="chart-legends">
@@ -1154,15 +1177,82 @@ body {
       </div>
     </div>
 
+    <!-- Overview Charts — 整体趋势 -->
+    <div class="charts-section overview-section">
+      <div class="chart-card overview-chart">
+        <div class="card-header" style="padding:4px 12px;"><h4 style="font-size:12px;">δ 整体趋势</h4></div>
+        <div class="chart-wrap overview-wrap"><canvas id="chartDeltaFull" style="display:block;"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header" style="padding:4px 12px;"><h4 style="font-size:12px;">ω 整体趋势</h4></div>
+        <div class="chart-wrap overview-wrap"><canvas id="chartOmegaFull" style="display:block;"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Tab panels: 历史/配置/日志 -->
+    <div id="tabPanel" style="display:none; margin-top:16px;">
+      <div id="panelHistory" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>历史数据</h3><span style="font-size:11px;color:var(--text-muted)">最近 600 条 · 旧数据自动覆盖</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);color:var(--text-secondary)">
+            <table style="width:100%;border-collapse:collapse;" id="historyTable">
+              <thead><tr style="border-bottom:1px solid var(--border-default);text-align:left;font-weight:600;">
+                <th style="padding:4px 8px;">时间</th><th style="padding:4px 8px;">δ₁</th><th style="padding:4px 8px;">ω₁</th><th style="padding:4px 8px;">δ₂</th><th style="padding:4px 8px;">ω₂</th><th style="padding:4px 8px;">δ₃</th><th style="padding:4px 8px;">ω₃</th><th style="padding:4px 8px;">阶段</th>
+              </tr></thead><tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- 故障回放 -->
+        <div class="chart-card" style="margin-top:16px;">
+          <div class="card-header"><h3>故障回放</h3><span style="font-size:11px;color:var(--text-muted)">已记录故障片段 · 点击播放</span></div>
+          <div style="padding:12px;" id="replayContainer">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelConfig" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>系统配置 ⚙️</h3></div>
+          <div style="padding:16px;" id="configContent">
+            <table class="config-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);width:140px;">系统模型</td><td id="cfgModel">IEEE 9-Bus</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">发电机数</td><td id="cfgGen">3</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">母线数</td><td id="cfgBus">9</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">采样频率</td><td id="cfgRate">1000 Hz</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障位置</td><td>母线 8-9 三相短路</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障开始</td><td id="cfgSW">--</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障切除</td><td id="cfgFC">--</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">UKF 噪声</td><td>σ=1e-2</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">积分方法</td><td>RK4 (四阶Runge-Kutta)</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="panelLog" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>事件日志 📋</h3><span style="font-size:11px;color:var(--text-muted)">最近 50 条 · 旧数据自动覆盖</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);" id="logContent">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">等待事件...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Controls -->
     <div class="controls-bar">
       <button id="btnStart" class="btn btn-play" onclick="doStart()">▶ 开始</button>
       <button id="btnPause" class="btn btn-pause" onclick="doPause()">⏸ 暂停</button>
       <button id="btnReset" class="btn btn-reset" onclick="doReset()">↻ 重置</button>
       <div class="speed-group">
-        <label for="speedSlider">速度</label>
-        <input type="range" id="speedSlider" min="0.05" max="0.8" step="0.05" value="0.25" oninput="doSetSpeed(this.value)">
-        <span class="speed-val" id="speedLabel">0.25s/步</span>
+        <label for="speedSlider">周期</label>
+        <input type="range" id="speedSlider" min="3" max="60" step="1" value="15" oninput="doSetSpeed(this.value)">
+        <span class="speed-val" id="speedLabel">15s</span>
+        <span class="speed-presets">
+          <a href="#" onclick="doSetSpeed(3);document.getElementById('speedSlider').value=3;return false">3s</a>
+          <a href="#" onclick="doSetSpeed(5);document.getElementById('speedSlider').value=5;return false">5s</a>
+          <a href="#" onclick="doSetSpeed(15);document.getElementById('speedSlider').value=15;return false">15s</a>
+          <a href="#" onclick="doSetSpeed(30);document.getElementById('speedSlider').value=30;return false">30s</a>
+        </span>
       </div>
     </div>
 
@@ -1177,9 +1267,8 @@ try {
 // ==================== Config ====================
 var COLORS = { g1:'#3b82f6', g2:'#f59e0b', g3:'#8b5cf6' };
 var COLORS_ALPHA = { g1:'rgba(59,130,246,0.08)', g2:'rgba(245,158,11,0.08)', g3:'rgba(139,92,246,0.08)' };
-var faultStart = 60, faultEnd = 80, totalSteps = 80;
+// faultStart/faultEnd 不再硬编码，改为从后端 params.fault_times 动态读取
 var pollTimer = null;
-var lastStep = 0;
 var running = false;
 
 // ==================== Chart Setup ====================
@@ -1197,35 +1286,46 @@ function mkDS(label, color, dashed) {
   };
 }
 
+var faultRegions = [];
+
+function drawFaultRegions(chart, ctx, xAxis, yAxis) {
+  if (!faultRegions || faultRegions.length === 0) return;
+  var meta = chart.getDatasetMeta(0);
+  if (!meta.data || meta.data.length < 2) return;
+  var dataMax = meta.data[meta.data.length-1].x;
+  if (dataMax === undefined) return;
+  ctx.save();
+  for (var i = 0; i < faultRegions.length; i++) {
+    var r = faultRegions[i];
+    var sw = r.start, fc = r.end;
+    if (dataMax < sw) continue;
+    var x1 = xAxis.getPixelForValue(sw);
+    var x2 = xAxis.getPixelForValue(Math.min(fc, dataMax));
+    if (x2 <= x1) continue;
+    var grad = ctx.createLinearGradient(x1, 0, x2, 0);
+    grad.addColorStop(0, 'rgba(220,38,38,0.04)');
+    grad.addColorStop(0.5, 'rgba(220,38,38,0.08)');
+    grad.addColorStop(1, 'rgba(220,38,38,0.04)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x1, yAxis.top, x2 - x1, yAxis.bottom - yAxis.top);
+    ctx.strokeStyle = 'rgba(220,38,38,0.3)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x1, yAxis.top); ctx.lineTo(x1, yAxis.bottom);
+    ctx.moveTo(x2, yAxis.top); ctx.lineTo(x2, yAxis.bottom);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,38,38,0.7)';
+    ctx.font = 'bold 11px -apple-system, "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(r.label || '故障', (x1 + x2) / 2, yAxis.top + 16);
+  }
+  ctx.restore();
+}
+
 var faultPlugin = {
   id: 'faultRegion',
   beforeDraw: function(chart) {
-    var xAxis = chart.scales.x, yAxis = chart.scales.y, ctx = chart.ctx;
-    var sw = chart.options._faultStart || faultStart;
-    var fc = chart.options._faultEnd || faultEnd;
-    var currentStep = chart.options._currentStep || 0;
-    if (currentStep < sw) return;
-    var x1 = xAxis.getPixelForValue(sw), x2 = xAxis.getPixelForValue(fc);
-    if (x2 > x1 && yAxis) {
-      ctx.save();
-      var grad = ctx.createLinearGradient(x1, 0, x2, 0);
-      grad.addColorStop(0, 'rgba(220,38,38,0.04)');
-      grad.addColorStop(0.5, 'rgba(220,38,38,0.08)');
-      grad.addColorStop(1, 'rgba(220,38,38,0.04)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(x1, yAxis.top, x2 - x1, yAxis.bottom - yAxis.top);
-      ctx.strokeStyle = 'rgba(220,38,38,0.3)';
-      ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
-      ctx.beginPath();
-      ctx.moveTo(x1, yAxis.top); ctx.lineTo(x1, yAxis.bottom);
-      ctx.moveTo(x2, yAxis.top); ctx.lineTo(x2, yAxis.bottom);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(220,38,38,0.7)';
-      ctx.font = 'bold 11px -apple-system, "PingFang SC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('故障', (x1 + x2) / 2, yAxis.top + 16);
-      ctx.restore();
-    }
+    drawFaultRegions(chart, chart.ctx, chart.scales.x, chart.scales.y);
   }
 };
 
@@ -1238,7 +1338,7 @@ function mkChartOpts(yTitle) {
       x: {
         type: 'linear',
         title: { display: true, text: '时间 (ms)', color: '#6b7280', font: { size: 12, weight: '500' } },
-        min: 0, max: 80,
+        min: 0, max: 1000,
         grid: { color: 'rgba(0,0,0,0.06)', drawBorder: false },
         ticks: { color: '#6b7280', font: { size: 11 }, padding: 8, maxTicksLimit: 12 }
       },
@@ -1289,6 +1389,49 @@ var chartOmega = new Chart(document.getElementById('chartOmega').getContext('2d'
   plugins: [faultPlugin],
 });
 
+// 整体趋势图配置: 矮小紧凑
+function mkOverviewOpts() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        min: 0, max: 5000,
+        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        ticks: { color: '#9ca3af', font: { size: 10 }, padding: 4, maxTicksLimit: 6 }
+      },
+      y: {
+        grid: { color: 'rgba(0,0,0,0.03)', drawBorder: false },
+        ticks: { color: '#9ca3af', font: { size: 10 }, padding: 4, maxTicksLimit: 4 }
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false }
+    }
+  };
+}
+
+var chartDeltaFull = new Chart(document.getElementById('chartDeltaFull').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('δ₁', COLORS.g1, false), mkDS('δ₂', COLORS.g2, false), mkDS('δ₃', COLORS.g3, false),
+  ]},
+  options: mkOverviewOpts(),
+  plugins: [faultPlugin],
+});
+
+var chartOmegaFull = new Chart(document.getElementById('chartOmegaFull').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('ω₁', COLORS.g1, false), mkDS('ω₂', COLORS.g2, false), mkDS('ω₃', COLORS.g3, false),
+  ]},
+  options: mkOverviewOpts(),
+  plugins: [faultPlugin],
+});
+
 // ==================== Data Loading (Polling) ====================
 function api(path, method, body) {
   var opts = { method: method || 'GET', headers: {} };
@@ -1299,21 +1442,29 @@ function api(path, method, body) {
 function pollStatus() {
   api('/status').then(function(data) {
     updateStatusPill(data);
-    document.getElementById('totalNum').textContent = data.total || '--';
+    document.getElementById('elapsedTime').textContent = (data.elapsed_sec || 0).toFixed(2);
+    document.getElementById('elapsedValue').textContent = (data.elapsed_sec || 0).toFixed(2) + 's';
     if (data.params) {
-      faultStart = data.params.t_SW_ms; faultEnd = data.params.t_FC_ms;
-      totalSteps = data.params.total;
-      var xMax = totalSteps * 1000 / data.params.fs;
-      chartDelta.options.scales.x.max = xMax;
-      chartOmega.options.scales.x.max = xMax;
-      chartDelta.options._faultStart = faultStart;
-      chartDelta.options._faultEnd = faultEnd;
-      chartOmega.options._faultStart = faultStart;
-      chartOmega.options._faultEnd = faultEnd;
+      // 多故障配置
+      if (data.params.fault_times) {
+        faultRegions = data.params.fault_times.map(function(ft, idx) {
+          return { start: ft[0] * 1000, end: ft[1] * 1000, label: '故障' + (idx+1) };
+        });
+      } else if (data.params.t_SW_ms) {
+        faultRegions = [{ start: data.params.t_SW_ms, end: data.params.t_FC_ms, label: '故障' }];
+      }
+      document.getElementById('siGen').textContent = data.params.n + ' 台';
+      document.getElementById('siBus').textContent = data.params.s + ' 条';
+      document.getElementById('siRate').textContent = data.params.fs + ' Hz';
+      document.getElementById('siPts').textContent = data.params.total;
+      var ftText = '';
+      if (data.params.fault_times) {
+        ftText = data.params.fault_times.map(function(ft){ return ft[0].toFixed(1)+'~'+ft[1].toFixed(1)+'s'; }).join(', ');
+      } else if (data.params.t_SW_ms) {
+        ftText = (data.params.t_SW_ms/1000).toFixed(1) + '~' + (data.params.t_FC_ms/1000).toFixed(2) + 's';
+      }
+      document.getElementById('siFault').textContent = ftText || '--';
     }
-    // Update current step on charts for fault region visibility
-    chartDelta.options._currentStep = data.step || 0;
-    chartOmega.options._currentStep = data.step || 0;
     if (data.nodes) {
       document.getElementById('nodeBytes1').textContent = (data.nodes['1'].bytes/1024).toFixed(1) + ' KB';
       document.getElementById('nodeBytes2').textContent = (data.nodes['2'].bytes/1024).toFixed(1) + ' KB';
@@ -1323,25 +1474,7 @@ function pollStatus() {
     }
     document.getElementById('btnStart').disabled = data.running;
     document.getElementById('btnPause').disabled = !data.running;
-    if (data.step) document.getElementById('stepNum').textContent = data.step;
     running = data.running;
-
-    // Update bento metrics
-    var progress = data.total ? Math.round((data.step / data.total) * 100) : 0;
-    document.getElementById('progressValue').textContent = progress + '%';
-    document.getElementById('progressDetail').textContent = data.step + '/' + (data.total || '--');
-
-    // Update fault display - only show fault info when actually in that period
-    if (data.step >= faultStart && data.step < faultEnd) {
-      document.getElementById('faultValue').textContent = '故障中';
-      document.getElementById('faultValue').style.color = 'var(--danger)';
-    } else if (data.step >= faultEnd) {
-      document.getElementById('faultValue').textContent = '已恢复';
-      document.getElementById('faultValue').style.color = 'var(--success)';
-    } else {
-      document.getElementById('faultValue').textContent = '正常';
-      document.getElementById('faultValue').style.color = 'var(--text-primary)';
-    }
   }).catch(function(e) { updateStatusPillText('连接失败'); });
 }
 
@@ -1360,30 +1493,12 @@ function updateStatusPillText(text) {
 
 function fetchResults() {
   api('/status').then(function(data) {
-    if (!data || data.step === undefined) return;
-    // Detect engine loop: step jumped backward, clear charts and reset tracking
-    if (data.step < lastStep && lastStep > 0) {
-      [chartDelta, chartOmega].forEach(function(c) {
-        c.data.datasets.forEach(function(ds) { ds.data = []; });
-        c.update('none');
-      });
-      lastStep = 0;
-    }
-    if (data.step <= lastStep && data.step > 0) return;
-    lastStep = data.step;
-    document.getElementById('stepNum').textContent = data.step;
-    document.getElementById('totalNum').textContent = data.total || totalSteps;
+    if (!data) return;
+    var elapsed = data.elapsed_sec || 0;
+     document.getElementById('elapsedTime').textContent = elapsed.toFixed(2);
+     document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
     running = data.running;
     updateStatusPill(data);
-    // Update current step on charts for fault region visibility
-    chartDelta.options._currentStep = data.step || 0;
-    chartOmega.options._currentStep = data.step || 0;
-    chartDelta.update('none');
-    chartOmega.update('none');
-    if (data.running) {
-      document.getElementById('overlayDelta').style.display = 'none';
-      document.getElementById('overlayOmega').style.display = 'none';
-    }
     document.getElementById('btnStart').disabled = data.running;
     document.getElementById('btnPause').disabled = !data.running;
   }).catch(function(e) {});
@@ -1392,35 +1507,190 @@ function fetchResults() {
 function getHistory() {
   return api('/history').then(function(h) {
     if (!h || !h.time || h.time.length === 0) {
-      // History cleared (engine looped), clear charts immediately
-      [chartDelta, chartOmega].forEach(function(c) {
+      [chartDelta, chartOmega, chartDeltaFull, chartOmegaFull].forEach(function(c) {
         c.data.datasets.forEach(function(ds) { ds.data = []; });
         c.update('none');
       });
+      prevLastTime = -1;
       return;
     }
     var t = h.time;
+    var curLast = t[t.length-1];
+    if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
+      [chartDelta, chartOmega, chartDeltaFull, chartOmegaFull].forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        c.update('none');
+      });
+    }
+    prevLastTime = curLast;
     updateChartData(chartDelta, t, [h.delta_true[0], h.delta_true[1], h.delta_true[2], h.delta_est[0], h.delta_est[1], h.delta_est[2]]);
     updateChartData(chartOmega, t, [h.omega_true[0], h.omega_true[1], h.omega_true[2], h.omega_est[0], h.omega_est[1], h.omega_est[2]]);
+    // 整体趋势图: 仅显示真实值，完整时间范围
+    updateChartData(chartDeltaFull, t, [h.delta_true[0], h.delta_true[1], h.delta_true[2]], true);
+    updateChartData(chartOmegaFull, t, [h.omega_true[0], h.omega_true[1], h.omega_true[2]], true);
     var phaseEl = document.getElementById('phaseLabel');
     var phaseValue = document.getElementById('phaseValue');
+    var faultEl = document.getElementById('faultValue');
+    var faultIcon = document.getElementById('faultIcon');
     if (h.phase && h.phase.length > 0) {
       var lastPhase = h.phase[h.phase.length-1];
-      phaseEl.className = 'phase-badge phase-' + lastPhase;
+      var isFault = lastPhase.startsWith('fault');
+      phaseEl.className = 'phase-badge phase-' + (isFault ? 'fault' : lastPhase);
       if (lastPhase === 'normal') { phaseEl.textContent = '正常'; phaseValue.textContent = '正常'; }
-      if (lastPhase === 'fault')  { phaseEl.textContent = '⚠ 故障'; phaseValue.textContent = '故障'; }
-      if (lastPhase === 'post')   { phaseEl.textContent = '故障后'; phaseValue.textContent = '故障后'; }
+      else if (isFault)  { phaseEl.textContent = '⚠ ' + lastPhase; phaseValue.textContent = lastPhase; }
+      else { phaseEl.textContent = lastPhase; phaseValue.textContent = lastPhase; }
+      // Fault detection card
+      if (isFault) {
+        faultEl.textContent = '⚠ ' + lastPhase;
+        faultEl.style.color = 'var(--danger)';
+        faultIcon.className = 'card-icon danger';
+        faultIcon.innerHTML = '⚡';
+      } else if (lastPhase === 'post') {
+        faultEl.textContent = '故障已切除';
+        faultEl.style.color = 'var(--success)';
+        faultIcon.className = 'card-icon success';
+        faultIcon.innerHTML = '✓';
+      } else {
+        faultEl.textContent = '未检测到';
+        faultEl.style.color = 'var(--text-primary)';
+        faultIcon.className = 'card-icon warning';
+        faultIcon.innerHTML = '⚠';
+      }
     }
     document.getElementById('overlayDelta').style.display = 'none';
     document.getElementById('overlayOmega').style.display = 'none';
+    // Update history table if tab open
+    if (document.getElementById('panelHistory').style.display !== 'none') {
+      updateHistoryTable(h);
+    }
+    // Update log if tab open
+    if (document.getElementById('panelLog').style.display !== 'none') {
+      updateLogTab();
+    }
   }).catch(function(e) {});
 }
 
-function updateChartData(chart, times, arrays) {
+var faultSnapshots = [];
+
+function captureFaultSnapshot(h) {
+  if (!h.phase) return;
+  for (var i = 0; i < h.phase.length; i++) {
+    if (h.phase[i].startsWith('fault')) {
+      var fid = h.phase[i];
+      var already = faultSnapshots.some(function(s){ return s.id === fid; });
+      if (!already) {
+        var startIdx = Math.max(0, i - 500);
+        var endIdx = Math.min(h.time.length, i + 1500);
+        faultSnapshots.push({
+          id: fid,
+          timeRange: h.time[startIdx].toFixed(0) + 'ms ~ ' + h.time[endIdx-1].toFixed(0) + 'ms',
+          data: {
+            time: h.time.slice(startIdx, endIdx),
+            delta_est: [h.delta_est[0].slice(startIdx, endIdx), h.delta_est[1].slice(startIdx, endIdx), h.delta_est[2].slice(startIdx, endIdx)],
+            omega_est: [h.omega_est[0].slice(startIdx, endIdx), h.omega_est[1].slice(startIdx, endIdx), h.omega_est[2].slice(startIdx, endIdx)],
+            phase: h.phase.slice(startIdx, endIdx)
+          }
+        });
+        updateReplayPanel();
+      }
+    }
+  }
+}
+
+function updateReplayPanel() {
+  var el = document.getElementById('replayContainer');
+  if (faultSnapshots.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>';
+    return;
+  }
+  var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  for (var i = 0; i < faultSnapshots.length; i++) {
+    var s = faultSnapshots[i];
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">';
+    html += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);">' + s.id + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-tertiary);">' + s.timeRange + '</div>';
+    html += '<button class="btn btn-play" style="padding:4px 10px;font-size:11px;" onclick="playFaultReplay(' + i + ')">▶ 回放</button>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+var replayChart = null;
+function playFaultReplay(idx) {
+  var s = faultSnapshots[idx];
+  if (!s) return;
+  var modal = document.createElement('div');
+  modal.id = 'replayModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = '<div style="background:var(--bg-card);border-radius:var(--radius-lg);padding:20px;width:800px;max-width:90vw;box-shadow:var(--shadow-lg);">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+    '<h3 style="font-size:16px;">' + s.id + ' 回放</h3>' +
+    '<button onclick="closeReplayModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);">×</button>' +
+    '</div>' +
+    '<div style="height:300px;"><canvas id="replayCanvas"></canvas></div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  var ctx = document.getElementById('replayCanvas').getContext('2d');
+  if (replayChart) replayChart.destroy();
+  replayChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [
+      mkDS('δ₁', COLORS.g1, false), mkDS('δ₂', COLORS.g2, false), mkDS('δ₃', COLORS.g3, false),
+      mkDS('ω₁', COLORS.g1, true), mkDS('ω₂', COLORS.g2, true), mkDS('ω₃', COLORS.g3, true),
+    ]},
+    options: mkChartOpts(''),
+  });
+  // 回放图根据数据长度调整横坐标
+  var replayTimes = s.data.time;
+  var replayMin = replayTimes[0];
+  var replayMax = replayTimes[replayTimes.length - 1];
+  replayChart.options.scales.x.min = replayMin;
+  replayChart.options.scales.x.max = replayMax;
+  updateChartData(replayChart, replayTimes, [s.data.delta_est[0], s.data.delta_est[1], s.data.delta_est[2], s.data.omega_est[0], s.data.omega_est[1], s.data.omega_est[2]]);
+}
+
+function closeReplayModal() {
+  var m = document.getElementById('replayModal');
+  if (m) m.remove();
+  if (replayChart) { replayChart.destroy(); replayChart = null; }
+}
+
+function updateHistoryTable(h) {
+  var t = h.time, rows = [], n = Math.min(t.length, 30);
+  for (var i = t.length - n; i < t.length; i++) {
+    rows.push('<tr><td>'+t[i].toFixed(0)+'ms</td>'+
+      '<td>'+h.delta_est[0][i].toFixed(4)+'</td><td>'+h.omega_est[0][i].toFixed(4)+'</td>'+
+      '<td>'+h.delta_est[1][i].toFixed(4)+'</td><td>'+h.omega_est[1][i].toFixed(4)+'</td>'+
+      '<td>'+h.delta_est[2][i].toFixed(4)+'</td><td>'+h.omega_est[2][i].toFixed(4)+'</td>'+
+      '<td>'+(h.phase[i]||'')+'</td></tr>');
+  }
+  document.getElementById('historyBody').innerHTML = rows.join('');
+  captureFaultSnapshot(h);
+}
+
+function updateChartData(chart, times, arrays, isOverview) {
   for (var i = 0; i < chart.data.datasets.length && i < arrays.length; i++) {
     var arr = arrays[i];
     if (!arr) continue;
     chart.data.datasets[i].data = times.map(function(t, idx) { return { x: t, y: arr[idx] }; });
+  }
+  var lastT = times.length > 0 ? times[times.length-1] : 0;
+  if (isOverview) {
+    // 整体趋势图: 固定显示全部数据范围
+    chart.options.scales.x.min = 0;
+    chart.options.scales.x.max = Math.max(1000, lastT + 500);
+  } else {
+    // 主图: 固定窗口大小(10秒)，随数据滚动
+    var windowSize = 10000; // 10秒窗口
+    if (lastT <= windowSize) {
+      chart.options.scales.x.min = 0;
+      chart.options.scales.x.max = windowSize;
+    } else {
+      chart.options.scales.x.min = lastT - windowSize;
+      chart.options.scales.x.max = lastT;
+    }
   }
   chart.update('none');
 }
@@ -1441,13 +1711,14 @@ function doPause() {
 function doReset() {
   stopPolling();
   api('/control/reset', 'POST').then(function(r) {
-    lastStep = 0;
-    document.getElementById('stepNum').textContent = '0';
-    document.getElementById('progressValue').textContent = '0%';
-    document.getElementById('progressDetail').textContent = '0/80';
+    document.getElementById('elapsedTime').textContent = '0.0';
+    document.getElementById('elapsedValue').textContent = '0.0s';
     document.getElementById('phaseValue').textContent = '正常';
-    document.getElementById('faultValue').textContent = '--';
-    document.getElementById('faultValue').style.color = '';
+    document.getElementById('faultValue').textContent = '未检测到';
+    document.getElementById('faultValue').style.color = 'var(--text-primary)';
+    var faultIcon = document.getElementById('faultIcon');
+    faultIcon.className = 'card-icon warning';
+    faultIcon.innerHTML = '⚠';
     var phaseEl = document.getElementById('phaseLabel');
     phaseEl.className = 'phase-badge phase-normal';
     phaseEl.textContent = '就绪';
@@ -1458,7 +1729,7 @@ function doReset() {
     document.getElementById('overlayOmega').style.display = 'flex';
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnPause').disabled = true;
-    [chartDelta, chartOmega].forEach(function(c) {
+    [chartDelta, chartOmega, chartDeltaFull, chartOmegaFull].forEach(function(c) {
       c.data.datasets.forEach(function(ds) { ds.data = []; });
       c.update('none');
     });
@@ -1466,17 +1737,31 @@ function doReset() {
 }
 
 function doSetSpeed(val) {
-  document.getElementById('speedLabel').textContent = parseFloat(val).toFixed(2) + 's/步';
-  api('/control/speed', 'POST', { speed: parseFloat(val) });
+  var cycleSec = parseFloat(val);
+  document.getElementById('speedLabel').textContent = cycleSec + 's';
+  var speedPerStep = cycleSec / 5000;
+  api('/control/speed', 'POST', { speed: speedPerStep }).then(function() {
+    // 前端刷新间隔: cycle=3s→~60ms, cycle=60s→~250ms
+    var pollMs = Math.max(50, Math.min(250, cycleSec * 1000 / 50));
+    var histMs = Math.max(80, Math.min(400, cycleSec * 1000 / 30));
+    clearInterval(pollInterval);
+    clearInterval(histInterval);
+    pollInterval = setInterval(fetchResults, pollMs);
+    histInterval = setInterval(getHistory, histMs);
+  });
 }
 
 var pollInterval = null;
 var histInterval = null;
+var prevLastTime = -1;
 
 function startPolling() {
   stopPolling();
-  pollInterval = setInterval(fetchResults, 500);
-  histInterval = setInterval(getHistory, 800);
+  var cycleSec = parseFloat(document.getElementById('speedSlider').value);
+  var pollMs = Math.max(50, Math.min(250, cycleSec * 1000 / 50));
+  var histMs = Math.max(80, Math.min(400, cycleSec * 1000 / 30));
+  pollInterval = setInterval(fetchResults, pollMs);
+  histInterval = setInterval(getHistory, histMs);
   var pill = document.getElementById('statusPill');
   pill.className = 'status-pill status-running';
   document.getElementById('statusText').textContent = '运行中';
@@ -1487,6 +1772,56 @@ function stopPolling() {
   if (histInterval) { clearInterval(histInterval); histInterval = null; }
 }
 
+function switchTab(tab) {
+  document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); });
+  document.getElementById('nav' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+  var panel = document.getElementById('tabPanel');
+  var allCharts = document.querySelectorAll('.charts-section');
+  if (tab === 'monitor') {
+    panel.style.display = 'none';
+    allCharts.forEach(function(c){ c.style.display = ''; });
+  } else {
+    allCharts.forEach(function(c){ c.style.display = 'none'; });
+    panel.style.display = '';
+    var panels = {history: 'panelHistory', config: 'panelConfig', log: 'panelLog'};
+    Object.keys(panels).forEach(function(k){
+      document.getElementById(panels[k]).style.display = (k===tab)? '' : 'none';
+    });
+    if (tab === 'config') updateConfigTab();
+    if (tab === 'log') updateLogTab();
+  }
+}
+
+function updateConfigTab() {
+  api('/status').then(function(d){
+    if (d.params) {
+      document.getElementById('cfgGen').textContent = d.params.n;
+      document.getElementById('cfgBus').textContent = d.params.s;
+      document.getElementById('cfgRate').textContent = d.params.fs + ' Hz';
+      if (d.params.fault_times) {
+        var ft = d.params.fault_times[0];
+        document.getElementById('cfgSW').textContent = (ft[0]*1000).toFixed(0) + ' ms';
+        document.getElementById('cfgFC').textContent = (ft[1]*1000).toFixed(0) + ' ms';
+      } else if (d.params.t_SW_ms) {
+        document.getElementById('cfgSW').textContent = d.params.t_SW_ms.toFixed(0) + ' ms';
+        document.getElementById('cfgFC').textContent = d.params.t_FC_ms.toFixed(0) + ' ms';
+      }
+    }
+  });
+}
+
+function updateLogTab() {
+  api('/events').then(function(d){
+    var el = document.getElementById('logContent');
+    if (!d.events || d.events.length === 0) { el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>'; return; }
+    var rows = d.events.reverse().map(function(e){
+      var c = e.type === 'fault' ? 'var(--danger)' : (e.type === 'info' ? 'var(--text-secondary)' : 'var(--warning)');
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border-subtle);color:'+c+'">['+e.time+'] '+e.msg+'</div>';
+    }).join('');
+    el.innerHTML = rows || '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>';
+  });
+}
+
 // ==================== Init ====================
 pollStatus();
 getHistory();
@@ -1494,8 +1829,6 @@ getHistory();
 setTimeout(function() {
   api('/status').then(function(d) {
     if (d.running) { startPolling(); getHistory(); }
-    // Auto-start if engine was previously running (e.g. page refresh)
-    if (!d.running && d.step > 0) { startPolling(); getHistory(); }
   }).catch(function() {});
 }, 300);
 

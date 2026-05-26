@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.linalg import cholesky
 
-def ukf_estimation(YBUS, RV, E_abs, PM, M, D, n, s, fs, num_normal, num_fault, t_SW, t_FC, measurements, X_true=None):
+def ukf_estimation(YBUS, RV, E_abs, PM, M, D, n, s, fs, fault_times, total_time, measurements, X_true=None):
     """
-    Unscented Kalman Filter 状态估计
+    Unscented Kalman Filter 状态估计（支持多故障场景）
     
     参数:
         YBUS: 导纳矩阵 (n x n x 3)
@@ -15,10 +15,8 @@ def ukf_estimation(YBUS, RV, E_abs, PM, M, D, n, s, fs, num_normal, num_fault, t
         n: 发电机数量
         s: 节点数量
         fs: 采样频率
-        num_normal: 正常状态点数
-        num_fault: 故障状态点数
-        t_SW: 故障开始时间
-        t_FC: 故障结束时间
+        fault_times: 故障时间配置列表，格式: [(t1_start, t1_end), (t2_start, t2_end), ...]
+        total_time: 总仿真时间（秒）
         measurements: 测量数据 (2n+2s x num_samples)
         X_true: 真实状态（可选，用于计算RMSE）
     
@@ -57,16 +55,21 @@ def ukf_estimation(YBUS, RV, E_abs, PM, M, D, n, s, fs, num_normal, num_fault, t
     # 测量噪声协方差
     R_meas = (sig ** 2) * np.eye(nm)
     
+    # 判断当前时间是否在故障期间
+    def is_in_fault(t):
+        for (t_start, t_end) in fault_times:
+            if t_start <= t < t_end:
+                return True
+        return False
+    
     for idx in range(num_samples):
         k = idx / fs
         
         # 确定当前系统状态（故障前/故障中/故障后）
-        if k < t_SW:
-            ps = 0  # Python索引从0开始
-        elif t_SW < k <= t_FC:
-            ps = 1
+        if is_in_fault(k):
+            ps = 1  # 故障中
         else:
-            ps = 2
+            ps = 0  # 正常状态（包括故障后恢复）
         
         Ybusm = YBUS[:, :, ps]
         RVm = RV[:, :, ps]
