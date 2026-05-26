@@ -57,6 +57,7 @@
 #include "rpmsg_service.h"     /* RPMSG_SERVICE_NAME 通道名常量 */
 #include "finterrupt.h"         /* InterruptInstall / InterruptUmask 等 */
 #include "fcpu_info.h"          /* GetCpuId() — 获取当前核心编号 */
+#include "fgeneric_timer.h"     /* GenericTimerRead — 忙等延时 */
 #include <string.h>
 #include <stdio.h>
 #include "chaos_encrypt.h"
@@ -64,6 +65,8 @@
 #include "shm_print.h"
 #include "rpmsg_proto.h"
 #include "master.h"
+#include "tasks.h"
+#include "wave_decode.h"
 
 static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
 
@@ -73,85 +76,6 @@ void master_lora_rx_ctrl(int enable) { g_lora_rx_enabled = enable; }
 int  master_lora_rx_is_enabled(void) { return g_lora_rx_enabled; }
 
 static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p);
-
-static u32 build_lora_frame(u8 *out, u32 out_sz, u8 type, const u8 *payload, u16 plen)
-{
-    if (plen > 128) return 0;
-    u32 ts = 1000;
-    u8 enc_buf[128];
-    u32 sync;
-    u16 enc_len = chaos_encrypt_packet(payload, plen, enc_buf, &sync);
-    u16 data_len = 4 + 1 + 4 + enc_len;
-    u32 total = 2 + 2 + data_len + 1 + 2;
-    if (total > out_sz) return 0;
-    shm_spf("BUILD: type=%02X plen=%u enc=%u sync=%08X dlen=%u total=%u\r\n",
-        type, plen, enc_len, sync, data_len, total);
-    u32 p = 0;
-    out[p++] = 0xAA; out[p++] = 0x55;
-    out[p++] = (u8)(data_len >> 8); out[p++] = (u8)(data_len & 0xFF);
-    out[p++] = (u8)(ts >> 24); out[p++] = (u8)(ts >> 16);
-    out[p++] = (u8)(ts >> 8);  out[p++] = (u8)(ts & 0xFF);
-    out[p++] = type;
-    out[p++] = (u8)(sync >> 24); out[p++] = (u8)(sync >> 16);
-    out[p++] = (u8)(sync >> 8);  out[p++] = (u8)(sync & 0xFF);
-    memcpy(&out[p], enc_buf, enc_len); p += enc_len;
-    out[p++] = 0x00;
-    out[p++] = 0x55; out[p++] = 0xAA;
-    return p;
-}
-
-static void inject_sim_frames(u32 *frame_cnt)
-{
-    shm_puts("\r\n=== INJECT: sim frames ===\r\n");
-    {
-        FaultUploadHeader_t hdr;
-        memset(&hdr, 0, sizeof(hdr));
-        hdr.data_type   = DATA_TYPE_STATUS;
-        hdr.severity    = SEVERITY_WARNING;
-        hdr.timestamp   = 5000;
-        hdr.fault_type  = FAULT_OVER_VOLTAGE;
-        hdr.node_index  = 1;
-        hdr.total_points = 8;
-        hdr.sample_rate  = 2000;
-        u8 frame[256];
-        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_STATUS,
-                                     (const u8 *)&hdr, sizeof(hdr));
-        if (flen > 0) {
-            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
-            shm_spf("INJECT STATUS: %uB consumed=%u\r\n", flen, consumed);
-        }
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
-    {
-        NodeSample_t samples[8];
-        memset(samples, 0, sizeof(samples));
-        for (int i = 0; i < 8; i++) {
-            samples[i].active_power   = 1000 + i * 100;
-            samples[i].reactive_power = 200 + i * 20;
-            samples[i].voltage_angle  = 30 + i * 5;
-            samples[i].voltage_mag    = 22000 + i * 100;
-        }
-        u8 frame[256];
-        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_NODE_RAW,
-                                     (const u8 *)samples, sizeof(samples));
-        if (flen > 0) {
-            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
-            shm_spf("INJECT NODE_RAW: %uB consumed=%u\r\n", flen, consumed);
-        }
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
-    {
-        uint8_t fault_data[4] = { 0x01, 0x02, 0x00, 0x00 };
-        u8 frame[256];
-        u32 flen = build_lora_frame(frame, sizeof(frame), DATA_TYPE_FAULT_LIST,
-                                     fault_data, sizeof(fault_data));
-        if (flen > 0) {
-            u32 consumed = process_lora_frame(frame, flen, frame_cnt);
-            shm_spf("INJECT FAULT_LIST: %uB consumed=%u\r\n", flen, consumed);
-        }
-    }
-    shm_puts("=== INJECT: done ===\r\n");
-}
 
 /* --- 临时统计: FLASH_WAVE 波形包连续性 --- */
 static u32 fw_pkt_cnt = 0;
@@ -169,38 +93,34 @@ static u8  fw_in_wave = 0;
 static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
 {
     if (buf_len < 13) return 0;
-    u32 pos = 0;
-    while (pos + 1 < buf_len) {
-        if (buf[pos] == 0xAA && buf[pos + 1] == 0x55) break;
-        pos++;
-    }
-    if (pos + 1 >= buf_len) { shm_spf("PLF: no AA55 in %uB\r\n", buf_len); return (buf_len > 1) ? (buf_len - 1) : 0; }
-    u32 hdr = pos + 2;
-    if (hdr + 2 > buf_len) { shm_spf("PLF: too short for LEN\r\n"); return 0; }
-    u16 data_len = ((u16)buf[hdr] << 8) | buf[hdr + 1];
-    if (data_len > 200) { shm_spf("PLF: dlen=%u >200\r\n", data_len); return pos + 2; }
-    u32 tail_pos = pos + 5 + data_len;
-    if (tail_pos + 2 > buf_len) { shm_spf("PLF: tail overflow dlen=%u buf=%u tail=%u\r\n", data_len, buf_len, tail_pos); return 0; }
-    if (buf[tail_pos] != 0x55 || buf[tail_pos + 1] != 0xAA) { shm_spf("PLF: bad tail [%02X][%02X]@%u\r\n", buf[tail_pos], buf[tail_pos+1], tail_pos); return pos + 2; }
-    const u8 *data = &buf[pos + 4];
-    u32 ts = ((u32)data[0] << 24) | ((u32)data[1] << 16) | ((u32)data[2] << 8) | data[3];
-    u8  rx_type = data[4];
-    u32 sync = ((u32)data[5] << 24) | ((u32)data[6] << 16) | ((u32)data[7] << 8) | data[8];
-    u16 enc_len = data_len - 9;
-    const u8 *enc_start = &data[9];
+
+    uint8_t  rx_type;
+    uint32_t sync_code;
+    uint16_t enc_len;
+    uint8_t *enc_start;
+    uint8_t *payload;
+    uint16_t payload_len;
+
+    FrameParseResult_t frame_result;
+    frame_parse(buf, buf_len, &frame_result);
+    rx_type   = frame_result.rx_type;
+    sync_code = frame_result.sync_code;
+    enc_len   = frame_result.enc_len;
+    enc_start = frame_result.enc_start;
+
     (*total_p)++;
     g_real_frame_cnt++;
     u8  dec_buf[128];
     u16 dec_len = 0;
-    /* 新版终端不再混沌加密, 直接使用 enc_start 作为 payload (匹配 GD32 V3-2) */
+    /* 新版终端不再混沌加密, 直接使用 enc_start 作为 payload */
     if (enc_len <= sizeof(dec_buf)) { memcpy(dec_buf, enc_start, enc_len); dec_len = enc_len; }
-    shm_spf("\r\n=== FRAME #%u: type=%02X ts=%u sync=%08X raw=%uB ===\r\n",
-        *total_p, rx_type, ts, sync, dec_len);
+    shm_spf("\r\n=== FRAME #%u: type=%02X sync=%08X enc=%uB ===\r\n",
+        *total_p, rx_type, sync_code, dec_len);
 
-    /* hex dump: 解密后的 payload 原始数据 */
+    /* hex dump: payload 原始数据 */
     {
         u32 dump_len = dec_len;
-        if (dump_len > 256) dump_len = 256;  /* 最多显示256字节 */
+        if (dump_len > 256) dump_len = 256;
         for (u32 i = 0; i < dump_len; i++) {
             static const char hx[] = "0123456789ABCDEF";
             char h[4] = { hx[(dec_buf[i] >> 4) & 0xF], hx[dec_buf[i] & 0xF], ' ', 0 };
@@ -208,22 +128,43 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
             if ((i + 1) % 16 == 0) shm_puts("\r\n");
         }
         if (dump_len % 16 != 0) shm_puts("\r\n");
-        if (dec_len > 256) shm_spf("  ... (%uB total, showing first 256)\r\n", dec_len);
+    }
+
+    /* 帧长度合理性校验: 过滤 CRC 碰巧匹配的假帧 */
+    {
+        int valid_len = 0;
+        switch (rx_type) {
+        case DATA_TYPE_NODE_HEAD:  valid_len = (dec_len >= (int)sizeof(NodeUploadHeader_t)); break;
+        case DATA_TYPE_WAVE:       valid_len = (dec_len >= (int)sizeof(WaveChunkHeader_t));  break;
+        case DATA_TYPE_NODE_RAW:   valid_len = (dec_len >= (int)sizeof(NodeSample_t));       break;
+        case DATA_TYPE_FLASH_WAVE: valid_len = (dec_len >= 2);                               break;
+        case DATA_TYPE_POWER:      valid_len = 1;                                            break;
+        default:                   valid_len = 0;                                            break;
+        }
+        if (!valid_len) {
+            shm_spf("  SKIP: type=%02X enc=%uB (too small, buflen=%u)\r\n", rx_type, dec_len, buf_len);
+            return frame_result.consumed;
+        }
     }
 
     MasterDownloadBuf_t *dl = master_get_download_buf();
     uint8_t node_id;
-    if (dl->active) {
+    if (dl->active && (rx_type == DATA_TYPE_NODE_RAW || rx_type == DATA_TYPE_FLASH_WAVE)) {
         node_id = dl->node_id;
     } else {
         node_id = 0;
-        if (rx_type == DATA_TYPE_STATUS && dec_len >= 3) {
-            uint8_t idx = (dec_len >= 15) ? 10 : 2;
-            node_id = dec_buf[idx];
+        if (rx_type == DATA_TYPE_NODE_HEAD && dec_len >= sizeof(NodeUploadHeader_t)) {
+            NodeUploadHeader_t hdr;
+            memcpy(&hdr, dec_buf, sizeof(hdr));
+            node_id = hdr.node_index;
+        } else if (rx_type == DATA_TYPE_WAVE && dec_len >= sizeof(WaveChunkHeader_t)) {
+            WaveChunkHeader_t hdr;
+            memcpy(&hdr, dec_buf, sizeof(hdr));
+            node_id = hdr.node_index;
         }
         if (node_id >= MASTER_MAX_NODES) node_id = 0;
     }
-    uint16_t src_addr = 0x0001 + node_id;
+    uint16_t src_addr = SLAVE_ADDR_BASE + node_id;
     MasterNodeInfo_t *node = master_get_node_info(node_id);
     if (node) {
         node->is_online = 1;
@@ -231,64 +172,49 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
     }
 
     switch (rx_type) {
-    case DATA_TYPE_STATUS:
+    case DATA_TYPE_NODE_HEAD: /* 0x01: 节点状态头 (轮询/故障统一) */
         if (dl) dl->active = 0;
-        if (node) process_status_header(dec_buf, dec_len, src_addr, dl, node);
+        if (node) process_node_header(dec_buf, dec_len, dl, node);
         break;
-    case DATA_TYPE_WAVE:
+    case DATA_TYPE_WAVE: /* 0x02: 波形数据头 */
         if (dl) dl->active = 0;
         if (node) process_wave_header(dec_buf, dec_len, dl, node, src_addr);
-        /* WAVE头标记新波形会话开始, 输出 [FW_BEG] 供绘图脚本识别 */
         fw_wave_id++;
-        fw_seq = 0;
-        fw_lost = 0;
-        fw_first_ts = 0;
-        fw_last_ts = 0;
-        fw_points = 0;
-        fw_total_bytes = 0;
-        fw_min_val = 0xFFFF;
-        fw_max_val = 0;
+        fw_seq = 0; fw_lost = 0;
+        fw_first_ts = 0; fw_last_ts = 0;
+        fw_points = 0; fw_total_bytes = 0;
+        fw_min_val = 0xFFFF; fw_max_val = 0;
         fw_in_wave = 1;
-        shm_spf("[FW_BEG] wave#%u (from WAVE header)\r\n", fw_wave_id);
+        shm_spf("[FW_BEG] wave#%u\r\n", fw_wave_id);
         break;
-    case DATA_TYPE_POWER:
+    case DATA_TYPE_POWER: /* 0x03: 预留 */
         shm_spf("  POWER: %uB (reserved)\r\n", dec_len);
         break;
-    case DATA_TYPE_NODE_RAW:
+    case DATA_TYPE_NODE_RAW: /* 0x04: 节点原始数据 */
         if (node) process_node_raw(dec_buf, dec_len, dl, node);
-        /* 临时: 显示转换后的原始物理值 (÷10000) */
         {
-            u16 n_s = dec_len / 16;  /* NodeSample_t = 4×int32 = 16B */
+            u16 n_s = dec_len / sizeof(NodeSample_t);
             for (u16 i = 0; i < n_s && i < 8; i++) {
-                int32_t f[4];
-                memcpy(f, &dec_buf[i * 16], 16);
-                shm_spf("  [RAW] s%u: p=%d q=%d ang=%d vmag=%d (÷10000)\r\n",
-                    i, f[0], f[1], f[2], f[3]);
+                NodeSample_t s;
+                memcpy(&s, &dec_buf[i * sizeof(NodeSample_t)], sizeof(s));
+                shm_spf("  [RAW] s%u: p=%d q=%d ts=%u\r\n",
+                    i, s.active_power, s.reactive_power, s.timestamp);
             }
         }
         break;
-    case DATA_TYPE_FLASH_WAVE:
+    case DATA_TYPE_FLASH_WAVE: /* 0x05: 波形原始数据 (差分编码) */
         if (node) process_flash_wave(dec_buf, dec_len, dl, node);
-        /* --- 逐帧 hex dump + 统计: FLASH_WAVE 波形 --- */
         {
             fw_pkt_cnt++;
-
             if (!fw_in_wave) {
-                /* 没有WAVE头就开始收到FLASH_WAVE, 新建一个波形会话 */
                 fw_wave_id++;
-                fw_seq = 0;
-                fw_lost = 0;
-                fw_first_ts = ts;
-                fw_points = 0;
-                fw_total_bytes = 0;
-                fw_min_val = 0xFFFF;
-                fw_max_val = 0;
+                fw_seq = 0; fw_lost = 0;
+                fw_first_ts = 0; fw_points = 0; fw_total_bytes = 0;
+                fw_min_val = 0xFFFF; fw_max_val = 0;
                 fw_in_wave = 1;
                 shm_spf("[FW_BEG] wave#%u\r\n", fw_wave_id);
             }
-
-            /* 逐帧 hex dump: 完整 payload, 不截断, 供 plot_wave.py 解析 */
-            shm_spf("[FW_DAT p=%u ts=%u len=%u]\r\n", fw_seq, ts, dec_len);
+            shm_spf("[FW_DAT p=%u len=%u]\r\n", fw_seq, dec_len);
             {
                 static const char hx[] = "0123456789ABCDEF";
                 for (u32 i = 0; i < dec_len; i++) {
@@ -298,20 +224,10 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
             }
             shm_puts("\r\n");
             fw_total_bytes += dec_len;
-
-            /* 检查连续性: 每包int16点, timestamp应递增 */
             if (fw_seq == 0) {
-                fw_first_ts = ts;
-            } else {
-                u32 ts_gap = ts - fw_last_ts;
-                if (ts_gap > 200) {
-                    fw_lost++;
-                    shm_spf("  [WAVE-STAT] GAP! ts_gap=%u ms\r\n", ts_gap);
-                }
+                fw_first_ts = 0;
             }
-            fw_last_ts = ts;
-
-            /* 统计int16波形值范围 */
+            fw_last_ts = 0;
             u16 pts_in_pkt = dec_len / 2;
             fw_points += pts_in_pkt;
             for (u16 i = 0; i < pts_in_pkt; i++) {
@@ -320,40 +236,41 @@ static u32 process_lora_frame(const u8 *buf, u32 buf_len, u32 *total_p)
                 if (av < fw_min_val) fw_min_val = av;
                 if (av > fw_max_val) fw_max_val = av;
             }
-
-            shm_spf("  [WAVE-STAT] wave#%u pkt#%u pts=%u total=%u lost=%u ts=%u val=[%u..%u]\r\n",
-                fw_wave_id, fw_seq, pts_in_pkt, fw_points, fw_lost, ts, fw_min_val, fw_max_val);
-
+            shm_spf("  [WAVE-STAT] wave#%u pkt#%u pts=%u total=%u val=[%u..%u]\r\n",
+                fw_wave_id, fw_seq, pts_in_pkt, fw_points, fw_min_val, fw_max_val);
             fw_seq++;
-
-            /* 波形接收完毕: dl->active 由 process_flash_wave 在 received_points>=expected_points 时清零 */
             if (dl && !dl->active) {
-                shm_spf("[FW_END] wave#%u pkts=%u bytes=%u pts=%u lost=%u ts=[%u..%u] val=[%u..%u]\r\n",
+                shm_spf("[FW_END] wave#%u pkts=%u bytes=%u pts=%u lost=%u val=[%u..%u]\r\n",
                     fw_wave_id, fw_seq, fw_total_bytes, fw_points, fw_lost,
-                    fw_first_ts, fw_last_ts, fw_min_val, fw_max_val);
+                    fw_min_val, fw_max_val);
                 fw_in_wave = 0;
             }
         }
-        break;
-    case DATA_TYPE_FAULT_LIST:
-        if (dl) dl->active = 0;
-        if (node) process_fault_list(dec_buf, dec_len, src_addr, node);
         break;
     default:
         shm_spf("  UNKNOWN(%02X): %uB\r\n", rx_type, dec_len);
         break;
     }
 
-    {
-        u32 raw_len = tail_pos + 2 - pos;
-        int r = rpmsg_send_lora_raw(&buf[pos], raw_len);
-        if (r < 0)
-            shm_spf("  RPMsg TX FAIL (%d)\r\n", r);
-        else
-            shm_spf("  RPMsg TX %uB ok\r\n", raw_len);
+    /* 延迟 Flash/共享内存 操作 */
+    if (dl->flash_erase_pending) {
+        master_flash_erase_wave(dl->node_id);
+        dl->flash_erase_pending = 0;
     }
-
-    return tail_pos + 2;
+    if (dl->flash_wave_pending) {
+        master_flash_save_wave_data(dl->node_id, dl->wave_chunk,
+                                    dl->wave_chunk_len, dl->wave_byte_offset);
+        dl->flash_wave_pending = 0;
+    }
+    if (dl->flash_wave_done) {
+        master_recv_wave_data(dl->node_id, dl->received_points);
+        dl->flash_wave_done = 0;
+    }
+    if (dl->flash_save_pending) {
+        master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
+        dl->flash_save_pending = 0;
+    }
+    return frame_result.consumed;
 }
 
 /* ==========================================================================
@@ -471,6 +388,58 @@ static u32 rp_avail(void)
 
 uint32_t lora_rx_avail(void) { return rp_avail(); }
 int lora_rx_read_byte(uint8_t *b) { return rp_get(b); }
+
+/* ==========================================================================
+ *  ring_recv_frame: 状态机逐字节提取完整 LoRa 帧
+ *
+ *  帧格式: [AA][55][len_H][len_L][inner_data:len B][CRC8][55][AA]
+ *
+ *  状态机逐字节推进, 读取指定长度后校验 55AA 帧尾。
+ *  不依赖 AA55 搜索, 彻底消除负载内假帧头问题。
+ * ========================================================================== */
+static int ring_recv_frame(uint8_t *buf, uint16_t max_len)
+{
+    enum { S_IDLE, S_LEN_H, S_LEN_L, S_DATA, S_CRC, S_TAIL1, S_TAIL2 } s = S_IDLE;
+    uint16_t data_len = 0, pos = 0, remain = 0;
+    uint8_t b;
+
+    while (rp_avail() > 0 && pos < max_len) {
+        if (rp_get(&b) != 0) break;
+        buf[pos++] = b;
+
+        switch (s) {
+        case S_IDLE:
+            if (b == 0xAA) { pos = 1; buf[0] = 0xAA; s = S_LEN_H; }
+            break;
+        case S_LEN_H:
+            data_len = (uint16_t)b << 8;
+            s = S_LEN_L;
+            break;
+        case S_LEN_L:
+            data_len |= b;
+            if (data_len > 250) { s = S_IDLE; pos = 0; break; }
+            remain = data_len + 1;  /* +1 CRC8 */
+            s = S_DATA;
+            break;
+        case S_DATA:
+            if (--remain == 0) s = S_CRC;
+            break;
+        case S_CRC:
+            /* CRC byte consumed, expect tail */
+            s = S_TAIL1;
+            break;
+        case S_TAIL1:
+            if (b == 0x55) s = S_TAIL2;
+            else { s = S_IDLE; pos = 0; }
+            break;
+        case S_TAIL2:
+            if (b == 0xAA) return pos;  /* complete frame */
+            s = S_IDLE; pos = 0;
+            break;
+        }
+    }
+    return 0;  /* incomplete or buffer full */
+}
 
 void lora_tx_send_byte(uint8_t b)
 {
@@ -759,155 +728,133 @@ static void aux_task(void *pv)
  * ========================================================================== */
 static void lora_task(void *pv)
 {
-    shm_puts("L1 v8\r\n");
+    /* AT配置已在main()中完成, 本任务仅负责接收 */
+    shm_puts("LoRa RX task start\r\n");
 
-    /* ─── 第1步: MD0=HIGH → AT命令模式 ─── */
-    GDR(FGPIO3_BASE_ADDR) |=  (1U << MD0_PIN);  /* MD0 输出 HIGH */
-    vTaskDelay(pdMS_TO_TICKS(500));              /* 等 LoRa 模块进入 AT 模式 */
+    /* 清空 ring buffer */
+    rh = 0; rt = 0;
+    shm_puts("RX ready\r\n");
 
-    shm_puts("L2\r\n");
+    {
+        u32 loop_cnt = 0, frame_cnt = 0;
+        u8  frame_buf[280];  /* max frame: 3B prefix + 2B hdr + 250B + CRC + 2B tail = 260 */
+        int frame_len;
 
-    /*
-     * AT 命令序列: Linux 侧已验证格式 + GD32_V3 mwcc68_cfg.h 参数
-     * 参数: ADDR=0x0B, CHN=23, NETID=0, POWER=20dBm(TPOWER=4),
-     *       RATE=19.2kbps(WLRATE=23,5), TMODE=FP(TMODE=1),
-     *       PACKSIZE=240(PACKSIZE=3), BPS=115200(UART=7,0)
-     */
-    shm_puts("LoRa: AT init (verified format)\r\n");
-
-    /* 辅助宏: 发送 AT 命令 + 轮询读回响应 (回退轮询模式) */
-    #define AT_SEND(s) do { \
-        const char *_p = (s); \
-        while (*_p) { while (U2_FR & (1U << 5)); U2_DR = (u32)*_p++; } \
-        while (U2_FR & (1U << 5)); U2_DR = '\r'; \
-        while (U2_FR & (1U << 5)); U2_DR = '\n'; \
-        vTaskDelay(pdMS_TO_TICKS(200)); \
-        shm_puts(s); shm_puts(": "); \
-        for (int _i = 0; _i < 200; _i++) { \
-            if (!(U2_FR & (1U << 4))) { \
-                u8 _b = (u8)(U2_DR & 0xFF); \
-                static const char _hx[] = "0123456789ABCDEF"; \
-                char _t[4] = { _hx[(_b >> 4) & 0xF], _hx[_b & 0xF], ' ', 0 }; \
-                shm_puts(_t); \
-            } else { vTaskDelay(pdMS_TO_TICKS(1)); } \
-        } \
-        shm_puts("\r\n"); \
-    } while (0)
-
-    /* 第1条: AT (初始连通性检查, 重试最多3次) */
-    for (int at_retry = 0; at_retry < 3; at_retry++) {
-        AT_SEND("AT");
-        if (at_retry < 2) vTaskDelay(pdMS_TO_TICKS(300));
-    }
-
-    /* 查询当前配置 */
-    AT_SEND("AT+ADDR?");
-
-    /* 参数配置 (Linux 已验证 + GD32_V3 参数) */
-    AT_SEND("AT+ADDR=00,0B");     /* 地址 0x000B */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+NETID=0");        /* 网络ID */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+WLRATE=23,5");    /* 信道23 + 速率19.2kbps */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+PACKSIZE=3");     /* 3=240字节 */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+TMODE=1");        /* 1=定点传输 */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+TPOWER=4");       /* 4=20dBm */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+UART=7,0");       /* 7=115200bps, 0=8N1 */
-    vTaskDelay(pdMS_TO_TICKS(100));
-    AT_SEND("AT+FLASH=1");        /* 保存到Flash */
-
-    shm_puts("LoRa: AT config done\r\n");
-    shm_puts("L3\r\n");
-
-    /* ─── 第2步: MD0=LOW → 透传模式 (匹配 LoRa_ExitConfigMode) ─── */
-    GDR(FGPIO3_BASE_ADDR) &= ~(1U << MD0_PIN);
-    shm_puts("L4\r\n");
-
-    /* 等 AUX 变 HIGH (模块切换完成, 最多等 5s) */
-    for (int i = 0; i < 50; i++) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        if ((GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U) break;
-    }
-    shm_spf("LoRa: MD0=LOW AUX=%u (ready)\r\n",
-        (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U);
-    shm_puts("LoRa: RX ready (IRQ)\r\n");
-    shm_puts("L5\r\n");
-
-    /* ─── 第3步: 使能 UART2 硬件中断 (IMSC) ───
-     *
-     *  在 AT 命令全部完成、模块进入透传模式后, 才开启 UART2 中断。
-     *  避免 ISR 与 AT_SEND 轮询读取冲突。
-     *
-     *  IMSC (Interrupt Mask Set/Clear, 偏移 0x38):
-     *    0x10 = RXIM  (接收中断掩码)
-     *    0x40 = RTIM  (接收超时中断掩码)
-     */
-    *(volatile u32 *)(U2_BASE + 0x38) = 0x10 | 0x40;  /* RXIM | RTIM */
-    shm_puts("L6-IRQ\r\n");
-
-    static u8  lora_frame_buf[1024];
-    static u32 lora_pos   = 0;
-    static u32 stable_cnt = 0;
-    static u32 frame_cnt  = 0;
-    u32 loop_cnt = 0;
-    u32 sim_injected = 0;
-    shm_puts("L7-IRQ-v4\r\n");
-    for (;;) {
-        u32 avail = rp_avail();
-        if (avail > 0) {
-            while (lora_pos < sizeof(lora_frame_buf)) {
-                u8 b;
-                if (rp_get(&b) != 0) break;
-                lora_frame_buf[lora_pos++] = b;
-            }
-            if (lora_pos >= sizeof(lora_frame_buf))
-                goto force_parse;
-            stable_cnt = 0;
-        } else {
-            if (lora_pos > 0) {
-                stable_cnt++;
-                if (stable_cnt >= 5) {
-force_parse:
-                    u32 consumed = process_lora_frame(lora_frame_buf, lora_pos, &frame_cnt);
-                    if (consumed > 0) {
-                        if (consumed < lora_pos) {
-                            memmove(lora_frame_buf, lora_frame_buf + consumed, lora_pos - consumed);
-                        }
-                        lora_pos -= consumed;
-                    } else {
-                        if (lora_pos >= sizeof(lora_frame_buf)) {
-                            for (u32 i = 0; i + 1 < lora_pos; i++) {
-                                if (lora_frame_buf[i] == 0xAA && lora_frame_buf[i+1] == 0x55) {
-                                    if (i > 0) {
-                                        memmove(lora_frame_buf, lora_frame_buf + i, lora_pos - i);
-                                        lora_pos -= i;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    stable_cnt = 0;
+        for (;;) {
+            frame_len = ring_recv_frame(frame_buf, sizeof(frame_buf));
+            if (frame_len < 13) {
+                vTaskDelay(pdMS_TO_TICKS(2));
+                loop_cnt++;
+                shm_hb_inc();
+                if ((loop_cnt % 1500) == 0) {
+                    u32 aux = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
+                    shm_spf("[RX-hb] loop=%u AUX=%u tx=%u isr=%u dat=%u\r\n",
+                        loop_cnt, aux, frame_cnt, isr_cnt, isr_data);
                 }
+                continue;
+            }
+
+            frame_cnt++;
+            g_real_frame_cnt++;
+
+            /* frame_buf layout: [AA][55][LEN_H][LEN_L][inner_data:frame_data_len][CRC][55][AA]
+             * frame[8]=rx_type, frame[9-12]=sync_code, &frame[13]=payload_start
+             * data_len (from bytes 2-3) = inner_data length = 4(ts)+1(type)+4(sync)+N(payload) */
+            uint16_t frame_data_len = ((uint16_t)frame_buf[2] << 8) | frame_buf[3];
+            uint8_t  rx_type   = frame_buf[8];
+            uint32_t sync_code = ((uint32_t)frame_buf[9] << 24) | ((uint32_t)frame_buf[10] << 16)
+                               | ((uint32_t)frame_buf[11] << 8) | frame_buf[12];
+            uint16_t enc_len   = frame_data_len - 9;
+            uint8_t *enc_start = &frame_buf[13];
+
+            shm_spf("\r\n=== FRAME #%u: type=%02X sync=%08X enc=%uB ===\r\n",
+                frame_cnt, rx_type, sync_code, enc_len);
+
+            /* hex dump: 最多64字节 */
+            for (u32 i = 0; i < enc_len && i < 64; i++) {
+                static const char hx[] = "0123456789ABCDEF";
+                char h[4] = { hx[(enc_start[i] >> 4) & 0xF], hx[enc_start[i] & 0xF], ' ', 0 };
+                shm_puts(h);
+                if ((i + 1) % 16 == 0) shm_puts("\r\n");
+            }
+            if (enc_len > 64) shm_spf("  ... (%uB total)\r\n", enc_len);
+            if (enc_len > 0 && (enc_len % 16) != 0 && enc_len <= 64) shm_puts("\r\n");
+
+            MasterDownloadBuf_t *dl = master_get_download_buf();
+            uint8_t node_id = 0;
+
+            if (dl->active && (rx_type == DATA_TYPE_NODE_RAW || rx_type == DATA_TYPE_FLASH_WAVE)) {
+                node_id = dl->node_id;
+            } else if (rx_type == DATA_TYPE_NODE_HEAD && enc_len >= (int)sizeof(NodeUploadHeader_t)) {
+                NodeUploadHeader_t hdr;
+                memcpy(&hdr, enc_start, sizeof(hdr));
+                node_id = hdr.node_index;
+            } else if (rx_type == DATA_TYPE_WAVE && enc_len >= (int)sizeof(WaveChunkHeader_t)) {
+                WaveChunkHeader_t hdr;
+                memcpy(&hdr, enc_start, sizeof(hdr));
+                node_id = hdr.node_index;
+            }
+            if (node_id >= MASTER_MAX_NODES) node_id = 0;
+            uint16_t src_addr = SLAVE_ADDR_BASE + node_id;
+            MasterNodeInfo_t *node = master_get_node_info(node_id);
+
+            if (node) {
+                node->is_online = 1;
+                node->last_recv_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            }
+
+            switch (rx_type) {
+            case DATA_TYPE_NODE_HEAD:
+                if (dl) dl->active = 0;
+                if (node) process_node_header(enc_start, enc_len, dl, node);
+                break;
+            case DATA_TYPE_WAVE:
+                if (dl) dl->active = 0;
+                if (node) process_wave_header(enc_start, enc_len, dl, node, src_addr);
+                break;
+            case DATA_TYPE_NODE_RAW:
+                if (node) process_node_raw(enc_start, enc_len, dl, node);
+                break;
+            case DATA_TYPE_FLASH_WAVE:
+                if (node) process_flash_wave(enc_start, enc_len, dl, node);
+                /* 差分编码解码 */
+                {
+                    int16_t wave_samples[256];
+                    uint16_t decoded = wave_decode_packet(enc_start, enc_len, wave_samples, 256);
+                    if (decoded > 0) {
+                        shm_spf("  [WAVE] decoded %u samples: ", decoded);
+                        for (int w = 0; w < (int)decoded && w < 8; w++)
+                            shm_spf("%d ", wave_samples[w]);
+                        if (decoded > 8) shm_puts("...");
+                        shm_puts("\r\n");
+                    }
+                }
+                break;
+            default:
+                shm_spf("  UNKNOWN type=%02X\r\n", rx_type);
+                break;
+            }
+
+            /* 延迟 Flash/共享内存 操作 */
+            if (dl->flash_erase_pending) {
+                master_flash_erase_wave(dl->node_id);
+                dl->flash_erase_pending = 0;
+            }
+            if (dl->flash_wave_pending) {
+                master_flash_save_wave_data(dl->node_id, dl->wave_chunk,
+                                            dl->wave_chunk_len, dl->wave_byte_offset);
+                dl->flash_wave_pending = 0;
+            }
+            if (dl->flash_wave_done) {
+                master_recv_wave_data(dl->node_id, dl->received_points);
+                dl->flash_wave_done = 0;
+            }
+            if (dl->flash_save_pending) {
+                master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
+                shm_spf("  NODE%d: saved %d pts\r\n", dl->node_id, dl->received_points);
+                dl->flash_save_pending = 0;
             }
         }
-        loop_cnt++;
-        shm_hb_inc();
-        if ((loop_cnt % 1500) == 0) {
-            u32 aux = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
-            shm_spf("[RX-hb] loop=%u AUX=%u tx=%u real=%u isr=%u dat=%u rpmsg=%u/%u\r\n",
-                loop_cnt, aux, frame_cnt, g_real_frame_cnt, isr_cnt, isr_data,
-                g_rpmsg_tx_cnt, g_rpmsg_tx_err);
-        }
-        if (sim_injected == 0 && loop_cnt > 1500 && g_real_frame_cnt == 0) {
-            inject_sim_frames(&frame_cnt);
-            sim_injected = 1;
-        }
-        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -1086,16 +1033,94 @@ int main(void)
         InterruptSetTargetCpus(FUART2_IRQ_NUM, cpu_id);
     }
     InterruptUmask(FUART2_IRQ_NUM);
-    /* UART2 IMSC 将在 lora_task 透传模式下使能, 避免 AT 阶段冲突 */
+    /* UART2 IMSC 将在 AT 配置完成后使能 */
     shm_puts("D6-IRQ\r\n");
 
-    /* ═══ D11: 创建任务 ═══ */
+    /* ═══ D11: LoRa 模块 AT 配置 (调度器启动前完成, 匹配 GD32 LoRa_Init) ═══ */
+    {
+        /* 忙等延时: 调度器未启动, 不能使用 vTaskDelay */
+        #define BUSY_DELAY_MS(ms) do { \
+            u64 _freq = GenericTimerFrequecy(); \
+            u64 _start = GenericTimerRead(GENERIC_TIMER_ID0); \
+            u64 _target = _start + (_freq * (ms) / 1000); \
+            while (GenericTimerRead(GENERIC_TIMER_ID0) < _target); \
+        } while(0)
+
+        shm_puts("AT init start (pre-scheduler)\r\n");
+
+        /* MD0=HIGH → AT命令模式 */
+        GDR(FGPIO3_BASE_ADDR) &= ~(1U << MD0_PIN);
+        BUSY_DELAY_MS(200);
+        GDR(FGPIO3_BASE_ADDR) |=  (1U << MD0_PIN);
+        BUSY_DELAY_MS(500);
+
+        /* AT 命令: 轮询 UART2 FIFO, 与 lora_task 中 AT_SEND 逻辑一致 */
+        #define AT_CMD(s, resp) do { \
+            const char *_p = (s); \
+            while (*_p) { while (U2_FR & (1U << 5)); U2_DR = (u32)*_p++; } \
+            while (U2_FR & (1U << 5)); U2_DR = '\r'; \
+            while (U2_FR & (1U << 5)); U2_DR = '\n'; \
+            BUSY_DELAY_MS(300); \
+            shm_puts(s); shm_puts(": "); \
+            for (int _i = 0; _i < 200; _i++) { \
+                if (!(U2_FR & (1U << 4))) { \
+                    u8 _b = (u8)(U2_DR & 0xFF); \
+                    static const char _hx[] = "0123456789ABCDEF"; \
+                    char _t[4] = { _hx[(_b >> 4) & 0xF], _hx[_b & 0xF], ' ', 0 }; \
+                    shm_puts(_t); \
+                } else { BUSY_DELAY_MS(1); } \
+            } \
+            shm_puts("\r\n"); \
+        } while(0)
+
+        for (int at_retry = 0; at_retry < 3; at_retry++) {
+            AT_CMD("AT", at_retry);
+            if (at_retry < 2) BUSY_DELAY_MS(300);
+        }
+        AT_CMD("AT+ADDR?", );
+        AT_CMD("AT+ADDR=00,0A", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+NETID=0", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+WLRATE=23,7", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+PACKSIZE=3", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+TMODE=1", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+TPOWER=4", );
+        BUSY_DELAY_MS(100);
+        AT_CMD("AT+UART=7,0", );
+
+        shm_puts("AT init done\r\n");
+
+        /* MD0=LOW → 透传模式 */
+        GDR(FGPIO3_BASE_ADDR) &= ~(1U << MD0_PIN);
+        for (int _i = 0; _i < 50; _i++) {
+            BUSY_DELAY_MS(100);
+            if ((GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U) break;
+        }
+        shm_spf("MD0=LOW AUX=%u (ready)\r\n",
+            (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U);
+
+        /* 清空 UART RX FIFO 残留 */
+        while (!(U2_FR & (1U << 4))) { volatile u32 _d = U2_DR; (void)_d; }
+
+        /* 使能 UART2 硬件中断 */
+        *(volatile u32 *)(U2_BASE + 0x38) = 0x10 | 0x40;  /* RXIM | RTIM */
+        shm_puts("RX IRQ enabled\r\n");
+
+        #undef AT_CMD
+        #undef BUSY_DELAY_MS
+    }
+
+    /* ═══ D12: 创建任务 ═══ */
     master_init();
     xTaskCreate(rpm_task,  "RPM",  RPM_STK,  NULL, RPM_PRIO,  NULL);
     xTaskCreate(aux_task,  "AUX",  AUX_STK,  NULL, AUX_PRIO,  NULL);
     xTaskCreate(lora_task, "LoRa", LORA_STK, NULL, LORA_PRIO, NULL);
     xTaskCreate(master_judge_task, "Judge", MASTER_JUDGE_STK_SIZE, NULL, MASTER_JUDGE_TASK_PRIO, NULL);
-    xTaskCreate(master_cmd_task, "Cmd", MASTER_CMD_STK_SIZE, NULL, MASTER_CMD_TASK_PRIO, NULL);
+    xTaskCreate(master_poll_task, "Poll", MASTER_POLL_STK_SIZE, NULL, MASTER_POLL_TASK_PRIO, NULL);
     shm_puts("D7\r\n");
 
     /* ═══ D12: 启动调度器 ═══ */

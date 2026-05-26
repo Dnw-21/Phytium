@@ -27,24 +27,25 @@ static void fill_test_frame(uint8_t *buf, uint16_t *out_len,
                              uint8_t node_id, uint8_t fault_type,
                              uint8_t severity, uint16_t sample_count)
 {
-    FaultUploadHeader_t hdr;
+    NodeUploadHeader_t hdr;
     uint16_t payload_len, data_len, frame_len;
     uint32_t timestamp;
     uint8_t crc;
     int off, i;
 
     memset(&hdr, 0, sizeof(hdr));
-    hdr.data_type    = DATA_TYPE_STATUS;
+    hdr.data_type    = DATA_TYPE_NODE_HEAD;
     hdr.severity     = severity;
-    hdr.timestamp    = (uint32_t)(g_test_total_packets * 1000);
-    hdr.fault_type   = (FaultType_t)fault_type;
+    hdr.fault_type   = fault_type;
     hdr.node_index   = node_id;
+    hdr.timestamp    = (uint32_t)(g_test_total_packets * 1000);
     hdr.total_points = sample_count;
     hdr.sample_rate  = NODE_SAMPLE_RATE;
+    hdr.health_score = 100.0f;
 
-    payload_len = sizeof(FaultUploadHeader_t);
-    data_len    = 10 + payload_len;
-    frame_len   = 4 + data_len + 3;
+    payload_len = sizeof(NodeUploadHeader_t);
+    data_len    = 5 + 4 + payload_len;  /* ts(4B)+type(1B)+sync(4B)+payload */
+    frame_len   = 7 + data_len;         /* AA55 + len(2B) + data + CRC8(1B) + 55AA */
 
     if (frame_len > 512) {
         *out_len = 0;
@@ -52,8 +53,8 @@ static void fill_test_frame(uint8_t *buf, uint16_t *out_len,
     }
 
     off = 0;
-    buf[off++] = 0xAA;
-    buf[off++] = 0x55;
+    buf[off++] = FRAME_START_0;
+    buf[off++] = FRAME_START_1;
     buf[off++] = (uint8_t)(data_len >> 8);
     buf[off++] = (uint8_t)(data_len);
 
@@ -63,17 +64,17 @@ static void fill_test_frame(uint8_t *buf, uint16_t *out_len,
     buf[off++] = (uint8_t)(timestamp >> 8);
     buf[off++] = (uint8_t)(timestamp);
 
-    buf[off++] = DATA_TYPE_STATUS;
-    buf[off++] = (uint8_t)(node_id);
+    buf[off++] = DATA_TYPE_NODE_HEAD;
+    /* sync_code=0 (明文模式) */
+    buf[off++] = 0; buf[off++] = 0; buf[off++] = 0; buf[off++] = 0;
     memcpy(buf + off, &hdr, payload_len);
     off += payload_len;
 
-    crc = 0;
-    for (i = 4; i < off; i++) crc ^= buf[i];
+    crc = calc_frame_crc8(buf + 4, data_len);
     buf[off++] = crc;
 
-    buf[off++] = 0x55;
-    buf[off++] = 0xAA;
+    buf[off++] = FRAME_END_0;
+    buf[off++] = FRAME_END_1;
 
     *out_len = (uint16_t)off;
 }

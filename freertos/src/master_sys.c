@@ -2,26 +2,22 @@
 #include "log.h"
 #include <string.h>
 
-QueueHandle_t g_master_cmd_queue;
-
+/*============================================================================
+ *  全局变量
+ *============================================================================*/
 static MasterNodeInfo_t    g_nodes[MASTER_MAX_NODES];
 static MasterDownloadBuf_t g_dl_buf;
 static uint32_t            g_sys_tick;
 
 /*============================================================================
- *  shared memory模拟Flash: status区 和 wave区
+ *  共享内存模拟 Flash: status区 和 wave区
  *
- *  原来GD32使用内部Flash分区存储，移植后使用共享内存数组模拟。
- *  状态数据区: MASTER_STATUS_BUF, 10节点 * 6400B = 64KB
- *  波形数据区: MASTER_WAVE_BUF, 10节点 * 6400B = 64KB
+ *  原来 GD32 使用内部 Flash 分区存储, 移植到 Phytium 后使用共享内存数组模拟.
+ *  状态数据区: g_status_buf, MASTER_MAX_NODES × MASTER_FLASH_PER_NODE
+ *  波形数据区: g_wave_buf, MASTER_MAX_NODES × MASTER_FLASH_PER_NODE
  *
- *  与GD32 Flash布局完全一致:
- *   - 每节点独占 MASTER_FLASH_PER_NODE (6400B) 空间
- *   - 状态区与波形区完全隔离
- *   - "擦除"操作 = memset全零
+ *  "擦除"操作 = memset 全零
  *============================================================================*/
-#define MASTER_FLASH_PER_NODE   0x1900
-
 static uint8_t g_status_buf[MASTER_MAX_NODES][MASTER_FLASH_PER_NODE];
 static uint8_t g_wave_buf[MASTER_MAX_NODES][MASTER_FLASH_PER_NODE];
 
@@ -51,14 +47,11 @@ static uint8_t *wave_buf_addr(uint8_t node_id)
 }
 
 /*============================================================================
- *  master_flash_save_node_data: 保存节点状态数据 → 共享内存
- *
- *  原实现: flash_page_align_erase + flash_write_bytes → 内部Flash
- *  移植后: memset + memcpy → 共享内存数组
+ *  master_flash_save_node_data: 保存节点状态数据 -> 共享内存
  *============================================================================*/
 void master_flash_save_node_data(uint8_t node_id, const NodeSample_t *data, uint16_t count)
 {
-    if (node_id >= MASTER_MAX_NODES || count > FAULT_UPLOAD_POINTS) return;
+    if (node_id >= MASTER_MAX_NODES || count > MASTER_NODE_UPLOAD_POINTS) return;
     uint8_t *base = status_buf_addr(node_id);
     uint32_t size = (uint32_t)count * sizeof(NodeSample_t);
     if (size > MASTER_FLASH_PER_NODE) return;
@@ -74,7 +67,7 @@ uint16_t master_flash_load_node_data(uint8_t node_id, NodeSample_t *buf, uint16_
     if (node_id >= MASTER_MAX_NODES || !g_nodes[node_id].has_status_data) return 0;
     uint16_t count = g_nodes[node_id].last_total_points;
     if (count > max_count) count = max_count;
-    if (count > FAULT_UPLOAD_POINTS) count = FAULT_UPLOAD_POINTS;
+    if (count > MASTER_NODE_UPLOAD_POINTS) count = MASTER_NODE_UPLOAD_POINTS;
     uint8_t *base = status_buf_addr(node_id);
     uint32_t size = (uint32_t)count * sizeof(NodeSample_t);
     shm_read_bytes(base, (uint8_t *)buf, size);
@@ -90,7 +83,9 @@ void master_flash_erase_node(uint8_t node_id)
 }
 
 /*============================================================================
- *  master_flash_save_wave_data: 波形数据 → 波形区共享内存
+ *  master_flash_save_wave_data: 波形数据 -> 波形区共享内存
+ *
+ *  收到波形头时先擦除整个该节点波形区, 后续逐包追加写入
  *============================================================================*/
 void master_flash_save_wave_data(uint8_t node_id, const uint8_t *data, uint16_t len,
                                   uint32_t offset)
@@ -142,8 +137,6 @@ void master_init(void)
     memset(g_wave_buf, 0, sizeof(g_wave_buf));
     g_sys_tick = 0;
 
-    g_master_cmd_queue = xQueueCreate(MASTER_CMD_QUEUE_LEN, sizeof(MasterInternalCmd_t));
-
     for (uint8_t i = 0; i < MASTER_MAX_NODES; i++) {
         g_nodes[i].node_id = i;
         g_nodes[i].is_online = 0;
@@ -156,10 +149,11 @@ void master_init(void)
         g_nodes[i].wave_pending = 0;
         g_nodes[i].cmd_retry = 0;
         g_nodes[i].has_last_wave_hdr = 0;
+        g_nodes[i].last_wave_fault_idx = 0xFF;
     }
 
-    log_info("Master init: %d nodes, cmd_q=%d, DLbuf=%dB, SHM=[S:%dB W:%dB]",
-             MASTER_MAX_NODES, MASTER_CMD_QUEUE_LEN, (int)sizeof(g_dl_buf),
+    log_info("Master init: %d nodes, DLbuf=%dB, SHM=[S:%dB W:%dB]",
+             MASTER_MAX_NODES, (int)sizeof(g_dl_buf),
              (int)sizeof(g_status_buf), (int)sizeof(g_wave_buf));
 }
 

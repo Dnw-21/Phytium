@@ -136,9 +136,9 @@ class UKFEngine:
             self.finished = False
 
     def _get_phase(self, k):
-        if k < self.t_SW:
+        if k <= self.t_SW:
             return 0, 'normal'
-        elif self.t_SW < k <= self.t_FC:
+        elif k <= self.t_FC:
             return 1, 'fault'
         else:
             return 2, 'post'

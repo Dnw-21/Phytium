@@ -6,8 +6,11 @@ void master_judge_task(void *pvParameters)
     TickType_t last_wake = xTaskGetTickCount();
     uint32_t now_ms;
 
+    (void)pvParameters;
+
     log_info("Judge task started");
 
+    /* 检查每个节点状态, 判断是否超时 */
     while (1) {
         now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
@@ -24,20 +27,6 @@ void master_judge_task(void *pvParameters)
             }
 
             if (!n->is_online) continue;
-
-            if (n->severity >= SEVERITY_WARNING && n->fault_type != FAULT_NONE
-                && !n->wave_pending) {
-                MasterInternalCmd_t cmd;
-                cmd.cmd_type = MASTER_CMD_REQ_WAVE;
-                cmd.node_id = i;
-                cmd.fault_idx = 0;
-                cmd.sample_rate = MASTER_WAVE_RATE_6000;
-                cmd.duration_ms = 250;
-                if (xQueueSend(g_master_cmd_queue, &cmd, 0) == pdPASS) {
-                    n->wave_pending = 1;
-                    log_info("Judge: node%d fault, req wave", i);
-                }
-            }
         }
 
         vTaskDelayUntil(&last_wake, MASTER_JUDGE_INTERVAL_MS / portTICK_PERIOD_MS);
