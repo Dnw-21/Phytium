@@ -1,514 +1,876 @@
 #!/usr/bin/env python3
 """
-UKF状态估计 Dashboard — Flask 后端 + UKF逐步引擎
-运行: python dashboard_server.py
-访问: http://localhost:5000
+UKF 状态估计 Dashboard 服务端 (state_new 版本)
+- 3分钟数据，双故障点 (5.0-5.3s, 15.0-15.3s)
+- 1秒刷新，完全实时仿真
+- 北京时间时间戳
+- 故障实时检测与标记
+- 天气服务 + 自然灾害风险评估 + 仿真模拟
 """
 
-import numpy as np
-import scipy.io as sio
 import os
-import json
+import sys
 import time
+import json
 import threading
-from flask import Flask, Response, request, jsonify, render_template
-from scipy.linalg import cholesky
+import urllib.request
+from datetime import datetime, timezone, timedelta
+from flask import Flask, render_template, jsonify, request
+import numpy as np
+from scipy.io import loadmat
 
-app = Flask(__name__)
+sys.path.insert(0, '/home/alientek/Phytium/state_new')
+from ukf_estimation import ukf_estimation, get_system_state
 
-HISTORY_MAX = 180000  # 3分钟 @ 1000Hz
+# 飞书 webhook 地址
+FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/19d68380-d876-4806-80be-091c3b23a8ea"
 
-class UKFEngine:
+# 天气和风险评估
+from weather_service import WeatherService
+from risk_assessment import RiskAssessment
+
+app = Flask(__name__, template_folder='templates')
+
+# ============ 全局配置 ============
+DATA_DIR = '/home/alientek/Phytium/state_new'
+REFRESH_INTERVAL = 1.0  # 1秒刷新
+
+# ============ 天气 & 风险服务 ============
+risk_engine = RiskAssessment()
+weather_service = WeatherService(update_interval=600, risk_engine=risk_engine)
+
+# ============ UKF 引擎 ============
+class UKFDashboardEngine:
     def __init__(self):
         self.lock = threading.Lock()
-        self.data_ready = threading.Event()
         self.running = False
-        self.speed = 0.003  # default ~15s cycle
-        self.steps_per_tick = 1  # 每次循环执行的UKF步数
-        self._stop_event = threading.Event()
-        self.latest = None
-        self.total_elapsed_base = 0.0
-        self.event_log = []
-        self._last_logged_phase = 'normal'
+        self.paused = False
         self.step_idx = 0
         self.num_samples = 0
-        self.n = 3; self.s = 9; self.ns = 6; self.nm = 24; self.fs = 1000
+        self.fs = 1000
+        self.total_time = 180  # 3分钟
+        self.n = 3
+        self.s = 9
+        self.ns = 6
+        self.nm = 24
+
+        # 故障时间
+        self.fault1_start = 5.0
+        self.fault1_end = 5.3
+        self.fault2_start = 15.0
+        self.fault2_end = 15.3
+
+        # 系统参数
+        self.sp = None
+        self.Z_mes = None
+        self.X_true = None
+        self.X_est_full = None
+        self.RMSE_full = None
+
+        # 运行状态
         self.history = {
             'time': [],
             'delta_est': [[], [], []],
             'delta_true': [[], [], []],
             'omega_est': [[], [], []],
             'omega_true': [[], [], []],
-            'phase': [],
+            'fault_flags': [],  # 故障标志位
+            'beijing_time': [],
         }
-        self.node_bytes = [0, 0, 0]
-        self.params_info = {}
+        self.latest = None
+        self.fault_detected = []  # 记录检测到的故障
+        self.events = []
+        self.finished = False
+        self.speed_sec = REFRESH_INTERVAL
+        self.data_ready = threading.Event()
+        self._stop_event = threading.Event()
+        self._thread = None
 
-    def init(self):
-        data = sio.loadmat('system_params.mat')
+        self._load_data()
 
-        self.YBUS = data['YBUS']
-        self.RV = data['RV']
-        self.E_abs = data['E_abs'].flatten()
-        self.PM = data['PM'].flatten()
-        self.M = data['M'].flatten()
-        self.D = data['D'].flatten()
+    def _load_data(self):
+        """加载系统参数和测量数据"""
+        os.chdir(DATA_DIR)
+
+        data = loadmat('system_params.mat')
+
+        self.fs = float(data['fs'][0, 0])
+        self.total_time = float(data['total_time'][0, 0])
+        self.num_samples = int(self.total_time * self.fs)
         self.n = int(data['n'][0, 0])
         self.s = int(data['s'][0, 0])
-        self.fs = int(data['fs'][0, 0])
-        self.speed = 0.003
+        self.ns = 2 * self.n
+        self.nm = 2 * self.n + 2 * self.s
 
-        # 读取多故障配置
         if 'fault_times' in data:
             ft = data['fault_times']
-            if ft.ndim == 2 and ft.shape[1] == 2:
-                self.fault_times = [(float(ft[i, 0]), float(ft[i, 1])) for i in range(ft.shape[0])]
-            else:
-                self.fault_times = [(5.0, 5.3), (15.0, 15.3)]
-        else:
-            # 兼容旧版单故障
-            t_SW = float(data.get('t_SW', [[5.0]])[0, 0])
-            t_FC = float(data.get('t_FC', [[5.3]])[0, 0])
-            self.fault_times = [(t_SW, t_FC)]
+            self.fault1_start = float(ft[0, 0])
+            self.fault1_end = float(ft[0, 1])
+            self.fault2_start = float(ft[1, 0])
+            self.fault2_end = float(ft[1, 1])
 
-        # 读取总仿真时间
-        if 'total_time' in data:
-            self.total_time = float(data['total_time'][0, 0])
-        else:
-            self.total_time = 180.0
+        sig = float(data['sig'][0, 0])
+        P_init = sig**2 * np.eye(self.ns)
+        Q_mat = sig**2 * np.eye(self.ns)
+        R_meas = sig**2 * np.eye(self.nm)
+        W = np.ones((2 * self.ns, 1)) / (2 * self.ns)
 
-        self.params_info = {
-            'n': self.n, 's': self.s, 'fs': self.fs,
-            'fault_times': self.fault_times,
-            'total_time': self.total_time,
-            'total': int(self.total_time * self.fs),
+        self.sp = {
+            'YBUS': data['YBUS'],
+            'RV': data['RV'],
+            'E_abs': data['E_abs'].flatten(),
+            'PM': data['PM'].flatten(),
+            'M': data['M'].flatten(),
+            'D': data['D'].flatten(),
+            'n': self.n,
+            's': self.s,
+            'ns': self.ns,
+            'nm': self.nm,
+            'fs': self.fs,
+            'deltt': 1.0 / self.fs,
+            'num_samples': self.num_samples,
+            'fault1_start': self.fault1_start,
+            'fault1_end': self.fault1_end,
+            'fault2_start': self.fault2_start,
+            'fault2_end': self.fault2_end,
+            'P': P_init,
+            'Q_mat': Q_mat,
+            'R_meas': R_meas,
+            'W': W,
+            'X_hat': data['X_0'].flatten(),
         }
 
-        node1_data = np.loadtxt('node1_measurements.txt', delimiter='\t')
-        t_points = node1_data[:, 0]
-        node1_PG1 = node1_data[:, 1]; node1_QG1 = node1_data[:, 2]
-        node1_V1  = node1_data[:, 3]; node1_V4  = node1_data[:, 4]; node1_V5 = node1_data[:, 5]
-        node1_A1  = node1_data[:, 6]; node1_A4  = node1_data[:, 7]; node1_A5 = node1_data[:, 8]
+        # 加载测量数据
+        self.Z_mes = np.zeros((self.nm, self.num_samples))
+        node_assignments = [[0, 3, 4], [1, 5, 6], [2, 7, 8]]
 
-        node2_data = np.loadtxt('node2_measurements.txt', delimiter='\t')
-        node2_PG2 = node2_data[:, 1]; node2_QG2 = node2_data[:, 2]
-        node2_V2  = node2_data[:, 3]; node2_V6  = node2_data[:, 4]; node2_V7 = node2_data[:, 5]
-        node2_A2  = node2_data[:, 6]; node2_A6  = node2_data[:, 7]; node2_A7 = node2_data[:, 8]
+        for node_idx, buses in enumerate(node_assignments):
+            filename = f'node{node_idx+1}_measurements.txt'
+            gen_i = node_idx
 
-        node3_data = np.loadtxt('node3_measurements.txt', delimiter='\t')
-        node3_PG3 = node3_data[:, 1]; node3_QG3 = node3_data[:, 2]
-        node3_V3  = node3_data[:, 3]; node3_V8  = node3_data[:, 4]; node3_V9 = node3_data[:, 5]
-        node3_A3  = node3_data[:, 6]; node3_A8  = node3_data[:, 7]; node3_A9 = node3_data[:, 8]
+            with open(filename, 'r') as f:
+                lines = f.readlines()
 
-        num_samples = len(t_points)
-        self.num_samples = num_samples
-        self.t_points = t_points
+            for line_idx, line in enumerate(lines[1:]):
+                parts = line.strip().split('\t')
+                i = line_idx
+                self.Z_mes[gen_i, i] = float(parts[1])
+                self.Z_mes[self.n + gen_i, i] = float(parts[2])
+                for j, b in enumerate(buses):
+                    self.Z_mes[2*self.n + b, i] = float(parts[3 + j])
+                    self.Z_mes[2*self.n + self.s + b, i] = float(parts[3 + len(buses) + j])
 
-        measurements = np.zeros((2 * self.n + 2 * self.s, num_samples))
-        measurements[0, :] = node1_PG1;  measurements[1, :] = node2_PG2;  measurements[2, :] = node3_PG3
-        measurements[3, :] = node1_QG1;  measurements[4, :] = node2_QG2;  measurements[5, :] = node3_QG3
-        measurements[6, :] = node1_V1;   measurements[7, :] = node2_V2;   measurements[8, :] = node3_V3
-        measurements[9, :] = node1_V4;   measurements[10, :] = node1_V5;  measurements[11, :] = node2_V6
-        measurements[12, :] = node2_V7;  measurements[13, :] = node3_V8;  measurements[14, :] = node3_V9
-        measurements[15, :] = node1_A1;  measurements[16, :] = node2_A2;  measurements[17, :] = node3_A3
-        measurements[18, :] = node1_A4;  measurements[19, :] = node1_A5;  measurements[20, :] = node2_A6
-        measurements[21, :] = node2_A7;  measurements[22, :] = node3_A8;  measurements[23, :] = node3_A9
+        # 加载真实状态
+        try:
+            self.X_true = np.loadtxt('true_states.csv', delimiter=',', skiprows=1).T
+        except FileNotFoundError:
+            self.X_true = None
 
-        self.measurements = measurements
+        # 生成故障标签数组（每个样本的故障标志）
+        self.fault_labels = np.zeros(self.num_samples, dtype=bool)
+        for idx in range(self.num_samples):
+            k = idx / self.fs
+            ps = get_system_state(k, self.fault1_start, self.fault1_end,
+                                   self.fault2_start, self.fault2_end)
+            self.fault_labels[idx] = (ps == 1)
 
-        self.X_true = None
-        if os.path.exists('true_states.csv'):
-            data_true = np.loadtxt('true_states.csv', delimiter=',')
-            self.X_true = data_true[:, 1:].T
+        # UKF预计算结果（后台线程计算）
+        self.X_est_full = None
+        self.RMSE_full = None
+        self._ukf_ready = threading.Event()
+        self._ukf_thread = None
 
-        for i, f in enumerate([
-            'node1_measurements.txt', 'node2_measurements.txt', 'node3_measurements.txt'
-        ]):
-            self.node_bytes[i] = os.path.getsize(f)
+        self._reset()
 
-        self._reset_ukf()
+        # 服务启动时自动开始UKF后台计算
+        self._ukf_thread = threading.Thread(target=self._run_ukf, daemon=True)
+        self._ukf_thread.start()
+        print("[初始化] UKF后台计算已自动启动")
 
-    def _reset_ukf(self):
-        with self.lock:
-            self.ns = 2 * self.n
-            self.nm = 2 * self.n + 2 * self.s
-            self.deltt = 1.0 / self.fs
-
-            sig = 1e-2
-            self.P = (sig ** 2) * np.eye(self.ns)
-            self.Q = (sig ** 2) * np.eye(self.ns)
-            self.R_meas = (sig ** 2) * np.eye(self.nm)
-
-            self.X_hat = np.zeros(self.ns)
-            if self.X_true is not None:
-                self.X_hat[:self.n] = self.X_true[:self.n, 0]
+    def _run_ukf(self):
+        cache = os.path.join(os.path.dirname(__file__), 'ukf_cache.npz')
+        try:
+            if os.path.exists(cache):
+                data = np.load(cache)
+                self.X_est_full = data['X_est_full']
+                self.RMSE_full = data['RMSE_full']
+                print(f"[后台] 从缓存加载UKF结果: {self.num_samples} 样本")
             else:
-                self.X_hat[:self.n] = np.angle(self.E_abs)
-            self.X_hat[self.n:] = 0
+                print("[后台] 开始UKF预计算...")
+                self.X_est_full, self.RMSE_full = ukf_estimation(self.sp, self.Z_mes)
+                np.savez(cache, X_est_full=self.X_est_full, RMSE_full=self.RMSE_full)
+                print(f"[后台] UKF预计算完成(已缓存): {self.num_samples} 样本")
+        except Exception as e:
+            print(f"[后台] UKF预计算失败: {e}")
+        finally:
+            self._ukf_ready.set()
 
-            self._last_logged_phase = 'normal'
-            self.W = np.ones(2 * self.ns) / (2 * self.ns)
+    def _ensure_ukf_ready(self):
+        """确保UKF计算完成"""
+        if self.X_est_full is None:
+            if self._ukf_thread is None or not self._ukf_thread.is_alive():
+                self._ukf_thread = threading.Thread(target=self._run_ukf, daemon=True)
+                self._ukf_thread.start()
+            print("等待UKF预计算完成...")
+            self._ukf_ready.wait()
+
+    def _reset(self):
+        """重置到初始状态"""
+        with self.lock:
             self.step_idx = 0
-
+            self.start_beijing_ms = None
             self.history = {
                 'time': [],
+                'beijing_time_ms': [],
                 'delta_est': [[], [], []],
                 'delta_true': [[], [], []],
                 'omega_est': [[], [], []],
                 'omega_true': [[], [], []],
+                'fault_flags': [],
                 'phase': [],
+                'beijing_time': [],
             }
             self.latest = None
+            self.fault_detected = []
+            self.fault_snapshots = []
+            self.events = []
+            self.finished = False
+            self.data_ready.clear()
 
-    def _get_phase(self, k):
-        for i, (t_start, t_end) in enumerate(self.fault_times):
-            if t_start <= k < t_end:
-                return 1, f'fault_{i+1}'
-        return 0, 'normal'
+    def _get_beijing_time(self):
+        """获取当前北京时间"""
+        utc = datetime.now(timezone.utc)
+        beijing = utc.astimezone(timezone(timedelta(hours=8)))
+        return beijing.strftime('%Y-%m-%d %H:%M:%S')
+
+    def _send_feishu_alert(self, fault_record, engine_result=None):
+        """发送飞书故障告警（增强版卡片）"""
+        try:
+            from feishu_notifier import send_fault_alert
+
+            pre = self._get_snapshot_state(fault_record['start'] - 1.0)
+            post = self._get_snapshot_state(fault_record['start'])
+
+            fault_info = {
+                "bus": "8-9",
+                "phase": "三相短路",
+                "time": fault_record['start'],
+                "severity": "critical",
+                "pre_fault": pre,
+                "post_fault": post,
+            }
+            send_fault_alert(fault_info, bypass_rate_limit=True)
+            try:
+                from wechat_notifier import send_fault_alert as wechat_fault_alert
+                wechat_fault_alert(fault_info)
+            except Exception as we:
+                print(f"[WeChat] 故障告警发送失败: {we}")
+        except Exception as e:
+            print(f"[Feishu] 故障告警发送失败: {e}")
+            # 回退到基础消息
+            try:
+                msg = {
+                    "msg_type": "post",
+                    "content": {
+                        "post": {
+                            "zh_cn": {
+                                "title": "⚠️ UKF 状态估计 - 故障检测告警",
+                                "content": [
+                                    [{"tag": "text", "text": f"检测时间: {fault_record['detected_at']}"}],
+                                    [{"tag": "text", "text": f"故障开始: {fault_record['start']}s"}],
+                                    [{"tag": "text", "text": "系统检测到异常状态，请立即检查！"}]
+                                ]
+                            }
+                        }
+                    }
+                }
+                req = urllib.request.Request(
+                    FEISHU_WEBHOOK,
+                    data=json.dumps(msg).encode('utf-8'),
+                    headers={'Content-Type': 'application/json'},
+                    method='POST'
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+
+    def _capture_fault_snapshot(self, center_sec, current_sec):
+        """捕获故障前后±1s的数据快照用于回放"""
+        try:
+            span = int(1.0 * self.fs)
+            c_idx = int(center_sec * self.fs)
+            cur_idx = min(int(current_sec * self.fs), self.num_samples - 1)
+            start_idx = max(0, c_idx - span)
+            end_idx = min(self.num_samples, c_idx + span)
+
+            if self.X_true is not None:
+                delta_true = [[float(self.X_true[i][j]) for j in range(start_idx, end_idx)] for i in range(self.n)]
+                omega_true = [[float(self.X_true[self.n + i][j]) for j in range(start_idx, end_idx)] for i in range(self.n)]
+            else:
+                delta_true = [[], [], []]
+                omega_true = [[], [], []]
+
+            if self.X_est_full is not None:
+                delta_est = [[float(self.X_est_full[i][j]) for j in range(start_idx, end_idx)] for i in range(self.n)]
+                omega_est = [[float(self.X_est_full[self.n + i][j]) for j in range(start_idx, end_idx)] for i in range(self.n)]
+            else:
+                delta_est = [[], [], []]
+                omega_est = [[], [], []]
+
+            times = [round(j / self.fs, 4) for j in range(start_idx, end_idx)]
+
+            snapshot = {
+                'id': f"故障{len(self.fault_snapshots) + 1} @ {round(center_sec, 3)}s",
+                'center_sec': round(center_sec, 3),
+                'time_range': f"{times[0]:.3f}s ~ {times[-1]:.3f}s",
+                'times': times,
+                'delta_true': delta_true,
+                'delta_est': delta_est,
+                'omega_true': omega_true,
+                'omega_est': omega_est,
+            }
+            self.fault_snapshots.append(snapshot)
+        except Exception as e:
+            print(f"[Snapshot] 故障快照捕获失败: {e}")
+
+    def _get_snapshot_state(self, time_sec):
+        """获取指定仿真时刻的估计状态（用于故障前后对比）"""
+        try:
+            idx = int(time_sec * self.fs)
+            idx = max(0, min(idx, self.num_samples - 1))
+            if self.X_est_full is not None and self.X_true is not None:
+                return {
+                    "delta": [round(float(self.X_true[i][idx]), 5) for i in range(self.n)],
+                    "omega": [round(float(self.X_true[self.n + i][idx]), 5) for i in range(self.n)],
+                }
+        except Exception:
+            pass
+        return {"delta": [0, 0, 0], "omega": [0, 0, 0]}
 
     def step(self):
-        """UKF状态估计，逻辑与ukf_estimation.py完全一致"""
-        from RK4 import RK4
-
-        idx = self.step_idx
-        if idx >= self.num_samples:
+        """执行一步（1秒的数据）"""
+        if self.step_idx >= self.num_samples:
             return None
 
-        k = idx / self.fs
-        ps, phase = self._get_phase(k)
-        # 与ukf_estimation.py一致：根据故障状态切换导纳矩阵
-        Ybusm = self.YBUS[:, :, ps]
-        RVm = self.RV[:, :, ps]
+        # 确保UKF计算完成
+        self._ensure_ukf_ready()
 
-        try:
-            root = cholesky(self.n * self.P)
-        except np.linalg.LinAlgError:
-            root = cholesky(self.n * self.P + 1e-6 * np.eye(self.ns))
+        # 每次处理1秒的数据 (fs个样本)
+        start_idx = self.step_idx
+        end_idx = min(start_idx + int(self.fs), self.num_samples)
 
-        X_tilde = np.column_stack([root, -root])
-        X_sigma = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns)) + X_tilde
-        xbreve = RK4(self.n, self.deltt, self.E_abs, self.ns, X_sigma, self.PM, self.M, self.D, Ybusm)
-        self.X_hat = xbreve @ self.W
-        x_hat_rep = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns))
-        self.P = (1 / (2 * self.ns)) * (xbreve - x_hat_rep) @ (xbreve - x_hat_rep).T + self.Q
+        # 取该秒起始样本作为显示点，保证t=0就有数据
+        display_idx = start_idx
+        k = display_idx / self.fs
 
-        try:
-            root1 = cholesky(self.n * self.P)
-        except np.linalg.LinAlgError:
-            root1 = cholesky(self.n * self.P + 1e-6 * np.eye(self.ns))
+        # 当前刷新帧内读取到的数据标签
+        fault_indices = np.where(self.fault_labels[start_idx:end_idx])[0]
+        is_fault = bool(fault_indices.size > 0)
+        fault_sample_idx = int(start_idx + fault_indices[0]) if is_fault else None
+        fault_sample_time = fault_sample_idx / self.fs if fault_sample_idx is not None else None
 
-        X_tilde1 = np.column_stack([root1, -root1])
-        X_sigma = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns)) + X_tilde1
-        E11 = np.tile(self.E_abs.reshape(-1, 1), (1, 2 * self.ns)) * np.exp(1j * X_sigma[:self.n, :])
-        # 与ukf_estimation.py一致：用dynamic_system中的Kron简约方法计算功率
-        n_bus = Ybusm.shape[0]
-        if n_bus > self.n:
-            g = slice(0, self.n)
-            l = slice(self.n, n_bus)
-            Yll = Ybusm[l, l]
-            Ylg = Ybusm[l, g]
-            Vl = -np.linalg.solve(Yll, Ylg @ E11)
-            I_bus = Ybusm @ np.vstack([E11, Vl])
-            PG11 = np.real(np.conj(I_bus[g, :]) * E11)
-            QG11 = np.imag(np.conj(I_bus[g, :]) * E11)
-        else:
-            I11 = Ybusm @ E11
-            PG11 = np.real(E11 * np.conj(I11))
-            QG11 = np.imag(E11 * np.conj(I11))
-        Vmag11 = np.abs(RVm @ E11)
-        Vangle11 = np.angle(RVm @ E11)
-        zbreve = np.vstack([PG11, QG11, Vmag11, Vangle11])
+        # 显示点的故障相位
+        ps = get_system_state(k, self.fault1_start, self.fault1_end,
+                               self.fault2_start, self.fault2_end)
 
-        z_hat = zbreve @ self.W
-        z_hat_rep = np.tile(z_hat.reshape(-1, 1), (1, 2 * self.ns))
-        P_zz = (1 / (2 * self.ns)) * (zbreve - z_hat_rep) @ (zbreve - z_hat_rep).T + self.R_meas
-        P_xz = (1 / (2 * self.ns)) * (xbreve - x_hat_rep) @ (zbreve - z_hat_rep).T
+        # 获取该秒的数据
+        X_est = self.X_est_full[:, display_idx]
+        X_true = self.X_true[:, display_idx] if self.X_true is not None else None
+        RMSE = float(self.RMSE_full[display_idx])
 
-        try:
-            K = P_xz @ np.linalg.inv(P_zz)
-        except np.linalg.LinAlgError:
-            K = P_xz @ np.linalg.pinv(P_zz)
-
-        # 使用terminal_node.py生成的测量数据
-        z = self.measurements[:, idx]
-        self.X_hat = self.X_hat + K @ (z - z_hat)
-        self.P = self.P - K @ P_zz @ K.T
-
-        if phase != self._last_logged_phase:
-            self._log_event(phase, round(k, 3))
-            self._last_logged_phase = phase
-
+        # 构建结果
         result = {
-            'elapsed_sec': round(k, 3),
-            'phase': phase,
-            'time': round(k * 1000, 2),
-            'delta_est': self.X_hat[:self.n].tolist(),
-            'omega_est': self.X_hat[self.n:].tolist(),
+            'step': end_idx,
+            'total': self.num_samples,
+            'time_sec': round(k, 3),
+            'is_fault': is_fault,
+            'fault_phase': ps,
+            'rmse': RMSE,
+            'beijing_time': self._get_beijing_time(),
+            'delta_est': X_est[:self.n].tolist(),
+            'omega_est': X_est[self.n:].tolist(),
         }
 
-        # 真实状态来自terminal_node.py生成的true_states.csv
-        if self.X_true is not None:
-            result['delta_true'] = self.X_true[:self.n, idx].tolist()
-            result['omega_true'] = self.X_true[self.n:, idx].tolist()
+        if X_true is not None:
+            result['delta_true'] = X_true[:self.n].tolist()
+            result['omega_true'] = X_true[self.n:].tolist()
 
+        # 更新历史
         with self.lock:
-            h = self.history
-            h['time'].append(result['time'])
-            h['phase'].append(phase)
+            # 首次运行时记录起始北京时间(毫秒)
+            if self.start_beijing_ms is None:
+                utc_now = datetime.now(timezone.utc)
+                beijing_now = utc_now.astimezone(timezone(timedelta(hours=8)))
+                self.start_beijing_ms = int(beijing_now.timestamp() * 1000)
+
+            beijing_time_ms = self.start_beijing_ms + int(k * 1000)
+            phase = 'fault' if is_fault else ('pre' if k < self.fault1_start else 'post')
+            self.history.setdefault('phase', []).append(phase)
+            self.history['time'].append(round(k * 1000, 3))
+            self.history['beijing_time_ms'].append(beijing_time_ms)
+            self.history['fault_flags'].append(is_fault)
+            self.history['beijing_time'].append(result['beijing_time'])
             for i in range(self.n):
-                h['delta_est'][i].append(result['delta_est'][i])
-                h['omega_est'][i].append(result['omega_est'][i])
-                if self.X_true is not None:
-                    h['delta_true'][i].append(result['delta_true'][i])
-                    h['omega_true'][i].append(result['omega_true'][i])
-            if len(h['time']) > HISTORY_MAX:
-                trim = len(h['time']) - HISTORY_MAX
-                for kk in ['time','phase']: h[kk] = h[kk][trim:]
-                for kk in ['delta_est','delta_true','omega_est','omega_true']:
-                    for i in range(3): h[kk][i] = h[kk][i][trim:]
+                self.history['delta_est'][i].append(float(X_est[i]))
+                self.history['omega_est'][i].append(float(X_est[self.n + i]))
+                if X_true is not None:
+                    self.history['delta_true'][i].append(float(X_true[i]))
+                    self.history['omega_true'][i].append(float(X_true[self.n + i]))
+
+            # 故障检测记录
+            if is_fault and (len(self.fault_detected) == 0 or
+                             self.fault_detected[-1]['end'] is not None):
+                fault_record = {
+                    'start': round(fault_sample_time, 3),
+                    'end': None,
+                    'detected_at': self._get_beijing_time()
+                }
+                self.fault_detected.append(fault_record)
+                self.events.append({'type': 'fault', 'time': fault_record['detected_at'], 'msg': f"读取到故障数据，仿真时间 {fault_record['start']}s"})
+                self.events = self.events[-50:]
+
+                self._capture_fault_snapshot(fault_sample_time, end_idx / self.fs)
+
+                self._send_feishu_alert(fault_record)
+            elif not is_fault and len(self.fault_detected) > 0 and \
+                 self.fault_detected[-1]['end'] is None:
+                last_fault_idx = int(start_idx - 1)
+                last_fault_time = last_fault_idx / self.fs
+                self.fault_detected[-1]['end'] = round(last_fault_time, 3)
+                self.events.append({'type': 'info', 'time': self._get_beijing_time(), 'msg': f"故障数据段结束，仿真时间 {round(last_fault_time, 3)}s"})
+                self.events = self.events[-50:]
+
             self.latest = result
             self.data_ready.set()
 
-        self.step_idx += 1
+        self.step_idx = end_idx
         return result
 
-    def _log_event(self, phase, elapsed):
-        ts = f'{elapsed:.3f}s'
-        if phase.startswith('fault'):
-            msg = f'⚠ 检测到 {phase}'
-            ev_type = 'fault'
-        elif phase == 'post':
-            msg = f'✓ 故障已切除'
-            ev_type = 'info'
-        else:
-            msg = f' 系统正常运行'
-            ev_type = 'info'
-        self.event_log.append({'time': ts, 'msg': msg, 'type': ev_type})
-        if len(self.event_log) > 50:
-            self.event_log = self.event_log[-50:]
-
     def run_loop(self):
+        """主循环：每秒执行一步"""
         self.running = True
+        self._stop_event.clear()
+
         while not self._stop_event.is_set():
-            # 根据速度设置决定每轮执行多少步
-            for _ in range(self.steps_per_tick):
-                if self.step_idx >= self.num_samples:
-                    self._free_run_step()
-                else:
-                    self.step()
-                if self._stop_event.is_set():
-                    break
-            time.sleep(self.speed)
+            if self.paused:
+                time.sleep(0.1)
+                continue
+
+            if self.step_idx >= self.num_samples:
+                # 数据结束，循环播放
+                self._reset()
+                continue
+
+            self.step()
+            time.sleep(REFRESH_INTERVAL)
+
         self.running = False
         self.data_ready.set()
 
-    def _free_run_step(self):
-        from RK4 import RK4
-        k = self.step_idx / self.fs
-        ps, phase = self._get_phase(k)
-        # 与ukf_estimation.py一致
-        Ybusm = self.YBUS[:, :, ps]
-
-        try:
-            root = cholesky(self.n * self.P)
-        except np.linalg.LinAlgError:
-            root = cholesky(self.n * self.P + 1e-6 * np.eye(self.ns))
-
-        X_tilde = np.column_stack([root, -root])
-        X_sigma = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns)) + X_tilde
-        xbreve = RK4(self.n, self.deltt, self.E_abs, self.ns, X_sigma, self.PM, self.M, self.D, Ybusm)
-        self.X_hat = xbreve @ self.W
-        x_hat_rep = np.tile(self.X_hat.reshape(-1, 1), (1, 2 * self.ns))
-        self.P = (1 / (2 * self.ns)) * (xbreve - x_hat_rep) @ (xbreve - x_hat_rep).T + self.Q
-
-        result = {
-            'elapsed_sec': round(k, 3),
-            'phase': phase,
-            'time': round(k * 1000, 2),
-            'delta_est': self.X_hat[:self.n].tolist(),
-            'omega_est': self.X_hat[self.n:].tolist(),
-        }
-
-        if phase != self._last_logged_phase:
-            self._log_event(phase, round(k, 3))
-            self._last_logged_phase = phase
-
-        with self.lock:
-            h = self.history
-            h['time'].append(result['time'])
-            h['phase'].append(phase)
-            for i in range(self.n):
-                h['delta_est'][i].append(result['delta_est'][i])
-                h['omega_est'][i].append(result['omega_est'][i])
-            if len(h['time']) > HISTORY_MAX:
-                trim = len(h['time']) - HISTORY_MAX
-                for kk in ['time','phase']: h[kk] = h[kk][trim:]
-                for kk in ['delta_est','omega_est']:
-                    for i in range(3): h[kk][i] = h[kk][i][trim:]
-            self.latest = result
-            self.data_ready.set()
-
-        self.step_idx += 1
-
     def start(self):
-        if self.running: return
+        """启动引擎"""
+        if self.running:
+            was_paused = self.paused
+            self.paused = False
+            return {'status': 'resumed' if was_paused else 'running'}
+
+        # 检查UKF是否已计算完成
+        if self.X_est_full is None:
+            if self._ukf_thread is None or not self._ukf_thread.is_alive():
+                self._ukf_thread = threading.Thread(target=self._run_ukf, daemon=True)
+                self._ukf_thread.start()
+                print("[启动] UKF后台计算已启动")
+            return {'status': 'ukf_computing', 'message': 'UKF计算中，请稍后...'}
+
+        self._reset()
         self._stop_event.clear()
-        self.data_ready.clear()
-        t = threading.Thread(target=self.run_loop, daemon=True)
-        t.start()
+
+        self._thread = threading.Thread(target=self.run_loop, daemon=True)
+        self._thread.start()
+        return {'status': 'started'}
 
     def pause(self):
-        self._stop_event.set()
+        """暂停"""
+        self.paused = True
+        return {'status': 'paused'}
 
-    def reset(self):
+    def resume(self):
+        """恢复"""
+        self.paused = False
+        return {'status': 'resumed'}
+
+    def stop(self):
+        """停止"""
         self._stop_event.set()
-        time.sleep(0.1)
+        self.running = False
+        self.paused = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        return {'status': 'stopped'}
+
+    def _params_payload(self):
+        return {
+            'n': self.n,
+            's': self.s,
+            'fs': int(self.fs),
+            'total': self.num_samples,
+            'fault1_start': round(self.fault1_start, 3),
+            'fault1_end': round(self.fault1_end, 3),
+            'fault2_start': round(self.fault2_start, 3),
+            'fault2_end': round(self.fault2_end, 3),
+            'refresh_interval': REFRESH_INTERVAL,
+        }
+
+    def _nodes_payload(self):
+        samples = max(1, self.step_idx)
+        per_sample = 16
+        base = samples * per_sample
+
+        is_fault = self.latest.get('is_fault', False) if self.latest else False
+        multiplier = 2.0 if is_fault else 1.0
+
+        node_bytes = int(base * multiplier)
+        return {
+            '1': {'bytes_total': node_bytes},
+            '2': {'bytes_total': node_bytes},
+            '3': {'bytes_total': node_bytes},
+        }
+
+    def _phase_from_latest(self):
+        if not self.latest:
+            return 'ready'
+        if self.latest.get('is_fault'):
+            return 'fault'
+        return 'post' if self.latest.get('time_sec', 0) >= self.fault1_start else 'pre'
+
+    def get_status(self):
+        """获取当前状态"""
         with self.lock:
-            self.running = False
-            self.total_elapsed_base = 0.0
-            self.event_log = []
-            self._last_logged_phase = 'normal'
-            self.step_idx = 0
-            self.history = {
-                'time': [],
-                'delta_est': [[], [], []],
-                'delta_true': [[], [], []],
-                'omega_est': [[], [], []],
-                'omega_true': [[], [], []],
-                'phase': [],
+            elapsed = self.latest.get('time_sec', 0) if self.latest else 0
+
+            weather_data = weather_service.get_weather()
+            risk = risk_engine.evaluate(weather_data)
+
+            weather_risk = {
+                'now': weather_data.get('now', {'text': '--', 'temperature': '--'}),
+                'location': weather_data.get('location', {}).get('name', '甘肃酒泉'),
+                'overall': risk.get('overall', 'low'),
+                'overall_label': risk.get('overall_label', '--'),
+                'overall_color': risk.get('overall_color', '#059669'),
+                'summary': risk.get('summary', '--'),
             }
-            self.latest = None
-        self._reset_ukf()
-        self.data_ready.clear()
+
+            payload = {
+                'running': self.running,
+                'finished': self.finished,
+                'elapsed_sec': elapsed,
+                'start_beijing_ms': self.start_beijing_ms,
+                'phase': self._phase_from_latest(),
+                'params': self._params_payload(),
+                'nodes': self._nodes_payload(),
+                'weather_risk': weather_risk,
+            }
+            if self.latest:
+                payload.update(self.latest)
+            else:
+                payload.update({
+                    'step': 0,
+                    'total': self.num_samples,
+                    'time_sec': 0,
+                    'is_fault': False,
+                    'beijing_time': self._get_beijing_time(),
+                    'delta_est': [0, 0, 0],
+                    'omega_est': [0, 0, 0],
+                })
+            return payload
+
+    def get_history(self):
+        """获取历史数据"""
+        with self.lock:
+            return dict(self.history)
+
+    def get_fault_info(self):
+        """获取故障检测信息"""
+        with self.lock:
+            return {
+                'fault_detected': self.fault_detected,
+                'current_fault': bool(self.latest.get('is_fault', False)) if self.latest else False,
+            }
+
+    def get_events(self):
+        with self.lock:
+            return {'events': list(self.events)}
 
 
-engine = UKFEngine()
+# ============ 全局引擎实例 ============
+engine = UKFDashboardEngine()
 
 
-# ==================== Flask 路由 ====================
-
+# ============ API 路由 ============
 @app.route('/')
 def index():
     return render_template('dashboard.html')
 
 
-@app.route('/stream')
-def stream():
-    def generate():
-        last_elapsed = -1
-        while True:
-            engine.data_ready.wait(timeout=2.0)
-            engine.data_ready.clear()
-
-            with engine.lock:
-                if engine.latest is not None:
-                    current_elapsed = engine.latest.get('elapsed_sec', 0)
-                    if current_elapsed != last_elapsed or not engine.running:
-                        last_elapsed = current_elapsed
-                        payload = {
-                            'latest': engine.latest,
-                            'history': engine.history,
-                            'params': engine.params_info,
-                            'event_log': engine.event_log[-20:],
-                            'nodes': {
-                                '1': {'bytes': engine.node_bytes[0], 'status': 'online'},
-                                '2': {'bytes': engine.node_bytes[1], 'status': 'online'},
-                                '3': {'bytes': engine.node_bytes[2], 'status': 'online'},
-                            },
-                            'running': engine.running,
-                        }
-                        yield f"data: {json.dumps(payload)}\n\n"
-
-    return Response(
-        generate(),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
-    )
+@app.route('/api/start', methods=['POST'])
+def api_start():
+    return jsonify(engine.start())
 
 
-@app.route('/control/<action>', methods=['POST'])
-def control(action):
-    if action == 'start':
-        engine.start()
-    elif action == 'pause':
-        engine.pause()
-    elif action == 'reset':
-        engine.reset()
-    elif action == 'speed':
-        data = request.get_json()
-        if data and 'speed' in data:
-            speed_val = float(data['speed'])
-            engine.speed = speed_val
-            # 速度越快(值越小)，每轮执行更多步
-            # 3s周期(最快): steps_per_tick=10, sleep=0.003
-            # 15s周期(默认): steps_per_tick=1, sleep=0.003
-            # 60s周期(最慢): steps_per_tick=1, sleep=0.003
-            if speed_val <= 0.001:
-                engine.steps_per_tick = 20
-            elif speed_val <= 0.003:
-                engine.steps_per_tick = 10
-            elif speed_val <= 0.006:
-                engine.steps_per_tick = 5
-            else:
-                engine.steps_per_tick = 1
-    else:
-        return jsonify({'status': 'error', 'message': f'Unknown action: {action}'}), 400
-    return jsonify({'status': 'ok', 'action': action})
+@app.route('/api/pause', methods=['POST'])
+def api_pause():
+    return jsonify(engine.pause())
+
+
+@app.route('/api/resume', methods=['POST'])
+def api_resume():
+    return jsonify(engine.resume())
+
+
+@app.route('/api/stop', methods=['POST'])
+def api_stop():
+    return jsonify(engine.stop())
+
+
+@app.route('/api/status')
+def api_status():
+    return jsonify(engine.get_status())
+
+
+@app.route('/api/history')
+def api_history():
+    return jsonify(engine.get_history())
+
+
+@app.route('/api/fault_info')
+def api_fault_info():
+    return jsonify(engine.get_fault_info())
+
+
+@app.route('/api/fault_replays')
+def api_fault_replays():
+    with engine.lock:
+        return jsonify({'snapshots': list(engine.fault_snapshots)})
+
+
+@app.route('/api/config')
+def api_config():
+    return jsonify({
+        'fs': engine.fs,
+        'total_time': engine.total_time,
+        'num_samples': engine.num_samples,
+        'n': engine.n,
+        'fault1_start': engine.fault1_start,
+        'fault1_end': engine.fault1_end,
+        'fault2_start': engine.fault2_start,
+        'fault2_end': engine.fault2_end,
+        'refresh_interval': REFRESH_INTERVAL,
+    })
 
 
 @app.route('/status')
-def status():
-    with engine.lock:
-        elapsed = engine.total_elapsed_base + (engine.step_idx / engine.fs if engine.fs else 0)
-        p = dict(engine.params_info)
-        if 'fault_times' in p:
-            p['fault_times'] = [[float(st), float(en)] for st, en in p['fault_times']]
-        return jsonify({
-            'running': engine.running,
-            'elapsed_sec': round(elapsed, 2),
-            'speed': engine.speed,
-            'params': p,
-            'nodes': {
-                '1': {'bytes': engine.node_bytes[0], 'status': 'online'},
-                '2': {'bytes': engine.node_bytes[1], 'status': 'online'},
-                '3': {'bytes': engine.node_bytes[2], 'status': 'online'},
-            },
-        })
+def legacy_status():
+    return jsonify(engine.get_status())
 
 
 @app.route('/history')
-def history():
-    with engine.lock:
-        return jsonify({
-            'time': engine.history['time'],
-            'delta_est': engine.history['delta_est'],
-            'delta_true': engine.history['delta_true'],
-            'omega_est': engine.history['omega_est'],
-            'omega_true': engine.history['omega_true'],
-            'phase': engine.history['phase'],
-        })
+def legacy_history():
+    return jsonify(engine.get_history())
 
 
 @app.route('/events')
-def events():
-    with engine.lock:
-        return jsonify({'events': engine.event_log[-50:]})
+def legacy_events():
+    return jsonify(engine.get_events())
+
+
+@app.route('/control/start', methods=['POST'])
+def legacy_start():
+    result = engine.start()
+    if result.get('status') in ('started', 'running', 'resumed'):
+        return jsonify({'status': 'ok'})
+    return jsonify({'status': 'ok', 'ukf_pending': True, 'message': result.get('message', 'UKF计算中，请稍后...')})
+
+
+@app.route('/control/pause', methods=['POST'])
+def legacy_pause():
+    engine.pause()
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/control/reset', methods=['POST'])
+def legacy_reset():
+    engine.stop()
+    engine._reset()
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/control/speed', methods=['POST'])
+def legacy_speed():
+    return jsonify({'status': 'ok'})
+
+
+# ============ 天气 & 风险 API ============
+@app.route('/api/weather')
+def api_weather():
+    weather_data = weather_service.get_weather()
+    risk = risk_engine.evaluate(weather_data)
+    return jsonify({
+        'weather': weather_data,
+        'risk': risk,
+    })
+
+
+# ============ 自然灾害仿真模拟 API ============
+DISASTER_PRESETS = {
+    'sandstorm': {
+        'name': '沙尘暴',
+        'weather': {
+            'now': {
+                'temperature': '18', 'feels_like': '16', 'humidity': '15',
+                'wind_direction': '西北风', 'wind_speed': '22.5', 'wind_scale': '9',
+                'text': '沙尘暴', 'code': '31', 'visibility': '1.2',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '22', 'low': '8', 'text_day': '沙尘暴', 'text_night': '浮尘',
+                 'wind_direction': '西北风', 'wind_speed': '25', 'wind_scale': '9', 'rainfall': '0', 'humidity': '12'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '强沙尘暴天气，能见度极低，光伏板积尘风险极高',
+    },
+    'thunderstorm': {
+        'name': '雷暴',
+        'weather': {
+            'now': {
+                'temperature': '22', 'feels_like': '20', 'humidity': '92',
+                'wind_direction': '南风', 'wind_speed': '18.5', 'wind_scale': '8',
+                'text': '雷阵雨', 'code': '11', 'visibility': '3.5',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '25', 'low': '14', 'text_day': '雷阵雨', 'text_night': '暴雨',
+                 'wind_direction': '南风', 'wind_speed': '20', 'wind_scale': '8', 'rainfall': '45', 'humidity': '90'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '强雷暴天气，户外设备需做好防雷保护',
+    },
+    'rain_hail': {
+        'name': '暴雨冰雹',
+        'weather': {
+            'now': {
+                'temperature': '12', 'feels_like': '8', 'humidity': '95',
+                'wind_direction': '北风', 'wind_speed': '16.5', 'wind_scale': '7',
+                'text': '冰雹', 'code': '19', 'visibility': '2.0',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '16', 'low': '6', 'text_day': '冰雹', 'text_night': '暴雨',
+                 'wind_direction': '北风', 'wind_speed': '18', 'wind_scale': '7', 'rainfall': '65', 'humidity': '95'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '暴雨伴随冰雹，光伏板及户外设备可能受损',
+    },
+    'extreme_temp': {
+        'name': '极端温差',
+        'weather': {
+            'now': {
+                'temperature': '35', 'feels_like': '38', 'humidity': '18',
+                'wind_direction': '东风', 'wind_speed': '8.5', 'wind_scale': '5',
+                'text': '晴', 'code': '0', 'visibility': '20',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '38', 'low': '2', 'text_day': '晴', 'text_night': '晴',
+                 'wind_direction': '东风', 'wind_speed': '10', 'wind_scale': '5', 'rainfall': '0', 'humidity': '15'},
+                {'date': '2026-05-28', 'high': '35', 'low': '5', 'text_day': '多云', 'text_night': '晴',
+                 'wind_direction': '东风', 'wind_speed': '8', 'wind_scale': '4', 'rainfall': '0', 'humidity': '20'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '昼夜极端温差36°C，设备热胀冷缩疲劳风险',
+    },
+    'icing': {
+        'name': '冻雨覆冰',
+        'weather': {
+            'now': {
+                'temperature': '-8', 'feels_like': '-14', 'humidity': '88',
+                'wind_direction': '北风', 'wind_speed': '14.5', 'wind_scale': '7',
+                'text': '冻雨', 'code': '26', 'visibility': '2.5',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '-2', 'low': '-12', 'text_day': '冻雨', 'text_night': '大雪',
+                 'wind_direction': '北风', 'wind_speed': '15', 'wind_scale': '7', 'rainfall': '0', 'humidity': '90'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '冻雨覆冰灾害，线路断线风险，铁塔倒塌风险',
+    },
+    'heatwave': {
+        'name': '极端高温',
+        'weather': {
+            'now': {
+                'temperature': '42', 'feels_like': '48', 'humidity': '10',
+                'wind_direction': '西南风', 'wind_speed': '5.5', 'wind_scale': '3',
+                'text': '晴', 'code': '0', 'visibility': '30',
+            },
+            'forecast': [
+                {'date': '2026-05-27', 'high': '44', 'low': '28', 'text_day': '晴', 'text_night': '晴',
+                 'wind_direction': '西南风', 'wind_speed': '6', 'wind_scale': '3', 'rainfall': '0', 'humidity': '8'},
+            ],
+            'location': {'name': '酒泉'},
+        },
+        'description': '极端高温42°C，体感48°C，光伏板效率骤降，设备过热',
+    },
+}
+
+
+@app.route('/api/simulate_disaster', methods=['POST'])
+def api_simulate_disaster():
+    data = request.get_json()
+    disaster_key = data.get('disaster', '')
+
+    if disaster_key == 'clear':
+        weather_service.clear_simulated_weather()
+        return jsonify({'status': 'ok', 'message': '已清除模拟，恢复真实天气数据'})
+
+    preset = DISASTER_PRESETS.get(disaster_key)
+    if not preset:
+        return jsonify({'status': 'error', 'message': f'未知灾害类型: {disaster_key}'}), 400
+
+    weather_service.set_simulated_weather(preset['weather'])
+
+    # 评估风险
+    risk = risk_engine.evaluate(preset['weather'])
+
+    # 仿真灾害一律推送到飞书（模拟真实告警场景）
+    feishu_sent = False
+    try:
+        from feishu_notifier import send_weather_risk_alert
+        feishu_sent = send_weather_risk_alert(preset['weather'], risk, bypass_rate_limit=True)
+    except Exception as e:
+        print(f"[DisasterSim] 飞书推送失败: {e}")
+
+    try:
+        from wechat_notifier import send_weather_risk_alert as wechat_weather_alert
+        wechat_weather_alert(preset['weather'], risk)
+    except Exception as we:
+        print(f"[WeChat] 天气预警发送失败: {we}")
+
+    return jsonify({
+        'status': 'ok',
+        'disaster': preset['name'],
+        'risk': risk,
+        'feishu_sent': feishu_sent,
+    })
 
 
 if __name__ == '__main__':
     print("=" * 50)
     print("UKF 状态估计 Dashboard 服务端")
+    print("3分钟数据 | 双故障检测 | 1秒刷新")
     print("=" * 50)
-    print("\n正在初始化 UKF 引擎...")
-    engine.init()
-    p = engine.params_info
-    print(f"  发电机: {p['n']} | 母线: {p['s']} | 采样: {p['fs']} Hz")
-    print(f"  数据点: {p['total']}")
-    if 'fault_times' in p:
-        for i, (st, en) in enumerate(p['fault_times']):
-            print(f"  故障{i+1}: {st*1000:.0f}ms ~ {en*1000:.0f}ms")
-    else:
-        print(f"  故障: {p.get('t_SW_ms', '--')}ms ~ {p.get('t_FC_ms', '--')}ms")
-    print(f"  速度: {engine.speed:.4f}s/步")
-    print(f"\n  Dashboard: http://localhost:5000\n")
-    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+    print(f"数据点数: {engine.num_samples}")
+    print(f"故障1: {engine.fault1_start}s - {engine.fault1_end}s")
+    print(f"故障2: {engine.fault2_start}s - {engine.fault2_end}s")
+    print(f"Dashboard: http://localhost:5000")
+    print("=" * 50)
+    app.run(host='0.0.0.0', port=5000, threaded=True)
