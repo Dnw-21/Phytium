@@ -1,9 +1,9 @@
 # GD32L233C 主控程序移植到 Phytium PE2204 FreeRTOS 记录
 
-> **移植日期**: 2026-05-14 ~ 2026-05-19
-> **移植状态**: 代码层面已完成，与GD32 v3完全兼容，待硬件验证（开发板上电后测试）
+> **移植日期**: 2026-05-14 ~ 2026-05-28
+> **移植状态**: 当前按 LoRa UART2 真实硬件链路和 FreeRTOS 实际 CPU1（设备树写 CPU3）继续移植；Dashboard 路线仍使用模拟数据，后续再打通真实链路
 > **原程序 v1**: /home/alientek/Phytium/GD32L233C_Prj_Master
-> **当前版本 v3**: /home/alientek/Phytium/GD32L233C_Prj_Master_v3
+> **当前参考版本**: GD32L233C_Prj_Master_v3 / GD32L233C_Prj_Master_v3_0526 等队友持续交付版本
 > **目标SDK**: /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master
 
 ## 一、移植概述
@@ -28,18 +28,18 @@ GD32L233C (单核)
 【移植后Phytium架构】
 Phytium PE2204 (异构四核)
 ├── Linux主核 (CPU0-2, SMP)
-│   ├── master_receiver (RPMsg → 接收FreeRTOS数据)
-│   └── 未来: LoRa驱动 (UART设备)
+│   ├── master_receiver (RPMsg/共享内存 → 接收FreeRTOS数据)
+│   └── 后续: 解析真实 LoRa 数据并接入 UKF Dashboard
 │
-├── FreeRTOS从核 (CPU3, 独占)
-│   ├── master_recv_task (RPMsg ← LoRa帧)
-│   ├── master_judge_task (故障判决)
-│   ├── master_cmd_task (RPMsg → 命令转发)
+├── FreeRTOS主控侧 (实际 CPU1，设备树/remoteproc 仍写 CPU3)
+│   ├── master_recv_task (UART2 ← LoRa帧)
+│   ├── master_judge_task (故障判决/后续处理)
+│   ├── master_cmd_task (后续分时接收/命令控制)
 │   └── 共享内存模拟Flash (状态/波形数据)
 │
 ├── OpenAMP/RPMsg ←→ 核间通信
 ├── 共享内存 (0xB0100000) → Flash模拟
-└── UART3 + GPIO2_10 ←→ ATK-MWCC68D LoRa模块 (未接)
+└── UART2 (J1 Pin8/10) ←→ ATK-MWCC68D LoRa模块
 ```
 
 ## 二、文件清单
@@ -115,8 +115,8 @@ typedef struct {
 
 | 原GD32外设 | Phytium替代 | 说明 |
 |-----------|-------------|------|
-| GD32 USART1 (LoRa) | PE2204 UART3 (J1 Pin8=TX, Pin10=RX) | 当前未接硬件，使用stub |
-| GD32 GPIO (AUX) | PE2204 GPIO2_10 (J1 Pin7) | LoRa AUX/MD0控制引脚 |
+| GD32 USART1 (LoRa) | PE2204 UART2 (J1 Pin8=TX, Pin10=RX) | 当前真实 LoRa 硬件链路 |
+| GD32 GPIO (AUX) | 按当前实际接线/队友工程继续移植 | LoRa AUX/MD0控制引脚 |
 | GD32 内部Flash | 共享内存 (0xB0100000+offset) | 状态/波形数据存储 |
 
 ### 4.2 共享内存Flash模拟
@@ -134,9 +134,9 @@ typedef struct {
 - `master_flash_save_wave_data()` - 保存波形数据
 - `master_flash_erase_node_data()` - 擦除节点数据
 
-### 4.3 LoRa通信Stub
+### 4.3 LoRa 真实链路与调试注入
 
-当LoRa模块未连接时，使用RPMsg注入接口测试：
+当前主线是真实 LoRa 模块接入 FreeRTOS UART2；RPMsg 注入仍可作为调试辅助：
 - `master_recv_inject_data()` - 从RPMsg接收LoRa帧数据
 - Linux侧 `master_receiver` 可监听到 `DEVICE_MASTER_CMD` 命令
 
@@ -150,17 +150,14 @@ typedef struct {
 
 ## 五、设备树配置
 
-### LoRa UART Overlay (`device-tree/lora-uart.dtso`)
+### LoRa UART 口径
 
-```bash
-# 编译并加载
-dtc -@ -I dts -O dtb -o lora-uart.dtbo lora-uart.dtso
-sudo dtoverlay lora-uart.dtbo
-```
+当前 LoRa 串口以 **UART2 / J1 Pin8/Pin10** 为准；历史 `lora-uart.dtso`/UART3 overlay 只作为早期调试记录，不再作为当前移植路线。
 
-配置内容：
-- UART3: 波特率9600, 8N1 (ATK-MWCC68D默认)
-- GPIO2_10: AUX控制引脚，初始状态下拉
+当前配置要点：
+- UART2: 115200, 8N1
+- FreeRTOS 主控侧独占 LoRa UART2
+- Linux 侧负责接收/显示/后续解析，不直接占用 LoRa 串口
 
 ## 六、编译方法
 

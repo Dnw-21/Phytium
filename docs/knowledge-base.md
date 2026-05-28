@@ -92,9 +92,9 @@ homo_rproc_probe()
   └── rproc_add()                  → 注册 remoteproc 设备
 
 homo_rproc_start() (echo start > state)
-  ├── remove_cpu(3)                → 下电 CPU3
+  ├── remove_cpu(3)                → 按设备树 remote-processor=<3> 口径下电目标核
   ├── 加载 openamp_core0.elf 到 0xB0100000
-  ├── arm_smccc_smc(CPU_ON, ...)   → PSCI 启动 CPU3
+  ├── arm_smccc_smc(CPU_ON, ...)   → 按设备树口径启动目标核；实测 FreeRTOS 运行在 CPU1
   └── rproc_virtio → virtio_rpmsg_bus → 创建 RPMsg 通道
 ```
 
@@ -240,7 +240,7 @@ modprobe -r rpmsg_char rpmsg_ctrl
 │  │  ├── test_encrypt       →  本地计算 (无RPMsg)     │    │
 │  │  └── test_stress        →  /dev/rpmsg0           │    │
 │  │                                                   │    │
-│  │  RPMsg ──────────────────► FreeRTOS (CPU3)        │    │
+│  │  RPMsg ──────────────────► FreeRTOS（实际 CPU1，设备树写 CPU3）│    │
 │  │    DEVICE_MASTER_TEST (0x0030)                    │    │
 │  │    ◄──────────────────── DEVICE_MASTER_CMD (0x0021)│   │
 │  │                                                   │    │
@@ -325,7 +325,7 @@ ls /home/alientek/Phytium/docs/test_report_*.md
 
 | ID | 测试项 | 类型 | 验证内容 | 通过标准 |
 |----|--------|------|----------|----------|
-| TC01 | RPMsg Link PING | RPMsg | CPU3 链路连通性 | PING 成功率 100%, RTT < 100ms |
+| TC01 | RPMsg Link PING | RPMsg | FreeRTOS 链路连通性（实际 CPU1，设备树写 CPU3） | PING 成功率 100%, RTT < 100ms |
 | TC02 | Fault Injection | RPMsg | 所有节点×故障类型×严重等级 | 45/45 组合全部 OK |
 | TC03 | Command TX | RPMsg | FreeRTOS→Linux 命令传输 | 至少收到 1 条 command |
 | TC04 | Chaos Encrypt | 本地 | encrypt→decrypt 往返一致性 | 6 种数据长度全部一致 |

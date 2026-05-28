@@ -102,6 +102,8 @@ make all
 
 ### 验证成功日志
 
+> 注：以下内核日志中的 `CPU3` 是当时 remoteproc/设备树口径；当前实测 FreeRTOS 实际运行在 CPU1，设备树仍写 CPU3。
+
 ```
 [  361.124486] remoteproc remoteproc0: powering up homo_core0
 [  361.125318] remoteproc remoteproc0: Booting fw image openamp_core0.elf, size 1249064
@@ -210,7 +212,7 @@ cpu1:OPENAMP_DEVICE:command:0x10,length:0
 ...（循环）
 ```
 
-**根因**: FreeRTOS 从核 (CPU3) 未启动，RPMsg 设备未绑定，之前编译的固件中包含了测试用的循环打印任务。
+**根因**: FreeRTOS 从核未按 remoteproc 流程启动（当时按设备树 CPU3 口径记录；当前实测运行在 CPU1），RPMsg 设备未绑定，之前编译的固件中包含了测试用的循环打印任务。
 
 **解决**:
 1. SSH 到开发板检查状态: `cat /sys/class/remoteproc/remoteproc0/state` → offline
@@ -241,7 +243,7 @@ open /dev/rpmsg0: Device or resource busy
 ```
 
 **根因（双重原因）**:
-1. `dashboard_server` 进程持续占用 `/dev/rpmsg0`
+1. 历史板端 `dashboard_server` 进程持续占用 `/dev/rpmsg0`（非当前 `state_estimation/dashboard_server.py`）
 2. `master_receiver` 未先通过 `/dev/rpmsg_ctrl0` 创建端点
 
 **解决**:
@@ -384,17 +386,17 @@ FAULT_LIST、health_score等）都已在前一轮移植中实现。
 4. **部署固件**：停止从核(`echo stop`)，替换 `/lib/firmware/openamp_core0.elf`，启动从核(`echo start`)
 5. **绑定通道**：`rpmsg_chrdev` 绑定 `openamp-demo-channel`，创建 `/dev/rpmsg0`
 6. **编译 Linux 程序**：交叉编译 `master_receiver`，部署到 `/home/user/demo/`
-7. **运行测试**：停止 `dashboard_server`(PID 450)，运行 `master_receiver`
+7. **运行测试**：停止历史板端 `dashboard_server`(PID 450)，运行 `master_receiver`
 
 ### 问题 16: `/dev/rpmsg0` Device or resource busy
 
 **现象**: `master_receiver` / `lora_ctrl` 启动时报 `open /dev/rpmsg0: Device or resource busy`
 
-**根因**: `dashboard_server` 进程已占用 `/dev/rpmsg0`
+**根因**: 历史板端 `dashboard_server` 进程已占用 `/dev/rpmsg0`
 
-**解决**: `sudo kill -9 <PID>` 终止 dashboard_server 即可
+**解决**: `sudo kill -9 <PID>` 终止历史板端 dashboard_server 即可
 
-**补充 (2026-05-19)**: `dashboard_server` 由 systemd 服务 `openamp.service` 管理，
+**补充 (2026-05-19)**: 历史板端 `dashboard_server` 由 systemd 服务 `openamp.service` 管理，
 直接 kill 后会被 systemd 自动重启，导致 EBUSY 持续出现。必须先停止服务再杀进程：
 
 ```bash
@@ -430,7 +432,7 @@ sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/driver
 
 问题: 仿真阶段全链路正常，但接入真实 LoRa 硬件后终端用户只需要 **看到从终端节点接收的原始数据**，不需要主控下发命令给终端节点。启动时还看到 `[CMD #001] REQ_WAVE`，这是握手时注入的测试命令。
 
-目标: **LoRa 数据单向展示** — GD32终端 → LoRa无线 → 飞腾派UART3 → FreeRTOS → RPMsg → Linux 终端显示。不发送任何命令。
+目标: **LoRa 数据单向展示** — GD32终端 → LoRa无线 → 飞腾派UART2 → FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3）→ RPMsg → Linux 终端显示。不发送任何命令。
 
 ### 问题 17: 波特率错误 (9600 → 115200)
 
@@ -438,7 +440,7 @@ sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/driver
 
 **根因**: 原 `lora_uart.c` 配置 9600，GD32 终端和 LoRa 模块通信波特率为 115200。
 
-**解决**: 修改 `lora_uart.c` 中 UART3 PL011 波特率寄存器：
+**解决**: 修改 `lora_uart.c` 中 UART2 PL011 波特率寄存器：
 
 ```
 原值 (9600):  IBRD=651, FBRD=3
@@ -446,7 +448,7 @@ sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/driver
 计算: 100MHz / (16 × 115200) = 54.2535 → IBRD=54, FBRD=16
 ```
 
-### 问题 18: UART3 引脚接错
+### 问题 18: UART2 引脚接错
 
 **现象**: 所有 UART (AMA0~AMA3) 读取均为 0 字节。
 
@@ -454,13 +456,13 @@ sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/driver
 
 | 飞腾派 Pin | 信号 | LoRa模块 |
 |:----------:|------|:--------:|
-| Pin 8 | UART3_TXD | RXD |
-| Pin 10 | UART3_RXD | TXD |
+| Pin 8 | UART2_TXD | RXD |
+| Pin 10 | UART2_RXD | TXD |
 | Pin 6 | GND | GND |
 | Pin 1 | VCC_3.3V | VCC |
 | Pin 7 | GPIO2_10 | AUX/MD0 |
 
-**教训**: Linux 端 `stty` 设波特率无效——UART3 设备由 FreeRTOS CPU3 独占操作寄存器，Linux PL011 驱动也与 FreeRTOS 共享同一硬件。
+**教训**: Linux 端 `stty` 设波特率无效——LoRa UART2 由 FreeRTOS 主控侧直接操作寄存器，当前实测 FreeRTOS 运行在 CPU1（设备树仍写 CPU3）。
 
 ### 问题 19: 测试命令注入 (移除)
 
@@ -513,8 +515,8 @@ s_data_len = 0;
 
 **精简后数据路径**:
 ```
-GD32终端 → LoRa无线 → 飞腾派UART3(Pin8/10)
-  → FreeRTOS CPU3 (lora_uart.c: lora_uart_poll + lora_uart_recv_frame)
+GD32终端 → LoRa无线 → 飞腾派UART2(Pin8/10)
+  → FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3） (lora_uart.c: lora_uart_poll + lora_uart_recv_frame)
     → rpmsg_send_lora_recv_log() → RPMsg DEVICE_LORA_DATA(0x0023)
       → Linux master_receiver: printf("[#N] len=%d  XX XX XX...")
 ```

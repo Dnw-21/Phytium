@@ -452,7 +452,7 @@ FreeRTOS 收到后：
 ### A.6 完整的 RPMsg 通信流程
 
 ```
-1. Linux: echo start > remoteproc0/state → 启动 CPU3 FreeRTOS
+1. Linux: echo start > remoteproc0/state → 按设备树/remoteproc 口径启动目标核（实测 FreeRTOS 在 CPU1，设备树写 CPU3）
 2. FreeRTOS: rpmsg_create_ept("rpmsg-openamp-demo-channel", src=0, dst=ANY)
    → 发送 NS_CREATE → Linux rpmsg_ns_cb → 创建 rpmsg_device
 3. Linux: bind rpmsg_chrdev → rpmsg_chrdev_probe → /dev/rpmsg_ctrl0

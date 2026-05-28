@@ -1,6 +1,8 @@
 # OpenAMP 异构多核通信部署指南
 
-> **更新**: 2026-05-18 | **当前架构**: Linux主核 + FreeRTOS从核 (GD32主控移植版)
+> **更新**: 2026-05-28 | **当前架构**: Linux 侧接收 + FreeRTOS 主控侧实际 CPU1（设备树写 CPU3）+ GD32 主控移植路线
+>
+> **Dashboard 说明**: 当前唯一面板是 `state_estimation/dashboard_server.py`，端口 5000；本文中旧板端 8080/8000 Web 面板记录已废弃，不再作为当前路线。
 
 ## 前置条件
 
@@ -45,7 +47,8 @@ homo_rproc: homo_rproc@0 {
     status = "okay";
     homo_core0: homo_core0@b0100000 {
         compatible = "homo,rproc-core";
-        remote-processor = <3>;
+    /* 设备树目前仍写 remote-processor = <3>；实测 FreeRTOS 运行在 CPU1，调试时以此口径记录 */
+    remote-processor = <3>;
         inter-processor-interrupt = <9>;
         memory-region = <&rproc>;
         firmware-name = "openamp_core0.elf";
@@ -69,7 +72,8 @@ homo_rproc: homo_rproc@0 {
 ```
 
 **说明**:
-- `uart3` + `GPIO2_10` 用于 LoRa 模块 (ATK-MWCC68D) 串口通信
+- 当前 LoRa 实际接线以 J1 Pin8/Pin10 的 UART2 口径为准；上面 `uart3` 片段是早期设备树记录，不能再作为当前 LoRa 接线事实
+- 设备树目前仍写 `remote-processor = <3>`，但实测 FreeRTOS 运行在 CPU1
 - 预留 `0xB0100000` (409MB) 给 OpenAMP 共享内存
 
 ### 1.3 重新编译和打包
@@ -237,37 +241,26 @@ sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
 ./master_receiver
 ```
 
-## 步骤 8: Web 实时监控面板
+## 步骤 8: 当前 UKF Dashboard
 
-### 8.1 启动 Dashboard
-
-`dashboard_server` 是一个嵌入式 HTTP 服务器，提供浏览器实时监控面板：
+当前唯一 Web 面板是 `state_estimation/dashboard_server.py`，在虚拟机/开发环境运行，端口 5000：
 
 ```bash
-# 在飞腾派上启动 (后台运行)
-ssh user@192.168.88.11 "nohup ./dashboard_server > /tmp/dashboard.log 2>&1 &"
-
-# 浏览器打开监控面板
-# http://192.168.88.11:8080
+cd /home/alientek/Phytium/state_estimation
+python dashboard_server.py
+# 浏览器打开 http://localhost:5000
 ```
 
-面板显示内容：
-- 异构架构拓扑图 (CPU0-2 Linux + CPU3 FreeRTOS)
-- 实时传感器数据表 (电压、电流、温度、状态)
-- 传输速率和延迟统计
-- 传输日志滚动显示
-- 优化加速比可视化
-- CSV 历史记录 (保存于 `/tmp/dashboard_data.csv`)
+旧板端 `./dashboard_server`、8080/8000 Web 监控面板和 `/tmp/dashboard_data.csv` 记录已废弃，不再作为当前路线；如发现相关旧代码且不被 `state_estimation/dashboard_server.py` 使用，应删除或标记为历史。
 
-### 8.2 停止 Dashboard
+当前面板显示内容：
+- UKF 发电机转子角度/转速状态估计
+- 5s 和 15s 模拟故障时段
+- 节点传输状态与故障回放
+- 自然灾害风险预警
+- 飞书/微信通知集成
 
-```bash
-ssh user@192.168.88.11 "sudo kill -9 \$(pgrep -f dashboard_server)"
-```
-
-> **⚠️ 注意**: `dashboard_server` 会占用 `/dev/rpmsg0`。如果同时想运行 `master_receiver` 或测试程序，需要先停掉 dashboard。
-
-### 8.3 命令行监控 (轻量替代)
+### 8.1 命令行监控 (LoRa/RPMsg 轻量替代)
 
 如果不需要 Web 界面，可以用终端版的 `master_receiver`：
 

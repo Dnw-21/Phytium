@@ -93,7 +93,7 @@ lsmod | grep -q rpmsg && ok "模块已加载" || { err "模块加载失败"; exi
 # ─────────────────────────────────────────────
 #  启动 FreeRTOS 从核
 # ─────────────────────────────────────────────
-log "=== 步骤 4/5: 启动 FreeRTOS CPU3 ==="
+log "=== 步骤 4/5: 启动 FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3） ==="
 echo "$BOARD_PASS" | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
 sleep 3
 STATE=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)

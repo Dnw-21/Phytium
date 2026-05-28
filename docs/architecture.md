@@ -1,6 +1,6 @@
 # Phytium PE2204 异构多核系统架构全景
 
-> **更新**: 2026-05-19 | **状态**: LoRa真实硬件接入，UART3 115200 精简链路打通
+> **更新**: 2026-05-28 | **状态**: LoRa 真实硬件链路以 UART2/FreeRTOS 实际 CPU1 为准，设备树 remote-processor 仍写 CPU3；UKF Dashboard 当前使用模拟数据
 
 ## 1. 系统架构总图
 
@@ -9,7 +9,7 @@
 │                          Phytium PE2204 SoC                                  │
 │                                                                              │
 │  ┌─────────────────────────────────┐   ┌─────────────────────────────────┐  │
-│  │     Linux 主核 (CPU0-2, SMP)    │   │    FreeRTOS 从核 (CPU3, 独占)    │  │
+│  │     Linux 侧接收/展示             │   │    FreeRTOS 主控侧                │  │
 │  │                                 │   │                                 │  │
 │  │  CPU0: FTC310                   │   │  系统启动                       │  │
 │  │  CPU1: FTC310                   │   │  main()                         │  │
@@ -51,18 +51,18 @@
 │  │  外部接口 — LoRa模块直连FreeRTOS                                        │  │
 │  │                                                                         │  │
 │  │  ┌──────────────────────┐     ┌──────────────────────┐                  │  │
-│  │  │ ATK-MWCC68D LoRa模块  │←───→│ 终端节点 (10个)      │                  │  │
-│  │  │ UART3 + GPIO2_10     │无线  │ 通过LoRa无线通信     │                  │  │
+│  │  │ ATK-MWCC68D LoRa模块  │←───→│ 终端节点/GD32参考工程│                  │  │
+│  │  │ UART2                │无线  │ 通过LoRa无线通信     │                  │  │
 │  │  │ (连接飞腾派J1接口)   │     │                      │                  │  │
 │  │  └──────┬───────────────┘     └──────────────────────┘                  │  │
 │  │         │                                                               │  │
-│  │         │ UART3 RX/TX 直连 FreeRTOS CPU3                                │  │
-│  │         │ (Linux不直接操作LoRa，只通过RPMsg接收处理后的数据)              │  │
+│  │         │ UART2 RX/TX 直连 FreeRTOS 主控侧                                │  │
+│  │         │ (实际运行 CPU1，设备树/remoteproc 仍写 CPU3)                     │  │
 │  │         ▼                                                               │  │
 │  │  ┌────────────────────────────────────────┐                              │  │
-│  │  │ FreeRTOS CPU3: master_recv_lora_data() │                              │  │
-│  │  │  ├─ USE_LORA_SIMULATION=1 → 仿真数据    │                              │  │
-│  │  │  └─ USE_LORA_SIMULATION=0 → UART驱动    │                              │  │
+│  │  │ FreeRTOS 主控: master_recv_lora_data() │                              │  │
+│  │  │  ├─ LoRa 真实硬件链路    │                              │  │
+│  │  │  └─ UKF Dashboard 当前另用模拟数据    │                              │  │
 │  │  └────────────────────────────────────────┘                              │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -75,9 +75,11 @@
 | CPU编号    | 核心类型             | MPIDR     | 逻辑CPU    | 操作系统         | 用途                |
 | -------- | ---------------- | --------- | -------- | ------------ | ----------------- |
 | CPU0     | FTC310 (LITTLE)  | 0x200     | cpu0     | Linux SMP    | 通用计算              |
-| CPU1     | FTC310 (LITTLE)  | 0x201     | cpu1     | Linux SMP    | 通用计算              |
+| **CPU1** | **FTC310 (LITTLE)** | **0x201** | **cpu1** | **FreeRTOS** | **当前实测运行核心** |
 | CPU2     | FTC664 (big)     | 0x000     | cpu2     | Linux SMP    | 通用计算              |
-| **CPU3** | **FTC664 (big)** | **0x100** | **cpu3** | **FreeRTOS** | **OpenAMP从核(独占)** |
+| CPU3     | FTC664 (big)     | 0x100     | cpu3     | 设备树 remote-processor | 配置仍写 CPU3 |
+
+> 当前调试口径：FreeRTOS 实际运行在 CPU1，但设备树/remoteproc 配置里仍写 CPU3。
 
 ### 2.2 内存布局
 
@@ -92,20 +94,19 @@
 | └─ 0xB0120000               | 128KB     | 共享内存Flash模拟 (状态/波形数据)              |
 | 0xC9A00000+                 | \~3GB     | Linux 可用内存                         |
 
-### 2.3 外设引脚（LoRa模块 → FreeRTOS CPU3）
+### 2.3 外设引脚（LoRa模块 → FreeRTOS 主控侧）
 
-LoRa 模块通过 UART3 直连 **FreeRTOS CPU3 侧**，Linux 不直接操作 LoRa。
+LoRa 模块通过 UART2 直连 **FreeRTOS 主控侧**，Linux 不直接操作 LoRa。
 
 | 飞腾派接口     | PE2204引脚   | LoRa模块引脚     | 功能   | 连接侧     |
 | --------- | ---------- | ------------ | ---- | -------- |
-| J1 Pin 8  | UART3\_TXD | LoRa RXD     | 数据发送 | FreeRTOS |
-| J1 Pin 10 | UART3\_RXD | LoRa TXD     | 数据接收 | FreeRTOS |
+| J1 Pin 8  | UART2\_TXD | LoRa RXD     | 数据发送 | FreeRTOS |
+| J1 Pin 10 | UART2\_RXD | LoRa TXD     | 数据接收 | FreeRTOS |
 | J1 Pin 7  | GPIO2\_10  | LoRa AUX/MD0 | 模式控制 | FreeRTOS |
 
-对应设备树: [lora-uart.dtso](file:///home/alientek/Phytium/device-tree/lora-uart.dtso)
+对应设备树: 当前 LoRa 串口以 UART2 为准；历史 `lora-uart.dtso`/UART3 记录不再作为当前事实。
 
-**当前模式**: `USE_LORA_SIMULATION=1` (仿真模式，无需硬件)
-**切换方式**: 将 [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) 中 `USE_LORA_SIMULATION` 改为 `0`，并在 `master_lora_uart_recv()` 中填入 UART 驱动代码。
+**当前模式**: LoRa 主控链路是真实硬件路线；UKF Dashboard 当前仍使用 `state_new/` 模拟数据，尚未与 LoRa→FreeRTOS→Linux 数据打通。
 
 ## 3. 软件架构分层
 
@@ -113,9 +114,9 @@ LoRa 模块通过 UART3 直连 **FreeRTOS CPU3 侧**，Linux 不直接操作 LoR
 ┌─────────────────────────────────────────────────────┐
 │  Linux 应用层                                        │
 │  ├── master_receiver     ← 主控数据接收 (当前使用)    │
-│  ├── sensor_receiver     ← 传感器批量接收             │
+│  ├── sensor_receiver     ← 历史传感器批量接收         │
 │  ├── rpmsg-demo-single   ← 基础回显测试               │
-│  └── dashboard_server    ← Web监控面板 (C3)           │
+│  └── state_estimation/dashboard_server.py ← 当前 UKF Dashboard (5000) │
 ├─────────────────────────────────────────────────────┤
 │  Linux 内核层                                        │
 │  ├── rpmsg_char.ko       ← RPMsg字符设备驱动          │
@@ -175,33 +176,26 @@ LoRa 模块通过 UART3 直连 **FreeRTOS CPU3 侧**，Linux 不直接操作 LoR
 
 ### 5. LoRa数据现状
 
-### 关键结论：当前通过仿真器自驱动验证全链路，无需LoRa硬件，无需Linux注入
+### 关键结论：LoRa 主控路线使用真实硬件链路，UKF Dashboard 当前仍使用模拟数据
 
 | 问题 | 答案 |
 |------|------|
-| FreeRTOS侧是否有LoRa真实数据？ | **没有真实硬件数据**，但 `master_sim_lora_data()` 状态机自动生成仿真帧 |
-| 数据从哪里来？ | **FreeRTOS内部自生成** — 3节点轮转(过压/欠压/骤升)，上电自动运行 |
-| 能否验证整个链路？ | **可以**。数据链路：仿真器 → master_recv_task → 帧解析 → judge → cmd → RPMsg → Linux |
-| 如何接入真实LoRa？ | 将 `USE_LORA_SIMULATION` 改为 `0`，在 `master_lora_uart_recv()` 填入UART驱动 |
+| FreeRTOS侧是否有LoRa真实数据？ | **主控路线以真实 LoRa 硬件链路为准**，后续继续移植队友提供的 GD32 主控工程 |
+| 面板数据从哪里来？ | **当前 UKF Dashboard 使用 `state_new/` 模拟数据**，尚未与 LoRa→FreeRTOS→Linux 数据打通 |
+| 两条路线是否已经打通？ | **尚未打通**。当前 LoRa 主控移植与 UKF 面板显示是两条分离路线，后续重点是接入真实 LoRa 数据并解析计算 |
+| 后续算法方向 | 在 UKF、故障预警、自然灾害预警基础上继续补充谐波等算法 |
 
 **接口层结构**:
 ```
-master_recv_lora_data(buf, max_len)          ← 统一入口
-  ├─ USE_LORA_SIMULATION=1 → master_sim_lora_data()      ← 当前: 状态机仿真
-  └─ USE_LORA_SIMULATION=0 → master_lora_uart_recv()     ← 预留: UART硬件接收
-       → 从 ring_buf[2048] 提取完整帧
+LoRa真实链路: GD32终端节点 → LoRa → UART2 → FreeRTOS主控侧 → Linux侧解析/显示
+面板模拟链路: state_new 模拟数据 → UKF 状态估计 → state_estimation/dashboard_server.py
 ```
 
-**仿真器参数**:
-- 3个模拟节点 (node 0: 过压, node 1: 欠压, node 2: 电压骤升)
-- 每节点 80 个采样点 (2周期 × 40点/周期)
-- 每帧携带 10 个采样点，共 8 帧 + 1 帧头
-- 节点间等待 500ms (留给 judge 判决和 cmd 处理)
-
-**真实LoRa接入步骤**:
-1. 修改 `USE_LORA_SIMULATION` 为 `0`
-2. 实现 `master_lora_uart_recv()`: UART3初始化 → RX中断/DMA → 环形缓冲区 → 帧提取
-3. 配合外设初始化: UART3时钟/GPIO复用(GPIO2_10/2_11)/GIC中断配置
+**移植重点**:
+- 队友用 GD32 模拟飞腾派 RTOS 主控与终端节点通信，调试好后把模拟主控工程发来
+- 本项目将 GD32 主控工程移植到飞腾派 FreeRTOS 侧
+- FreeRTOS 侧实现 LoRa 接收、数据解析和处理、分时接收等逻辑
+- Linux/面板侧后续接入真实 LoRa 数据，调用对应算法并显示
 
 详见: [通信流程详解](communication-flow.md)
 
@@ -245,10 +239,9 @@ Phytium/
 │   ├── lora-uart.dtso              # LoRa UART设备树overlay
 │   └── phytiumpi-openamp.dtb       # 已编译设备树
 │
-├── demo/                            # 可部署的Linux端程序
-│   ├── sensor_receiver              #   传感器批量接收
+├── demo/                            # 可部署的 Linux 端历史程序/工具
+│   ├── sensor_receiver              #   历史传感器批量接收
 │   ├── rpmsg-demo-single            #   基础回显测试
-│   ├── dashboard_server             #   Web监控面板
 │   └── lifecycle_mgr                #   生命周期管理
 │
 ├── GD32L233C_Prj_Master/            # GD32原始工程 (参考用)
@@ -274,13 +267,12 @@ Phytium/
 │  第1步: 数据到达 FreeRTOS                                                 │
 │                                                                           │
 │  ┌──────────────────────────────────────────────────────────────┐        │
-│  │ LoRa数据源 (FreeRTOS CPU3侧):                                 │        │
-│  │  ├─ 仿真模式: master_sim_lora_data() ← 状态机自动生成帧       │        │
-│  │  ├─ 真实硬件: master_lora_uart_recv() ← UART3 RX 环形缓冲区   │        │
+│  │ LoRa数据源 (FreeRTOS 实际 CPU1，设备树写 CPU3):              │        │
+│  │  ├─ 当前主线: lora_uart_recv_frame() ← UART2 RX 环形缓冲区   │        │
+│  │  ├─ 历史回归: master_sim_lora_data() ← 状态机自动生成帧      │        │
 │  │  └─ 调试注入: master_recv_inject_data() ← RPMsg (Linux侧)     │        │
 │  │                                                              │        │
-│  │ 统一入口: master_recv_lora_data()                            │        │
-│  │ 切换宏: USE_LORA_SIMULATION (1=仿真, 0=真实UART)             │        │
+│  │ 当前口径: LoRa 真实硬件链路与 Dashboard 模拟数据路线分离      │        │
 │  └──────────────────────────┬───────────────────────────────────┘        │
 │                             ▼                                             │
 │  ┌──────────────────────────────────────────────────────────────┐        │
@@ -350,7 +342,7 @@ Phytium/
 │  │  └── read() → 解析 ProtocolData                               │        │
 │  │       ├── DEVICE_MASTER_CMD (0x0021) → print_master_cmd()     │        │
 │  │       │   解析节点ID+命令码+参数                                │        │
-│  │       └── 后续: 通过LoRa模块转发到终端节点 (待接入)             │        │
+│  │       └── 后续: 通过 UART2/LoRa 模块转发到终端节点 (待接入)       │        │
 │  └──────────────────────────────────────────────────────────────┘        │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -369,7 +361,7 @@ Phytium/
 | 混沌加密       | `freertos/src/chaos_encrypt.c`                    | 混沌加密算法 (原GD32移植)                         |
 | RPMsg通信核心  | `freertos/src/rpmsg-echo_os.c`                    | OpenAMP端点，批量发送，边缘检测                      |
 | Linux接收    | `src/openamp-demo/linux-master/master_receiver.c` | RPMsg端点创建，主控命令接收/打印                      |
-| LoRa设备树    | `device-tree/lora-uart.dtso`                      | UART3 + GPIO2\_10 引脚配置                   |
+| LoRa设备树    | `device-tree/lora-uart.dtso`                      | 历史 UART3 overlay 记录；当前 LoRa 以 UART2/FreeRTOS 侧为准 |
 
 ## 9. 关键技术特性
 
@@ -380,7 +372,7 @@ Phytium/
 | 中断合并        | A3 | SGI9中断节省90%                              | ✅  |
 | Vring调优     | A4 | 256desc×32KB匹配批量大小                       | ✅  |
 | 边缘异常检测      | C2 | FreeRTOS侧电压/电流/温度阈值预判                    | ✅  |
-| Web监控面板     | C3 | dashboard\_server提供实时Web监控               | ✅  |
+| Web监控面板     | C3 | 当前由 `state_estimation/dashboard_server.py` 提供，端口 5000 | ✅  |
 | 共享内存Flash模拟 | -  | 状态数据+波形数据用共享内存代替Flash                    | ✅  |
 | 自动化测试框架 | -  | 5项自动化测试，总控脚本+报告生成 | ✅ |
 
@@ -411,7 +403,7 @@ Phytium/
 │  │  ├── test_encrypt         TC04: 本地加解密往返验证       │   │
 │  │  └── test_stress          TC05: 5秒高速注入, ACK统计    │   │
 │  │                                                        │   │
-│  │  /dev/rpmsg0 ←→ FreeRTOS CPU3                          │   │
+│  │  /dev/rpmsg0 ←→ FreeRTOS 实际 CPU1（设备树写 CPU3）      │   │
 │  │    DEVICE_MASTER_TEST → TestCtrlPacket_t               │   │
 │  │    DEVICE_MASTER_CMD  ← TestRespPacket_t               │   │
 │  └──────────────────────────────────────────────────────┘   │

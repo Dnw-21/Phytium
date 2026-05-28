@@ -1,14 +1,14 @@
 # Phytium PE2204 LoRa 主控系统
 
-在飞腾派 CEK8903 开发板上实现 **异构多核 LoRa 主控系统**：Linux 主核 (CPU0-2) 负责数据接收，FreeRTOS 从核 (CPU3) 负责 LoRa 帧接收和波形数据输出，通过共享内存 (trace_reader) 读取数据。
+在飞腾派 CEK8903 开发板上实现 **异构多核 LoRa 主控系统**：LoRa 主控移植路线由 FreeRTOS 侧接收和处理真实终端节点数据，再传给 Linux；UKF 面板路线当前先使用仿真数据完成状态估计、故障/自然灾害预警和通知展示，后续再接入 LoRa→FreeRTOS→Linux 的真实数据链路。
 
-> **当前状态**: GD32 v3 代码已移植到 FreeRTOS 从核，LoRa 无线链路打通。支持 **FLASH_WAVE (type=0x05) 波形数据完整接收并绘图**。精简单向数据链路：终端→LoRa→UART3→FreeRTOS→共享内存→trace_reader→Python 绘图。
+> **当前状态**: LoRa 主控链路以真实硬件为目标，串口以 UART2 为准，FreeRTOS 实际运行在 CPU1（设备树中 remote processor 仍写 CPU3）。支持 **FLASH_WAVE (type=0x05) 波形数据完整接收并绘图**。精简单向数据链路：终端→LoRa→UART2→FreeRTOS→共享内存→trace_reader→Python 绘图。
 > 
-> **新增**: **UKF 状态估计 Dashboard** — Web 可视化面板，实时展示发电机转子角度/转速估计值，支持故障检测和节点传输状态监控。详见 [state_estimation/](state_estimation/)
+> **UKF 状态估计 Dashboard**: 当前唯一面板是 [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py)，端口 5000；当前面板使用模拟数据，故障在 5s 和 15s 出现，尚未与 LoRa 真实链路打通。详见 [state_estimation/](state_estimation/)
 >
 > **操作手册**: [docs/operations-guide.md](docs/operations-guide.md) ★ **所有 AI 和开发者请先阅读此文档**
 > 
-> **参考基准**: `/home/alientek/Phytium/GD32L233C_Prj_Master_v3/GD32L233C_Prj_Master/` (最新版)
+> **参考基准**: `/home/alientek/Phytium/GD32L233C_Prj_Master_v3 (2)`、`/home/alientek/Phytium/GD32L233C_Prj_Master_v3_0526` 等目录是队友发送的 GD32 主控/终端节点工程，后续会继续作为飞腾派 FreeRTOS 主控移植参考。
 
 ## 项目文档导航
 
@@ -116,14 +116,16 @@ Phytium/
 | CPU | 核心 | MPIDR | 用途 |
 |-----|------|-------|------|
 | CPU0 | FTC310 (LITTLE) | 0x200 | Linux SMP |
-| CPU1 | FTC310 (LITTLE) | 0x201 | Linux SMP |
+| **CPU1** | **FTC310 (LITTLE)** | **0x201** | **FreeRTOS 当前实际运行核心** |
 | CPU2 | FTC664 (big) | 0x000 | Linux SMP |
-| **CPU3** | **FTC664 (big)** | **0x100** | **FreeRTOS 从核 (OpenAMP 独占)** |
+| CPU3 | FTC664 (big) | 0x100 | 设备树 remote-processor 记录为 CPU3 |
+
+> 当前调试口径：FreeRTOS 实际运行在 CPU1，但设备树/remoteproc 配置里仍写 CPU3，排查启动与中断问题时需要同时注意这两个事实。
 
 ## 通信架构
 
 ```
-Linux主核 (CPU0-2)                   FreeRTOS从核 (CPU3)
+Linux侧接收/展示                         FreeRTOS主控侧 (实际 CPU1，设备树写 CPU3)
 ┌──────────────────────┐          ┌──────────────────────────┐
 │  master_receiver     │          │  RpmsgEchoTask (Prio=4)   │
 │  /dev/rpmsg0         │  RPMsg   │  ├─ DEVICE_MASTER_DATA ← │
@@ -141,7 +143,7 @@ Linux主核 (CPU0-2)                   FreeRTOS从核 (CPU3)
 **关键答案**:
 - **异核通信**: 共享内存 + GICv3 SGI 9 中断，实现位置在 `rpmsg-echo_os.c` (FreeRTOS侧) 和内核 `homo_remoteproc` 驱动 (Linux侧)
 - **通道数量**: **1个** RPMsg 通道 (`rpmsg-openamp-demo-channel`)，双向复用，通过 `command` 字段区分消息类型
-- **LoRa数据**: 当前使用 `master_sim_lora_data()` 仿真器自驱动验证全链路。LoRa 模块直连 FreeRTOS CPU3 侧 UART，Linux 不直接操作 LoRa。接入真实硬件时切换 `USE_LORA_SIMULATION` 宏为 `0`，在 `master_lora_uart_recv()` 填入 UART 驱动。
+- **LoRa数据**: 当前 LoRa 主控路线以真实硬件链路为准，串口使用 UART2；队友会继续提供 GD32 模拟主控工程，本项目将其移植到飞腾派 FreeRTOS 侧，实现 LoRa 接收、解析、处理和分时接收等逻辑。UKF Dashboard 当前仍使用模拟数据，后续再接入 LoRa→FreeRTOS→Linux 的真实数据。
 
 ## 开发资源
 
@@ -166,4 +168,4 @@ MIT License
 
 ---
 
-**版本**: v3.1 | **更新**: 2026-05-25 | **状态**: GD32代码移植完成，LoRa仿真器自驱动运行，新增 UKF 状态估计 Dashboard
+**版本**: v3.2 | **更新**: 2026-05-28 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进

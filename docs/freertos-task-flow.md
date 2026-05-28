@@ -1,10 +1,10 @@
 # FreeRTOS 从核任务流程详解
 
-> **更新**: 2026-05-18 | **源文件**: freertos/main.c, freertos/src/*.c, freertos/inc/master.h
+> **更新**: 2026-05-28 | **源文件**: freertos/main.c, freertos/src/*.c, freertos/inc/master.h | **当前口径**: FreeRTOS 实际 CPU1（设备树写 CPU3），LoRa UART2 真实硬件链路
 
 ## 1. 任务总览
 
-FreeRTOS 从核 (CPU3) 上运行 **4个任务**，通过 RPMsg 与 Linux 主核通信：
+FreeRTOS 主控侧实际运行在 **CPU1**（设备树/remoteproc 仍写 CPU3）上，运行 **4个任务**，通过 RPMsg 与 Linux 主核通信：
 
 ```
 main() 启动流程:
@@ -82,25 +82,21 @@ RpmsgEchoTask()
 
 **数据来源**:
 
-LoRa 模块通过 UART 连接到 **FreeRTOS CPU3 侧**。`master_recv_lora_data()` 是统一入口，通过 `USE_LORA_SIMULATION` 宏切换仿真/真实硬件：
+LoRa 模块通过 **UART2** 连接到 FreeRTOS 主控侧。当前主控路线以真实 LoRa 硬件为准；历史仿真入口只作为回归测试或调试辅助，不再作为当前链路事实。
 
-```c
-#define USE_LORA_SIMULATION  1     /* 1=仿真模式, 0=真实LoRa UART */
-```
+1. **真实 LoRa UART2** (当前主控路线):
+   ```c
+   master_recv_lora_data(buf, max_len)
+     → master_lora_uart_recv(buf, max_len)  ← 从 UART2 RX 环形缓冲区取帧
+   ```
+   当前路线: UART2 轮询/接收 → 帧同步 → CRC8 校验 → 数据分流/透传。
 
-1. **数据模拟器** (当前使用, `USE_LORA_SIMULATION=1`):
+2. **历史数据模拟器** (回归测试):
    ```c
    master_recv_lora_data(buf, max_len)
      → master_sim_lora_data(buf, max_len)   ← 状态机自动生成LoRa帧
    ```
-   模拟3个节点(过压/欠压/骤升)，上电自动运行，无需外部依赖。
-
-2. **真实LoRa UART** (预留接口, `USE_LORA_SIMULATION=0`):
-   ```c
-   master_recv_lora_data(buf, max_len)
-     → master_lora_uart_recv(buf, max_len)  ← 从UART RX环形缓冲区取帧
-   ```
-   待接入: UART3初始化 → RX中断/DMA → ring_buf[2048] → 帧头搜索 → 出帧。
+   可用于无硬件回归，但不代表当前 LoRa 主控链路。
 
 3. **RPMsg注入** (备选, 用于调试):
    ```c
@@ -282,19 +278,13 @@ send_lora_cmd(node_id, cmd_code, params, param_len)
 | `g_zc_batch` | rpmsg-echo_os.c | 零拷贝批量发送缓冲区 |
 | `shutdown_req` | rpmsg-echo_os.c | 关闭请求标志 |
 
-## 6. LoRa数据模拟现状
+## 6. LoRa 真实硬件接收现状
 
 | 函数 | 状态 | 说明 |
 |------|------|------|
-| `master_recv_lora_data()` | **统一入口** | 通过 `USE_LORA_SIMULATION` 宏分发到仿真或真实UART |
-| `master_sim_lora_data()` | **已实现** | 状态机自动生成LoRa帧，3节点轮转，上电自驱动运行 |
-| `master_lora_uart_recv()` | **预留接口** | 真实LoRa UART接收，待填入UART驱动代码 |
-| `master_recv_inject_data()` | **可用** | 通过RPMsg DEVICE_MASTER_DATA注入模拟数据(调试用途) |
+| `master_recv_lora_data()` | **统一入口** | 当前以真实 UART2/LoRa 硬件链路为主 |
+| `master_lora_uart_recv()` | **当前主线** | 从 UART2 RX 环形缓冲区取完整 LoRa 帧 |
+| `master_sim_lora_data()` | **历史/回归测试** | 无硬件时可生成测试帧，不再作为当前主控链路事实 |
+| `master_recv_inject_data()` | **可用** | 通过 RPMsg DEVICE_MASTER_DATA 注入模拟数据(调试用途) |
 
-**切换方式**:
-```c
-// freertos/src/master_recv.c 第24行
-#define USE_LORA_SIMULATION  1     /* 1=仿真模式, 0=真实LoRa UART */
-```
-
-**结论**: 当前在**没有LoRa模块**的情况下，通过 `master_sim_lora_data()` 自驱动验证全链路。接入真实LoRa模块时只需将宏改为0并在 `master_lora_uart_recv()` 中实现UART接收逻辑。
+**结论**: 当前主控路线是真实 GD32 终端 → LoRa → UART2 → FreeRTOS 主控侧；Dashboard 仍使用 `state_new/` 模拟数据，尚未接入这条真实链路。

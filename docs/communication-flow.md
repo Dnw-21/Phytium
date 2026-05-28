@@ -1,6 +1,6 @@
 # OpenAMP 异构多核通信流程详解
 
-> **更新**: 2026-05-19 | **当前架构**: Linux主核 + FreeRTOS从核 (LoRa真实硬件接入 + 精简链路)
+> **更新**: 2026-05-28 | **当前架构**: Linux 侧接收 + FreeRTOS 主控侧实际 CPU1（设备树写 CPU3）+ LoRa 真实硬件接入 + 精简链路
 
 ## 1. 通信架构总览
 
@@ -8,14 +8,14 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Phytium PE2204 SoC                            │
 │                                                                   │
-│  Linux 主核 (CPU0-2)               FreeRTOS 从核 (CPU3)          │
+│  Linux 侧接收                    FreeRTOS 主控侧                 │
 │  ┌────────────────────────┐      ┌───────────────────────────┐  │
 │  │  master_receiver       │      │  master_recv_task(Prio=4) │  │
 │  │  (只显示LoRa原始数据)  │      │  master_recv.c            │  │
 │  │       ↕                │      │       ↕                    │  │
-│  │  /dev/rpmsg0           │RPMsg │  lora_uart.c (PL011)      │←─┤ LoRa模块
-│  │       ↕                │←────→│  115200 8N1 轮询          │  │ UART3
-│  │  rpmsg_char.ko         │SGI 9 │  0x2800f000               │  │ 0xAA55帧
+│  │  /dev/rpmsg0           │RPMsg │  lora_uart.c / UART2      │←─┤ LoRa模块
+│  │       ↕                │←────→│  115200 8N1               │  │ UART2
+│  │  rpmsg_char.ko         │SGI 9 │  当前以真实硬件为准        │  │ 0xAA55帧
 │  │  virtio_rpmsg_bus      │      │       ↕                    │  │
 │  │  homo_remoteproc       │      │  rpmsg_send_lora_recv_log │  │
 │  └───────────┬────────────┘      │  (DEVICE_LORA_DATA 0x0023)│  │
@@ -37,8 +37,8 @@
 ### 当前架构 (精简模式, 2026-05-19)
 
 ```
-GD32终端节点 ──LoRa无线──→ LoRa模块(UART) ──UART3──→ FreeRTOS CPU3
-  → lora_uart_poll() 轮询RX FIFO
+GD32终端节点 ──LoRa无线──→ LoRa模块(UART) ──UART2──→ FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3）
+  → lora_uart_poll() / 当前串口接收实现
     → lora_uart_recv_frame() 帧同步 + CRC8校验 + 组帧
       → rpmsg_send_lora_recv_log() 透传原始帧
         → RPMsg DEVICE_LORA_DATA (0x0023)
@@ -49,27 +49,27 @@ GD32终端节点 ──LoRa无线──→ LoRa模块(UART) ──UART3──→
 - **不进行帧解析** (不走 parse_frame / 判决引擎 / 命令生成)
 - **不发送任何命令** 给终端节点
 - **单向数据流**: 终端 → 主控显示
-- **USE_LORA_SIMULATION = 0** (真实硬件模式)
-- **Linux 的 ttyAMA3 驱动仍绑定**，但不影响 FreeRTOS 直接操作寄存器
+- **真实 LoRa 硬件链路为当前主控路线**
+- **Linux 侧负责显示/记录，LoRa 串口由 FreeRTOS 主控侧处理**
 
-### 第1步: LoRa模块 → UART3 RX
+### 第1步: LoRa模块 → UART2 RX
 
-**LoRa模块连接**:
+**LoRa模块连接**: 以当前实际接线和 [docs/调试.md](调试.md) 的纠正为准，J1 Pin8/Pin10 是 UART2，不是 UART3。
 
 | 飞腾派 Pin | 信号 | LoRa模块 | 线色 |
 |:----------:|------|:--------:|:----:|
-| Pin 8 | UART3_TXD | RXD | 黄色 |
-| Pin 10 | UART3_RXD | TXD | 橙色 |
+| Pin 8 | UART2_TXD | RXD | 黄色 |
+| Pin 10 | UART2_RXD | TXD | 橙色 |
 | Pin 6 | GND | GND | 黑色 |
 | Pin 1 | VCC_3.3V | VCC | 红色 |
 
 详见 [lora-real-hardware-接入指南.md](lora-real-hardware-接入指南.md)
 
 **UART 配置** — [lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c):
-- 基址: `0x2800f000` (UART3, PL011)
-- 波特率: **115200** 8N1 (IBRD=54, FBRD=16, 时钟=100MHz)
+- 当前口径: UART2，J1 Pin8/Pin10
+- 波特率: **115200** 8N1
 - RX ring buffer: 4096 字节
-- 轮询模式 (无中断, FreeRTOS task 每 10ms 调用 `lora_uart_poll()`)
+- 轮询模式 (FreeRTOS task 每 10ms 调用 `lora_uart_poll()`)
 
 ### 第2步: 帧提取
 
@@ -166,7 +166,7 @@ ssh user@192.168.88.11
 | 环节 | 步骤 | 文件路径 | 核心函数 |
 |------|------|---------|---------|
 | LoRa接收 | 1 | [freertos/src/lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | `lora_uart_init()`, `lora_uart_poll()`, `lora_uart_recv_frame()` |
-| UART3寄存器 | 1 | [freertos/src/lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | PL011 轮询, 115200-8N1 |
+| UART2 接收 | 1 | [freertos/src/lora_uart.c](file:///home/alientek/Phytium/freertos/src/lora_uart.c) | 串口接收, 115200-8N1 |
 | 帧透传 | 3 | [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) | `rpmsg_send_lora_recv_log()` |
 | 任务调度 | 2-3 | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) | `master_recv_task()` (每10ms读取UART) |
 | Linux显示 | 4 | [src/openamp-demo/linux-master/master_receiver.c](file:///home/alientek/Phytium/src/openamp-demo/linux-master/master_receiver.c) | `read()` → hex 打印 |
@@ -181,8 +181,8 @@ Step 1: Linux 加载驱动
 Step 2: 启动 FreeRTOS 从核
   echo start > /sys/class/remoteproc/remoteproc0/state
   → homo_rproc_start()
-    → remove_cpu(3) / 加载固件到 0xB0100000
-    → PSCI CPU_ON → CPU3 开始执行
+    → remove_cpu(3) / 加载固件到 0xB0100000（设备树口径）
+    → PSCI CPU_ON → FreeRTOS 实际在 CPU1 执行（设备树仍写 CPU3）
 
 Step 3: FreeRTOS 初始化
   main() [freertos/main.c]
@@ -218,25 +218,24 @@ echo stop > /sys/class/remoteproc/remoteproc0/state
   → RpmsgEchoTask 退出循环
   → rpmsg_destroy_ept()
   → platform_cleanup()
-  → FPsciCpuOff()  → CPU3 下电
+  → FPsciCpuOff()  → 按 remoteproc/设备树口径下电目标核（实测运行口径仍以 CPU1 为准）
 ```
 
 ## 7. 当前状态: LoRa 真实硬件接入
 
-**当前模式**: `USE_LORA_SIMULATION = 0` (真实LoRa UART)
+**当前模式**: 真实 LoRa UART2 链路；历史 `USE_LORA_SIMULATION = 0` 只作为早期切换说明。
 
 ```
 【当前数据路径】(物理LoRa模块已接入)
-GD32终端 → LoRa无线 → ATK-MWCC68D(LoRa模块) → UART3(Pin8/10)
-  → FreeRTOS CPU3 (lora_uart.c: PL011 轮询, 115200-8N1)
-    → lora_uart_poll() 读取UART RX FIFO字节 → 4096字节环形缓冲区
+GD32终端 → LoRa无线 → ATK-MWCC68D(LoRa模块) → UART2(Pin8/10)
+  → FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3）
+    → lora_uart_poll() 读取 UART RX FIFO 字节 → 环形缓冲区
       → lora_uart_recv_frame() 帧同步(C状态机) + CRC8校验 + 组帧
         → master_recv_task → rpmsg_send_lora_recv_log() → RPMsg
           → Linux master_receiver → printf hex 显示
 
-【仿真模式】 (USE_LORA_SIMULATION=1, 留作回归测试)
-master_sim_lora_data() 状态机自驱动构造LoRa帧
-  → 注入检测管线，可用于验证判决/命令/加密等完整闭环
+【回归测试】
+历史仿真入口可留作回归测试，但不再作为当前主控链路事实；UKF Dashboard 当前模拟数据来自 state_new/，与 LoRa 链路尚未打通。
 ```
 
 **数据流不经过**: 帧解析(parse_frame)、判决引擎(master_judge)、命令生成(master_cmd)、混沌加密。纯单向显示。
@@ -319,7 +318,7 @@ FreeRTOS master_recv_task 主循环:
     if (!g_lora_rx_enabled):     ← DEVICE_LORA_CTRL 设置此标志
       vTaskDelay(100ms)          ← 空闲等待，停止 UART 读取
       continue
-    lora_uart_poll()             ← 读取 UART3 RX FIFO 字节
+    lora_uart_poll()             ← 读取 UART2 RX FIFO 字节
     raw_len = lora_uart_recv_frame()  ← 帧提取
     if (raw_len > 0)
         rpmsg_send_lora_recv_log()  ← 透传到 Linux

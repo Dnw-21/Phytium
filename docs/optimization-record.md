@@ -1,8 +1,8 @@
 # OpenAMP 异构多核通信优化记录
 
-> **更新**: 2026-05-18 | **当前架构**: Linux主核 + FreeRTOS从核 (GD32主控移植版)
+> **更新**: 2026-05-28 | **当前架构**: Linux 侧接收 + FreeRTOS 主控侧实际 CPU1（设备树写 CPU3）+ LoRa UART2 真实硬件链路
 >
-> 本文件记录历史优化项目。部分优化项(A1/A2/A3/A4/C2)基于早期 sensor 数据收发架构，当前架构已切换为 GD32 主控 LoRa 帧处理架构。详细见 [architecture.md](architecture.md)。
+> 本文件记录历史优化项目。部分优化项(A1/A2/A3/A4/C2/C3)基于早期 sensor 数据收发和旧板端 Web 面板架构；当前唯一 Dashboard 是 `state_estimation/dashboard_server.py`，端口 5000。详细见 [architecture.md](architecture.md)。
 
 ## 优化总览
 
@@ -16,8 +16,8 @@
 | | B2 | 热重启 | **完成** | 崩溃自动检测+恢复 |
 | | B3 | 动态负载切换 | **完成** | bare-metal↔FreeRTOS运行时切换 |
 | **C: 应用场景** | C1 | 多节点并发模拟 | 待做 | 20+ 节点并发 |
-| | C2 | 边缘异常检测 | **完成** | FreeRTOS 阈值预判过滤 |
-| | C3 | 可视化面板 | **完成** | Web 实时监控面板 |
+| | C2 | 边缘异常检测 | **历史完成** | 早期 FreeRTOS 阈值预判过滤 |
+| | C3 | 旧板端可视化面板 | **历史完成** | 已被当前 5000 端口 UKF Dashboard 取代 |
 
 ---
 
@@ -103,11 +103,13 @@ int edge_detect_anomaly(SensorPacket *pkts, int count) {
 
 ---
 
-## C3: Web 实时监控面板
+## C3: 旧板端 Web 面板（历史记录）
 
 ### 原理
 
 嵌入式 HTTP 服务器 (C语言, 纯 socket) + HTML/JS 前端。双线程架构：HTTP 线程服务 Web 页面和 JSON API，RPMsg 线程与 FreeRTOS 通信采集数据。浏览器每 1 秒轮询 `/stats` 接口刷新显示。
+
+> 当前路线不再使用这个旧板端面板；当前唯一 Dashboard 是 `state_estimation/dashboard_server.py`，端口 5000。
 
 ### 效果
 
@@ -216,7 +218,7 @@ g_ipi_saved = g_total_packets * 2 - g_ipi_count; // 节省 = 逐个需 - 实际
 |------|-----|
 | 硬件 | 飞腾派 CEK8903 (PE2204) |
 | 主核 | Linux 6.6.63 (CPU0-2) |
-| 从核 | FreeRTOS (CPU3, FTC664) |
+| 从核 | FreeRTOS 实际 CPU1（设备树/remoteproc 写 CPU3，FTC664） |
 | 通信 | RPMsg + VirtIO, SGI 9, 共享内存 409MB |
 | 数据包 | 10 个 SensorPacket (30B/包) 每批 |
 | 批次间隔 | 2 秒 |
@@ -314,10 +316,12 @@ echo stop → cp new_firmware.elf → fast_boot → 新固件运行
 
 ## 停止通信程序
 
-### 完整停止流程 (已验证)
+### 完整停止流程 (历史板端面板记录)
+
+> 当前唯一 Dashboard 是 `state_estimation/dashboard_server.py`（端口 5000）。以下 `dashboard_server` 指早期板端 RPMsg/Web 进程，只作为历史停止流程参考。
 
 ```bash
-# 步骤1: 停止面板服务器
+# 步骤1: 停止历史板端面板服务器（非当前 state_estimation Dashboard）
 killall -9 dashboard_server
 
 # 步骤2: 停止从核 (FreeRTOS)
@@ -347,6 +351,7 @@ echo rpmsg_chrdev | sudo tee /sys/bus/rpmsg/devices/virtio0.rpmsg-openamp-demo-c
 echo virtio0.rpmsg-openamp-demo-channel.-1.0 | sudo tee /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind
 sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
 
-# 4. 启动面板
-nohup ~/dashboard_server > /tmp/dashboard.log 2>&1 &
+# 4. 启动当前 UKF Dashboard（开发环境/虚拟机，端口 5000）
+cd /home/alientek/Phytium/state_estimation
+python dashboard_server.py
 ```

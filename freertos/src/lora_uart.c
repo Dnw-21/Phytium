@@ -4,9 +4,9 @@
 #include <string.h>
 
 /* ==========================================================================
- *  PE2204 UART3 (PL011) + GPIO2/3 寄存器定义
+ *  PE2204 UART2 (PL011) + GPIO2/3 寄存器定义
  *
- *  UART3 基址: 0x2800f000, 时钟: 100MHz, IRQ: 118 (GICv3 SPI)
+ *  UART2 基址: 0x2800E000, 时钟: 100MHz, IRQ: 117 (GICv3 SPI)
  *  GPIO2 基址: 0x28036000  (AUX: pin 10)
  *  GPIO3 基址: 0x28037000  (MD0: pin 1)
  *
@@ -15,7 +15,7 @@
  *    DIR:   0x400 (1=输出, 0=输入)
  * ========================================================================== */
 
-#define UART3_BASE         0x2800f000U
+#define UART2_BASE         0x2800e000U
 #define GPIO3_BASE         0x28037000U
 #define GPIO2_BASE         0x28036000U
 
@@ -63,10 +63,10 @@
 #define UART_MIS_RTMIS     0x40
 
 /* IRQ */
-#define FUART3_IRQ_NUM     118
+#define FUART2_IRQ_NUM     117
 
-#define UART_REG_RD(off)   (*(volatile unsigned int *)((UART3_BASE) + (off)))
-#define UART_REG_WR(off, v) (*(volatile unsigned int *)((UART3_BASE) + (off)) = (v))
+#define UART_REG_RD(off)   (*(volatile unsigned int *)((UART2_BASE) + (off)))
+#define UART_REG_WR(off, v) (*(volatile unsigned int *)((UART2_BASE) + (off)) = (v))
 
 /* ==========================================================================
  *  RX 环形缓冲区
@@ -114,7 +114,7 @@ static volatile uint8_t  frame_head_mark;
 static volatile uint8_t  frame_tail_mark;
 
 /* ==========================================================================
- *  UART3 接收中断 ISR (不调用 FreeRTOS API)
+ *  UART2 接收中断 ISR (不调用 FreeRTOS API)
  * ========================================================================== */
 static void lora_uart_isr(s32 vector, void *param)
 {
@@ -186,14 +186,14 @@ int lora_aux_is_busy(void)
 }
 
 /* ==========================================================================
- *  lora_uart_init: 仅初始化 UART3 硬件, 不发送 AT 命令
+ *  lora_uart_init: 仅初始化 UART2 硬件, 不发送 AT 命令
  *  波特率: 115200-8N1 (匹配 GD32 端)
  * ========================================================================== */
 int lora_uart_init(void)
 {
     unsigned int tmp;
 
-    /* 1. 禁用 UART3 */
+    /* 1. 禁用 UART2 */
     UART_REG_WR(UART_CR, 0);
 
     /* 2. 波特率: 115200 @ 100MHz */
@@ -234,9 +234,9 @@ int lora_uart_init(void)
     UART_REG_WR(UART_IMSC, UART_IMSC_RXIM | UART_IMSC_RTIM);
 
     /* 11. 注册 ISR 到 GICv3 */
-    InterruptInstall(FUART3_IRQ_NUM, lora_uart_isr, NULL, "lora_uart");
-    InterruptSetPriority(FUART3_IRQ_NUM, 0x80);
-    InterruptUmask(FUART3_IRQ_NUM);
+    InterruptInstall(FUART2_IRQ_NUM, lora_uart_isr, NULL, "lora_uart");
+    InterruptSetPriority(FUART2_IRQ_NUM, 0x80);
+    InterruptUmask(FUART2_IRQ_NUM);
 
     return 0;
 }

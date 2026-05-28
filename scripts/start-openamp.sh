@@ -14,7 +14,7 @@ PASS="user"
 echo '[1/4] 加载模块...'
 echo "$PASS" | sudo -S modprobe rpmsg_char rpmsg_ctrl 2>/dev/null
 
-echo '[2/4] 启动 FreeRTOS 从核 (CPU3)...'
+echo '[2/4] 启动 FreeRTOS 主控侧（实际 CPU1，设备树写 CPU3）...'
 echo "$PASS" | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
 sleep 2
 STATE=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null)
@@ -28,15 +28,12 @@ echo "$PASS" | sudo -S sh -c "echo rpmsg_chrdev > /sys/bus/rpmsg/devices/$CH/dri
 echo "$PASS" | sudo -S sh -c "echo $CH > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind"
 echo "$PASS" | sudo -S chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0 2>/dev/null
 
-echo '[4/4] 启动面板...'
-[ ! -x ~/dashboard_server ] && echo "[ERROR] dashboard_server 未找到!" && exit 1
-killall dashboard_server 2>/dev/null; sleep 1
-nohup ~/dashboard_server > /tmp/dashboard.log 2>&1 &
-sleep 2
+echo '[4/4] OpenAMP 通道已就绪...'
+echo '  当前 UKF Dashboard 请在开发环境运行: cd /home/alientek/Phytium/state_estimation && python dashboard_server.py'
 touch /tmp/openamp.running
 
 echo '========================================'
 echo '  OpenAMP 已启动!'
-echo '  面板: http://192.168.88.11:8080'
+echo '  Dashboard: state_estimation/dashboard_server.py (端口 5000，开发环境运行)'
 echo '  停止: ~/stop-openamp.sh'
 echo '========================================'

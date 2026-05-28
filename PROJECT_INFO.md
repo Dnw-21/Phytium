@@ -1,6 +1,6 @@
 # Phytium PE2204 LoRa 主控系统 — 项目信息汇总
 
-> **更新**: 2026-05-23 | **状态**: FLASH_WAVE 波形数据接收+绘图打通 | **操作手册**: [docs/operations-guide.md](docs/operations-guide.md)
+> **更新**: 2026-05-28 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进 | **操作手册**: [docs/operations-guide.md](docs/operations-guide.md)
 
 ## 一、项目基本信息
 
@@ -19,17 +19,18 @@
 ## 二、项目架构概览
 
 ```
-GD32终端节点 ──LoRa无线──→ ATK-MWCC68D ──UART3──→ FreeRTOS CPU3 (飞腾派PE2204)
+GD32终端节点 ──LoRa无线──→ ATK-MWCC68D ──UART2──→ FreeRTOS 主控侧 (实际 CPU1，设备树写 CPU3)
                                                        │
-                                              共享内存 (trace_reader 读取)
+                                              共享内存/RPMsg/trace_reader
                                                        │
-                                              Linux终端 / SSH → 虚拟机
+                                              Linux 侧接收与解析
                                                        │
-                                              plot_wave.py → waveform.png
+                                              UKF Dashboard / plot_wave.py
 ```
 
 **关键特性**:
-- **精简单向数据链路**: 终端→LoRa→UART3→FreeRTOS→共享内存→trace_reader→绘图。不发命令、不做判决。
+- **LoRa 主控移植路线**: 队友用 GD32 模拟飞腾派 RTOS 主控与终端节点通信；本项目后续将 GD32 主控工程移植到飞腾派 FreeRTOS 侧，实现 LoRa 接收、解析、处理和分时接收等逻辑。
+- **UKF 面板路线**: 当前 [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py) 使用模拟数据进行状态估计与展示，端口 5000；模拟数据中的故障在 5s 和 15s 出现，后续接入 LoRa→FreeRTOS→Linux 的真实数据。
 - **FLASH_WAVE 逐帧输出**: `[FW_DAT]` 格式，不受缓冲区大小限制，支持任意长度波形。
 - **Python 绘图**: `plot_wave.py` 解析 `[FW_DAT]` 格式，支持多波形会话、Big-Endian int16。
 
@@ -47,7 +48,7 @@ GD32终端节点 ──LoRa无线──→ ATK-MWCC68D ──UART3──→ Free
 | [freertos/deploy.sh](freertos/deploy.sh) | ★ 一键编译+部署脚本 |
 | [freertos/src/rpmsg-echo_os.c](freertos/src/rpmsg-echo_os.c) | RPMsg通信核心，OpenAMP端点 |
 | [freertos/src/master_recv.c](freertos/src/master_recv.c) | LoRa帧接收管线 |
-| [freertos/src/lora_uart.c](freertos/src/lora_uart.c) | UART3 PL011 驱动 (115200, 轮询) |
+| [freertos/src/lora_uart.c](freertos/src/lora_uart.c) | UART2/LoRa 串口驱动移植参考与当前待统一实现点 |
 | [freertos/src/master_judge.c](freertos/src/master_judge.c) | 故障判决 (精简链路中不使用) |
 | [freertos/src/master_cmd.c](freertos/src/master_cmd.c) | 命令生成 (精简链路中不使用) |
 | [freertos/src/master_sys.c](freertos/src/master_sys.c) | 节点管理，共享内存Flash模拟(状态区+波形区) |
@@ -192,4 +193,4 @@ python3 plot_wave.py trace_wave.txt
 
 ---
 
-**版本**: v4.0 | **状态**: FLASH_WAVE 波形接收+绘图打通 | **基于**: GD32L233C_Prj_Master_v3
+**版本**: v4.1 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进 | **基于**: GD32 主控/终端节点参考工程
