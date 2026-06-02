@@ -1,6 +1,7 @@
 #include "lora_uart.h"
 #include "ftypes.h"
 #include "finterrupt.h"
+#include "fcpu_info.h"
 #include <string.h>
 
 /* ==========================================================================
@@ -230,15 +231,26 @@ int lora_uart_init(void)
     /* 9. 清除所有挂起中断 */
     UART_REG_WR(UART_ICR, 0xFFFFFFFF);
 
-    /* 10. 使能 RX 中断 + RX 超时中断 */
-    UART_REG_WR(UART_IMSC, UART_IMSC_RXIM | UART_IMSC_RTIM);
-
-    /* 11. 注册 ISR 到 GICv3 */
-    InterruptInstall(FUART2_IRQ_NUM, lora_uart_isr, NULL, "lora_uart");
-    InterruptSetPriority(FUART2_IRQ_NUM, 0x80);
+    /* 10. 注册 ISR 到 GICv3 */
+    InterruptInstall(FUART2_IRQ_NUM, lora_uart_isr, NULL, "UART2-LoRa");
+    InterruptSetPriority(FUART2_IRQ_NUM, IRQ_PRIORITY_VALUE_8);
+    {
+        u32 cpu_id;
+        GetCpuId(&cpu_id);
+        InterruptSetTargetCpus(FUART2_IRQ_NUM, cpu_id);
+    }
     InterruptUmask(FUART2_IRQ_NUM);
 
     return 0;
+}
+
+void lora_uart_interrupt_enable(int enable)
+{
+    if (enable) {
+        UART_REG_WR(UART_IMSC, UART_IMSC_RXIM | UART_IMSC_RTIM);
+    } else {
+        UART_REG_WR(UART_IMSC, 0);
+    }
 }
 
 /* ==========================================================================
@@ -274,6 +286,16 @@ void lora_uart_mark_frame(void)
         frame_mark[frame_head_mark] = rx_head;
         frame_head_mark = next;
     }
+}
+
+uint16_t lora_uart_read_bytes(uint8_t *buf, uint16_t max_len)
+{
+    uint16_t count = 0;
+    uint8_t byte;
+    while (count < max_len && ring_get(&byte) == 0) {
+        buf[count++] = byte;
+    }
+    return count;
 }
 
 uint16_t lora_uart_read_frame(uint8_t *buf, uint16_t max_len)

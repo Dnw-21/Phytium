@@ -4,6 +4,7 @@
 #include "ftypes.h"
 
 int      lora_uart_init(void);
+void     lora_uart_interrupt_enable(int enable);
 void     lora_uart_poll(void);
 u16      lora_uart_recv_frame(u8 *buf, u16 max_len);
 void     lora_uart_send(const u8 *data, u16 len);
@@ -18,6 +19,7 @@ u16      lora_uart_get_rx_count(void);
 void     lora_uart_clear_buffer(void);
 void     lora_uart_mark_frame(void);
 u16      lora_uart_read_frame(u8 *buf, u16 max_len);
+u16      lora_uart_read_bytes(u8 *buf, u16 max_len);
 
 u32      lora_uart_get_isr_count(void);
 u32      lora_uart_get_byte_total(void);

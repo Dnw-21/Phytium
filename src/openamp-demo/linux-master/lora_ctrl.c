@@ -79,9 +79,9 @@ int main(int argc, char *argv[])
     if (strcmp(cmd, "-h") == 0 || strcmp(cmd, "--help") == 0) {
         printf("Usage: %s <start|stop|status>\n", argv[0]);
         printf("\n");
-        printf("Control LoRa data reception on FreeRTOS CPU3.\n");
-        printf("  start/on   Enable LoRa RX (UART3 polling resumes)\n");
-        printf("  stop/off   Disable LoRa RX (UART3 polling paused)\n");
+        printf("Control LoRa data reception on FreeRTOS (实际 CPU1，设备树写 CPU3).\n");
+        printf("  start/on   Enable LoRa RX (UART2 polling resumes)\n");
+        printf("  stop/off   Disable LoRa RX (UART2 polling paused)\n");
         printf("  status     Query current LoRa RX state\n");
         return 0;
     }
