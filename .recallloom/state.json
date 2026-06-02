@@ -1,0 +1,32 @@
+{
+  "workspace_revision": 22,
+  "update_protocol_revision": 1,
+  "git_exclude_mode": "managed",
+  "bridged_entries": {},
+  "files": {
+    "context_brief": {
+      "file_revision": 6,
+      "updated_at": "2026-06-02T18:00:00+08:00",
+      "writer_id": "TraeAI",
+      "base_workspace_revision": 22
+    },
+    "rolling_summary": {
+      "file_revision": 12,
+      "updated_at": "2026-06-02T18:00:00+08:00",
+      "writer_id": "TraeAI",
+      "base_workspace_revision": 22
+    },
+    "update_protocol": {
+      "file_revision": 1,
+      "updated_at": "2026-05-28T17:45:29+08:00",
+      "writer_id": "RecallLoom",
+      "base_workspace_revision": 1
+    }
+  },
+  "daily_logs": {
+    "latest_file": "daily_logs/2026-05-30.md",
+    "latest_entry_id": "entry-1",
+    "latest_entry_seq": 1,
+    "entry_count": 1
+  }
+}
