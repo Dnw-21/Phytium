@@ -1,0 +1,19 @@
+[Unit]
+Description=UKF Dashboard VNC Display
+After=dashboard-board.service
+Requires=dashboard-board.service
+
+[Service]
+Type=simple
+User=user
+Group=user
+Environment="DISPLAY=:1"
+Environment="HOME=/home/user"
+ExecStartPre=/bin/sleep 3
+ExecStart=/home/user/dashboard_board/scripts/start_vnc.sh
+ExecStop=/usr/bin/vncserver -kill :1
+Restart=no
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

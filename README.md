@@ -4,7 +4,7 @@
 
 > **当前状态**: LoRa 主控链路以真实硬件为目标，串口以 UART2 为准，FreeRTOS 实际运行在 CPU1（设备树中 remote processor 仍写 CPU3）。支持 **FLASH_WAVE (type=0x05) 波形数据完整接收并绘图**。精简单向数据链路：终端→LoRa→UART2→FreeRTOS→共享内存→trace_reader→Python 绘图。
 > 
-> **UKF 状态估计 Dashboard**: 当前唯一面板是 [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py)，端口 5000；当前面板使用模拟数据，故障在 5s 和 15s 出现，尚未与 LoRa 真实链路打通。详见 [state_estimation/](state_estimation/)
+> **UKF 状态估计 Dashboard** ([dashboard_board/](dashboard_board/)) ★ **推荐使用版本**: 完整的微电网监控大屏（VNC 桌面 + Firefox + Chart.js 6 曲线 + 故障回放 + 飞书/微信推送），端口 5000；故障在 5s 和 15s 出现，参见 [dashboard_board/README.md](dashboard_board/README.md)。原版 [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py) 仍保留。
 >
 > **操作手册**: [docs/operations-guide.md](docs/operations-guide.md) ★ **所有 AI 和开发者请先阅读此文档**
 > 
@@ -35,7 +35,7 @@ cd /home/alientek/Phytium/freertos
 bash deploy.sh
 
 # 2. 抓取数据并生成波形图
-sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.10 \
   "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
 python3 plot_wave.py trace_wave.txt
 # 输出: waveform.png (FLASH_WAVE 波形图)
@@ -89,11 +89,21 @@ Phytium/
 │   ├── knowledge-base.md               #   知识库
 │   └── lora-real-hardware-接入指南.md  #   LoRa 硬件接线指南
 │
-├── state_estimation/                   # ★ UKF 状态估计 Dashboard
+├── state_estimation/                   # ★ UKF 状态估计 Dashboard（旧版）
 │   ├── dashboard_server.py             #   Flask 服务端 + UKF 引擎
 │   ├── templates/dashboard.html        #   Web 可视化面板
 │   ├── ukf_estimation.py               #   UKF 算法核心
 │   └── ...                             #   动态系统模型、测量数据
+│
+├── dashboard_board/                    # ★ 微电网 UKF Dashboard（推荐版）
+│   ├── server/dashboard_server.py      #   Flask 主服务
+│   ├── templates/dashboard.html        #   Web 大屏（Chart.js 6 曲线 + 故障回放 + 灾害仿真）
+│   ├── prep/prepare_data.py            #   预计算数据生成器
+│   ├── scripts/deploy_to_board.sh      #   一键部署脚本
+│   ├── systemd/                        #   dashboard-board / dashboard-vnc 服务
+│   ├── config.json                     #   系统配置（含飞书/微信 Webhook）
+│   ├── README.md / DEPLOY.md / 需求开发文档.md
+│   └── ...                             #   feishu_notifier / wechat_notifier / heartbeat_source
 │
 └── src/                                # Linux 侧程序 (C交叉编译)
     └── openamp-demo/linux-master/      #   master_receiver (RPMsg 接收程序)
@@ -108,8 +118,8 @@ Phytium/
 | 架构 | ARM64 (aarch64) |
 | 系统 | Debian 12 (PIOS v3.2) |
 | 内核 | 6.6.63-phytium-embedded-v3.2 |
-| 开发板 IP | 192.168.88.11/24 |
-| 用户 | user / root (密码: user / root) |
+| 开发板 IP | 192.168.88.10/24 |
+| 用户 | user / root (密码: user / user) |
 
 ## CPU 分配
 
@@ -168,4 +178,4 @@ MIT License
 
 ---
 
-**版本**: v3.2 | **更新**: 2026-05-28 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进
+**版本**: v4.0 | **更新**: 2026-06-06 | **状态**: 新增 dashboard_board/（推荐使用版本），LoRa 真实主控链路 + 微电网 UKF Dashboard 双路线推进

@@ -1,6 +1,6 @@
 # Phytium PE2204 LoRa 主控系统 — 项目信息汇总
 
-> **更新**: 2026-05-28 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进 | **操作手册**: [docs/operations-guide.md](docs/operations-guide.md)
+> **更新**: 2026-06-06 | **状态**: 新增 dashboard_board/（推荐使用版本） | **操作手册**: [docs/operations-guide.md](docs/operations-guide.md)
 
 ## 一、项目基本信息
 
@@ -13,8 +13,8 @@
 | 架构 | ARM64 (aarch64) |
 | 系统 | Debian 12 (PIOS v3.2) |
 | 内核 | 6.6.63-phytium-embedded-v3.2 |
-| 开发板 IP | 192.168.88.11/24 |
-| 用户 | user / root (密码: user / root) |
+| 开发板 IP | 192.168.88.10/24 |
+| 用户 | user / root (密码: user / user) |
 
 ## 二、项目架构概览
 
@@ -30,7 +30,10 @@ GD32终端节点 ──LoRa无线──→ ATK-MWCC68D ──UART2──→ Free
 
 **关键特性**:
 - **LoRa 主控移植路线**: 队友用 GD32 模拟飞腾派 RTOS 主控与终端节点通信；本项目后续将 GD32 主控工程移植到飞腾派 FreeRTOS 侧，实现 LoRa 接收、解析、处理和分时接收等逻辑。
-- **UKF 面板路线**: 当前 [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py) 使用模拟数据进行状态估计与展示，端口 5000；模拟数据中的故障在 5s 和 15s 出现，后续接入 LoRa→FreeRTOS→Linux 的真实数据。
+- **UKF 面板路线**:
+  - **★ 推荐版本**: [dashboard_board/](dashboard_board/) - 完整微电网监控大屏（VNC 桌面 + Firefox + Chart.js 6 曲线 + 故障回放 + 飞书/微信推送 + 灾害仿真），端口 5000。详见 [dashboard_board/README.md](dashboard_board/README.md)
+  - **旧版**: [state_estimation/dashboard_server.py](state_estimation/dashboard_server.py) 使用模拟数据进行状态估计与展示
+  - 模拟数据中的故障在 5s 和 15s 出现，后续接入 LoRa→FreeRTOS→Linux 的真实数据
 - **FLASH_WAVE 逐帧输出**: `[FW_DAT]` 格式，不受缓冲区大小限制，支持任意长度波形。
 - **Python 绘图**: `plot_wave.py` 解析 `[FW_DAT]` 格式，支持多波形会话、Big-Endian int16。
 
@@ -123,7 +126,7 @@ sudo /home/user/trace_reader 2>/dev/null | tee /home/user/trace_wave.txt
 
 # 虚拟机上: 一键抓取 + 绘图
 cd /home/alientek/Phytium/freertos
-sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.10 \
   "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
 python3 plot_wave.py trace_wave.txt
 ```
@@ -163,7 +166,7 @@ grep 'FW_END' /home/user/trace_wave.txt       # lost=0
 
 # 虚拟机端: 绘图
 cd /home/alientek/Phytium/freertos
-scp user@192.168.88.11:/home/user/trace_wave.txt .
+scp user@192.168.88.10:/home/user/trace_wave.txt .
 python3 plot_wave.py trace_wave.txt
 # 输出: waveform.png
 ```
@@ -193,4 +196,4 @@ python3 plot_wave.py trace_wave.txt
 
 ---
 
-**版本**: v4.1 | **状态**: LoRa 真实主控链路移植与 UKF 模拟数据 Dashboard 双路线推进 | **基于**: GD32 主控/终端节点参考工程
+**版本**: v5.0 | **状态**: 新增 dashboard_board/（推荐使用版本） | **基于**: GD32 主控/终端节点参考工程

@@ -1,0 +1,53 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000
+  },
+  "vnc": {
+    "display": ":2",
+    "port": 5902,
+    "geometry": "1920x1080",
+    "depth": 24
+  },
+  "refresh_interval_ms": 1000,
+  "log_buffer_size": 200,
+  "heartbeat_timeout_ms": 3000,
+  "heartbeat_source": "mock",
+  "heartbeat_simulated": {
+    "node_1": true,
+    "node_2": false,
+    "node_3": false
+  },
+  "wifi": {
+    "ssid": "",
+    "password": ""
+  },
+  "weather": {
+    "enabled": true,
+    "timeout_sec": 5,
+    "city": "jiuquan"
+  },
+  "notify": {
+    "feishu_enabled": true,
+    "wechat_enabled": true,
+    "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_FEISHU_WEBHOOK_HERE",
+    "wechat_sckey": "YOUR_WECHAT_SCKEY_HERE"
+  },
+  "nodes": [
+    {
+      "id": "node_1",
+      "label": "\u7ec8\u7aef\u8282\u70b9 1",
+      "enabled": true
+    },
+    {
+      "id": "node_2",
+      "label": "\u7ec8\u7aef\u8282\u70b9 2",
+      "enabled": false
+    },
+    {
+      "id": "node_3",
+      "label": "\u7ec8\u7aef\u8282\u70b9 3",
+      "enabled": false
+    }
+  ]
+}
