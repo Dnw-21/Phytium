@@ -171,6 +171,9 @@ bash scripts/deploy_to_board.sh    # 一键部署
 | 2026-06-06 | 板上调试：Flask wheel 离线安装、systemd 双服务启动正常、VNC :2 运行中 |
 | 2026-06-06 | 修复：VNC Firefox 从 --kiosk 改为 --new-window；增加 xstartup 启动 xfce4 桌面 |
 | 2026-06-06 | 修复：sudo 免密配置；故障回放按故障顺序揭示；曲线/数据分页；10s 滑动窗口 |
+| 2026-06-09 | v2 发布：三节点真实 DSE 数据驱动；飞书合并推送；移除系统信息面板/RMSE；X 轴北京时间+15s 窗口；数据接收速率+电量；历史/日志三节点标签页 |
+| 2026-06-09 | v3 发布：三节点独立时序故障（step 10/15/20）；独立图表高亮；故障检测 Bento 聚合；飞书独立推送（bypass_rate_limit）；三节点独立故障回放；系统配置栏精简；时间尺度分离（FAULT_TUNING + FAULT_STEPS）；故障结束后自动恢复 |
+| 2026-06-09 | VNC 方案变更：Xfce 1920x1080 → Openbox 1024x600（飞腾派内存不足，FHD 反复触发 kernel panic）；DEPLOY.md 新增 VNC 轻量部署章节 |
 
 ## GitHub 仓库
 

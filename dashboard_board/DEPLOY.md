@@ -83,6 +83,41 @@ ssh user@192.168.88.10 "pip3 install --break-system-packages --no-index --find-l
 bash /home/user/dashboard_board/scripts/connect_wifi.sh
 ```
 
+## VNC 远程桌面部署
+
+飞腾派内存有限（~2GB），不可同时跑 Xfce + Firefox。使用轻量方案：
+
+```bash
+# SSH 到飞腾派
+ssh root@192.168.88.10
+
+# 安装轻量桌面组件
+apt-get install -y openbox xterm tigervnc-standalone-server
+
+# 设置 VNC 密码
+mkdir -p ~/.vnc
+echo "user123" | vncpasswd -f > ~/.vnc/passwd
+chmod 600 ~/.vnc/passwd
+
+# xstartup（Openbox 桌面）
+cat > ~/.vnc/xstartup << 'EOF'
+#!/bin/bash
+xterm &
+exec openbox-session
+EOF
+chmod +x ~/.vnc/xstartup
+
+# 启动 VNC (1024x600 原生分辨率)
+vncserver :2 -localhost=0 -geometry 1024x600 -depth 24
+```
+
+连接：`192.168.88.10:5902`，密码 `user123`。进入后右击桌面打开终端，输入 `firefox http://localhost:5000`。
+
+| 方案 | 内存占用 | 风险 |
+|------|---------|------|
+| Xfce + 1920x1080 | ~1.2GB | kernel panic（已多次发生） |
+| Openbox + 1024x600 | ~200MB | 安全 |
+
 ## 故障排查
 
 | 问题 | 检查 |
