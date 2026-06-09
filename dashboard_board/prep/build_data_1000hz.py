@@ -29,14 +29,28 @@ NODE_SRC = {
 # UKF 源码（只在 Z1 目录下有）
 UKF_SRC_DIR = NODE_SRC['node_1']
 
-# ── 故障窗口：保持原始数据不变，不修改 t_SW/t_FC ──────────
-# 三个数据集的原始 t_SW=0.060, t_FC=0.080 (step 60-80)
-# 差异来自：不同故障 Bus + 不同故障线路 + 不同测量数据
+# ── 故障窗口：每个节点不同触发时刻 ──────────────────────────
+# ── 故障时间（两种尺度） ──────────────────────────────────
+# FAULT_TUNING: kHz 时间用于 system_params.bin + measurement 扰动
+# FAULT_STEPS:  step 序号用于 dashboard is_fault 标志
 FS = 1000
 FAULT_TUNING = {
-    'node_1': {'t_SW': None, 't_FC': None},  # 不修改
-    'node_2': {'t_SW': None, 't_FC': None},  # 不修改
-    'node_3': {'t_SW': None, 't_FC': None},  # 不修改
+    'node_1': {'t_SW': 0.010, 't_FC': 0.013},   # UKF 看到故障 = 0.010-0.013s
+    'node_2': {'t_SW': 0.015, 't_FC': 0.018},
+    'node_3': {'t_SW': 0.020, 't_FC': 0.023},
+}
+FAULT_STEPS = {
+    'node_1': {'start': 10, 'end': 13},          # dashboard step 10-12
+    'node_2': {'start': 15, 'end': 18},
+    'node_3': {'start': 20, 'end': 23},
+}
+
+# 每个节点故障时注入扰动的母线电压 (Vreal 列索引 6-14, Vimag 列索引 15-23)
+# 不同节点扰动不同母线，保证 UKF 估计分化
+FAULT_INJECT = {
+    'node_1': {'vreal_idx': 7,  'vimag_idx': 16, 'scale': 0.75},   # Bus 2 电压骤降 25%
+    'node_2': {'vreal_idx': 9,  'vimag_idx': 18, 'scale': 0.70},   # Bus 4 电压骤降 30%  
+    'node_3': {'vreal_idx': 13, 'vimag_idx': 22, 'scale': 0.65},   # Bus 8 电压骤降 35%
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -162,6 +176,49 @@ def run_ukf(ukf_bin, params_path, meas_path, output_csv):
 
 
 # ═══════════════════════════════════════════════════════════
+# 故障快照构建
+# ═══════════════════════════════════════════════════════════
+
+def _build_fault_snapshots(steps):
+    """为每个节点的故障窗口生成回放快照 (±5 steps 窗口)"""
+    node_labels = {'node_1': '节点1 (G1)', 'node_2': '节点2 (G2)', 'node_3': '节点3 (G3)'}
+    snapshots = []
+    for nid in ['node_1', 'node_2', 'node_3']:
+        # 找到该节点的故障窗口
+        fault_indices = [i for i, s in enumerate(steps)
+                        if s['nodes'][nid].get('is_fault')]
+        if not fault_indices:
+            continue
+        f_start, f_end = fault_indices[0], fault_indices[-1]
+        # 前后各扩展 5 步
+        win_start = max(0, f_start - 5)
+        win_end = min(len(steps) - 1, f_end + 5)
+        cen = (f_start + f_end) / 2  # 步数，1 step = 1 秒
+
+        de = [[], [], []]
+        oe = [[], [], []]
+        times = []
+        for i in range(win_start, win_end + 1):
+            nd = steps[i]['nodes'][nid]
+            # 1 step = 1 仿真秒
+            times.append(float(i))
+            for g in range(3):
+                de[g].append(float(nd['delta_est'][g]))
+                oe[g].append(float(nd['omega_est'][g]))
+
+        snapshots.append({
+            'id': f'{node_labels[nid]} · step {f_start}-{f_end}',
+            'node_id': nid,
+            'center_sec': cen,  # 仿真秒数
+            'delta_est': de,
+            'omega_est': oe,
+            'times': times,
+        })
+
+    return snapshots
+
+
+# ═══════════════════════════════════════════════════════════
 # 主流程
 # ═══════════════════════════════════════════════════════════
 
@@ -179,7 +236,6 @@ def main():
 
     # 2. 为每个节点准备数据 + 运行 UKF
     node_estimates = {}
-    actual_fault_windows = {}  # 存储原始数据中的 t_SW/t_FC
     for node_id in ['node_1', 'node_2', 'node_3']:
         print(f"\n{'─'*50}")
         print(f"  {node_id}")
@@ -191,33 +247,42 @@ def main():
         work_dir = os.path.join(DATA_DIR, node_id)
         os.makedirs(work_dir, exist_ok=True)
 
-        # 2a. system_params.bin（不打补丁，直接复制原始文件）
+        # 2a. system_params.bin（打补丁设置故障窗口）
         src_params = os.path.join(src_dir, 'system_params.bin')
         use_params = os.path.join(work_dir, 'system_params.bin')
 
-        if fc['t_SW'] is not None:
-            # 需要打补丁
-            patch_sw_fc(src_params, fc['t_SW'], fc['t_FC'], use_params)
-            print(f'    故障窗口: t_SW={fc["t_SW"]:.3f}s, t_FC={fc["t_FC"]:.3f}s')
-        else:
-            # 保持原始数据不变
-            if os.path.abspath(src_params) != os.path.abspath(use_params):
-                shutil.copy2(src_params, use_params)
-            # 读取原始 t_SW/t_FC
-            with open(src_params, 'rb') as f:
-                data = bytearray(f.read())
-            t_sw_orig = struct.unpack_from('d', data, 32)[0]
-            t_fc_orig = struct.unpack_from('d', data, 40)[0]
-            actual_fault_windows[node_id] = {'t_SW': t_sw_orig, 't_FC': t_fc_orig}
-            print(f'    故障窗口(原始): t_SW={t_sw_orig:.3f}s, t_FC={t_fc_orig:.3f}s '
-                  f'(step {int(t_sw_orig*FS)}-{int(t_fc_orig*FS)})')
+        patch_sw_fc(src_params, fc['t_SW'], fc['t_FC'], use_params)
+        fstep = FAULT_STEPS[node_id]
+        print(f'    故障窗口: t_SW={fc["t_SW"]:.3f}s, t_FC={fc["t_FC"]:.3f}s '
+              f'(step {fstep["start"]}-{fstep["end"]-1})')
 
-        # 2b. 复制 measurements.txt
+        # 2b. 复制 measurements.txt 并注入故障扰动
         src_meas = os.path.join(src_dir, 'measurements.txt')
         dst_meas = os.path.join(work_dir, 'measurements.txt')
-        shutil.copy2(src_meas, dst_meas)
-        num_lines = sum(1 for _ in open(dst_meas)) - 1  # minus header
-        print(f'    measurements.txt: {num_lines} 行')
+
+        # 注入故障：在故障窗口内扰动特定母线电压
+        inject = FAULT_INJECT.get(node_id, None)
+        with open(src_meas, 'r') as fin:
+            lines = fin.readlines()
+        header = lines[0]
+        data_lines = lines[1:]
+        num_lines = len(data_lines)
+        modified = 0
+        with open(dst_meas, 'w') as fout:
+            fout.write(header)
+            for i, line in enumerate(data_lines):
+                t = i / FS  # time in seconds
+                if inject and fc['t_SW'] <= t < fc['t_FC']:
+                    parts = line.strip().split(',')
+                    # 扰动 Vreal 和 Vimag 的指定列（模拟故障电压跌落）
+                    parts[inject['vreal_idx']] = str(
+                        float(parts[inject['vreal_idx']]) * inject['scale'])
+                    parts[inject['vimag_idx']] = str(
+                        float(parts[inject['vimag_idx']]) * inject['scale'])
+                    line = ','.join(parts) + '\n'
+                    modified += 1
+                fout.write(line)
+        print(f'    measurements.txt: {num_lines} 行, 故障扰动 {modified} 行')
 
         # 2c. 运行 UKF
         output_csv = os.path.join(DATA_DIR, f'estimates_{node_id}.csv')
@@ -237,7 +302,7 @@ def main():
     steps = []
     for i in range(num_samples):
         frame = {
-            'time_sec': round(i / FS, 6),
+            'time_sec': float(i),  # 1 step = 1 仿真秒
             'step': i,
             'fault_phase': 'normal',
             'is_fault': False,
@@ -255,11 +320,9 @@ def main():
                 oe = [0, 0, 0]
                 rmse = 0
 
-            # 判断该节点此时是否在故障窗口（使用原始数据的 t_SW/t_FC）
-            t_now = i / FS
-            fw = actual_fault_windows.get(nid, FAULT_TUNING[nid])
-            ts = fw.get('t_SW', 0); tf = fw.get('t_FC', 0)
-            node_fault = (ts <= t_now <= tf) if ts is not None else False
+            # dashboard 故障标志 (按 step 序号)
+            fs = FAULT_STEPS.get(nid, {'start': -1, 'end': -1})
+            node_fault = fs['start'] <= i < fs['end']
 
             frame['nodes'][nid] = {
                 'delta_est': de,
@@ -284,6 +347,7 @@ def main():
             'node_3': '终端节点 3',
         },
         'steps': steps,
+        'fault_snapshots': _build_fault_snapshots(steps),
     }
 
     out_path = os.path.join(DATA_DIR, 'dashboard_data.json')

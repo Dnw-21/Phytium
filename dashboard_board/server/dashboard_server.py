@@ -100,7 +100,7 @@ def notify_fault(node_id, phase, time_sec, delta_est=None, omega_est=None):
             }
         add_log('error', 'system', f'[{node_label}] 故障告警: {node_id} @ {time_sec}s, phase={phase}')
         try:
-            result = feishu_fault(fault_info, bypass_rate_limit=False)
+            result = feishu_fault(fault_info, bypass_rate_limit=True)
             add_log('info', 'system', f'[{node_label}] 飞书推送: {"成功" if result else "已限流"}' )
         except Exception as e:
             add_log('warn', node_id, f'飞书故障推送失败: {e}')
@@ -262,38 +262,44 @@ class DashboardEngine:
         return risk
 
     def _make_node_frame(self, node_cfg, step_data):
-        heartbeat_ok = heartbeat_source.is_alive(node_cfg['id'])
+        nid = node_cfg['id']
+        heartbeat_ok = heartbeat_source.is_alive(nid)
         status = 'ONLINE'
         if not heartbeat_ok:
             status = 'HIDDEN'
-        elif step_data.get('fault_phase') in ('pre', 'fault'):
+
+        # 三节点模式下从 step_data['nodes'][nid] 取该节点数据
+        if self._is_3node and 'nodes' in step_data:
+            nd = step_data['nodes'].get(nid, step_data)
+        else:
+            nd = step_data
+
+        if nd.get('fault_phase') in ('pre', 'fault'):
             status = 'FAULT'
 
-        # 真实 bytes: 每条测量 24 字段 × 8 bytes = 192 bytes/step
         real_step_bytes = 24 * 8
         total_bytes = step_data['step'] * real_step_bytes
 
-        # 电池电量固定
         battery = {'node_1': 98, 'node_2': 99, 'node_3': 99}
 
         frame = {
-            'node_id': node_cfg['id'],
+            'node_id': nid,
             'label': node_cfg['label'],
             'timestamp_ms': int(time.time() * 1000),
             'status': status,
-            'last_heartbeat_ms': heartbeat_source.last_seen_ms(node_cfg['id']),
+            'last_heartbeat_ms': heartbeat_source.last_seen_ms(nid),
             'bytes_total': total_bytes,
-            'battery_level': battery.get(node_cfg['id'], 98),
+            'battery_level': battery.get(nid, 98),
             'ukf': {
-                'delta_est': step_data.get('delta_est', [0,0,0]),
-                'omega_est': step_data.get('omega_est', [0,0,0]),
-                'delta_true': step_data.get('delta_true', [0,0,0]),
-                'omega_true': step_data.get('omega_true', [0,0,0]),
-                'rmse': step_data.get('rmse', 0.0),
+                'delta_est': nd.get('delta_est', [0,0,0]),
+                'omega_est': nd.get('omega_est', [0,0,0]),
+                'delta_true': nd.get('delta_true', [0,0,0]),
+                'omega_true': nd.get('omega_true', [0,0,0]),
+                'rmse': nd.get('rmse', 0.0),
             },
             'fault': {
-                'is_fault': step_data.get('is_fault', False),
-                'phase': step_data.get('fault_phase', 'normal'),
+                'is_fault': nd.get('is_fault', False),
+                'phase': nd.get('fault_phase', 'normal'),
             },
         }
         return frame
@@ -572,46 +578,28 @@ class DashboardEngine:
 
     def get_fault_replays(self):
         with self.lock:
-            # 只返回已经"经过"的故障快照（按 fault_detected 顺序逐个揭示）
-            if not self.fault_detected:
+            if not self.fault_snapshots:
                 return {'snapshots': []}
             current_time = self.steps[min(self.step_idx, self.total_steps - 1)]['time_sec']
             enriched = []
-            # 按快照中心时间排序，确保 fault1@5s 先于 fault2@15s 揭示
             sorted_snaps = sorted(self.fault_snapshots, key=lambda x: x.get('center_sec', 0))
             for s in sorted_snaps:
                 center = s.get('center_sec', 0)
-                # 只有当运行时间已超过故障中心时间（±0.5s 容忍），才返回该快照
                 if current_time < center - 0.5:
                     continue
                 snap = dict(s)
-                # 1kHz 全分辨率估计数据（用于曲线展示 + 数据表格）
-                # 注：故障窗口是 5.0-5.3s，全分辨率 1kHz 数据有 ~300 点（前后 1s 窗口是 2000 点）
+                # 直接使用原始数据（步数少，无需降采样）
                 snap['delta_est_raw'] = snap.get('delta_est', [])
                 snap['omega_est_raw'] = snap.get('omega_est', [])
                 snap['times_raw'] = snap.get('times', [])
-                # 1Hz 降采样（用于曲线快速浏览）
-                def _downsample(arr_list):
-                    if not arr_list:
-                        return arr_list
-                    result = []
-                    for sub in arr_list:
-                        if sub:
-                            result.append(sub[0::100])
-                        else:
-                            result.append([])
-                    return result
-                snap['delta_est'] = _downsample(snap.get('delta_est', []))
-                snap['omega_est'] = _downsample(snap.get('omega_est', []))
-                snap['times'] = snap.get('times', [])[0::100] if 'times' in snap else []
-                # 移除 true 数据
+                # chart-ready 字段保持原样（不降采样，原始 ~13 点够用）
                 snap.pop('delta_true', None)
                 snap.pop('omega_true', None)
                 # 时间范围显示
                 if 'times_raw' in snap and len(snap['times_raw']) >= 2:
-                    snap['time_range'] = f"{snap['times_raw'][0]:.3f}s ~ {snap['times_raw'][-1]:.3f}s"
+                    snap['time_range'] = f"{snap['times_raw'][0]:.0f}s ~ {snap['times_raw'][-1]:.0f}s"
                 elif 'center_sec' in snap:
-                    snap['time_range'] = f"{snap['center_sec']:.2f}s ±1s"
+                    snap['time_range'] = f"{snap['center_sec']:.0f}s ±1s"
                 else:
                     snap['time_range'] = '--'
                 enriched.append(snap)

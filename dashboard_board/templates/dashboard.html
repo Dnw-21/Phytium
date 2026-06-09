@@ -1152,7 +1152,7 @@ body {
 
     <!-- Charts: 3 columns × 6 charts per node = 18 charts total -->
     <!-- Node 1 Column -->
-    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+    <div class="charts-section" data-node="1" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
       <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div class="node-avatar g1" style="width:28px;height:28px;font-size:12px;">G1</div>
         <span style="font-size:13px;font-weight:600;">终端节点 1</span>
@@ -1184,7 +1184,7 @@ body {
     </div>
 
     <!-- Node 2 Column -->
-    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+    <div class="charts-section" data-node="2" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
       <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div class="node-avatar g2" style="width:28px;height:28px;font-size:12px;">G2</div>
         <span style="font-size:13px;font-weight:600;">终端节点 2</span>
@@ -1216,7 +1216,7 @@ body {
     </div>
 
     <!-- Node 3 Column -->
-    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+    <div class="charts-section" data-node="3" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
       <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div class="node-avatar g3" style="width:28px;height:28px;font-size:12px;">G3</div>
         <span style="font-size:13px;font-weight:600;">终端节点 3</span>
@@ -1279,15 +1279,10 @@ body {
           <div class="card-header"><h3>系统配置 ⚙️</h3></div>
           <div style="padding:16px;" id="configContent">
             <table class="config-table" style="width:100%;border-collapse:collapse;font-size:13px;">
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);width:140px;">系统模型</td><td id="cfgModel">IEEE 9-Bus</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">发电机数</td><td id="cfgGen">3</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">母线数</td><td id="cfgBus">9</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">采样频率</td><td id="cfgRate">1000 Hz</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障位置</td><td>母线 8-9 三相短路</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障开始</td><td id="cfgSW">--</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障切除</td><td id="cfgFC">--</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">UKF 噪声</td><td>σ=1e-2</td></tr>
-              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">积分方法</td><td>RK4 (四阶Runge-Kutta)</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);width:140px;">系统模型</td><td>IEEE 9-Bus</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">发电机数</td><td>3</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">母线数</td><td>9</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">采样频率</td><td>1000 Hz</td></tr>
             </table>
           </div>
         </div>
@@ -1597,7 +1592,12 @@ function fetchResults() {
     document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
     running = data.running;
     updateStatusPill(data);
-    setChartsFaultHighlight(data.is_fault);
+    // Per-node fault highlight
+    for (var ni = 1; ni <= 3; ni++) {
+      var nd = (data.nodes && data.nodes.length >= ni) ? data.nodes[ni-1] : null;
+      var nFault = nd ? (nd.fault && nd.fault.is_fault || false) : false;
+      setChartsFaultHighlight('' + ni, nFault);
+    }
     if (data.params) {
       if (data.start_beijing_ms) {
         startBeijingMs = data.start_beijing_ms;
@@ -1704,29 +1704,36 @@ function getHistory() {
       });
     });
 
-    // Update fault status from node_1 (for bento)
-    var h1 = allH['node_1'];
-    if (h1 && h1.phase && h1.phase.length > 0) {
-      var lastPhase = h1.phase[h1.phase.length-1];
-      var isFault = lastPhase.startsWith('fault');
-      var faultEl = document.getElementById('faultValue');
-      var faultIcon = document.getElementById('faultIcon');
-      if (isFault) {
-        faultEl.textContent = '⚠ ' + lastPhase;
-        faultEl.style.color = 'var(--danger)';
-        faultIcon.className = 'card-icon danger';
-        faultIcon.innerHTML = '⚡';
-      } else if (lastPhase === 'post') {
-        faultEl.textContent = '故障已切除';
-        faultEl.style.color = 'var(--success)';
-        faultIcon.className = 'card-icon success';
-        faultIcon.innerHTML = '✓';
-      } else {
-        faultEl.textContent = '未检测到';
-        faultEl.style.color = 'var(--text-primary)';
-        faultIcon.className = 'card-icon warning';
-        faultIcon.innerHTML = '⚠';
+    // Update fault status — 三节点模式聚合显示
+    var faultEl = document.getElementById('faultValue');
+    var faultIcon = document.getElementById('faultIcon');
+    var faultDetailEl = document.querySelector('#faultValue + .card-detail');
+    var anyFault = false;
+    var faultLabels = [];
+    var nodeNames = {node_1: '终端节点1', node_2: '终端节点2', node_3: '终端节点3'};
+    for (var ni = 1; ni <= 3; ni++) {
+      var nkey = 'node_' + ni;
+      var hn = allH[nkey];
+      if (hn && hn.phase && hn.phase.length > 0) {
+        var lp = hn.phase[hn.phase.length - 1];
+        if (lp === 'fault') {
+          anyFault = true;
+          faultLabels.push(nodeNames[nkey] + '故障');
+        }
       }
+    }
+    if (anyFault) {
+      faultEl.textContent = '⚡ ' + faultLabels.join(' + ');
+      faultEl.style.color = 'var(--danger)';
+      faultIcon.className = 'card-icon danger';
+      faultIcon.innerHTML = '⚡';
+      if (faultDetailEl) faultDetailEl.textContent = faultLabels.join(' + ') + ' · 母线三相短路';
+    } else {
+      faultEl.textContent = '正常';
+      faultEl.style.color = 'var(--success)';
+      faultIcon.className = 'card-icon success';
+      faultIcon.innerHTML = '✓';
+      if (faultDetailEl) faultDetailEl.textContent = '三节点运行正常';
     }
 
     // Update history table if tab open
@@ -1761,10 +1768,12 @@ function updateReplayPanel() {
   var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
   for (var i = 0; i < faultSnapshots.length; i++) {
     var s = faultSnapshots[i];
+    var labelColor = 'var(--cyan)';
+    if (s.node_id === 'node_2') labelColor = 'var(--amber)';
+    else if (s.node_id === 'node_3') labelColor = 'var(--purple)';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">';
-    html += '<div style="font-size:13px;font-weight:600;color:var(--danger);">' + s.id + '</div>';
-    html += '<div style="font-size:11px;color:var(--text-tertiary);">' + s.time_range + '</div>';
-    html += '<button class="btn btn-play" style="padding:4px 10px;font-size:11px;" onclick="playFaultReplay(' + i + ')">▶ 回放(6图)</button>';
+    html += '<div style="font-size:13px;font-weight:700;color:' + labelColor + ';">' + s.id + '</div>';
+    html += '<button class="btn btn-play" style="padding:4px 10px;font-size:11px;" onclick="playFaultReplay(' + i + ')">▶ 回放</button>';
     html += '</div>';
   }
   html += '</div>';
@@ -2004,13 +2013,18 @@ function updateChartData(chart, times, arrays, isOverview) {
 }
 
 // ==================== Controls ====================
-function setChartsFaultHighlight(isFault) {
+function setChartsFaultHighlight(nodeId, isFault) {
+  // 通过 canvas ID 前缀判断属于哪个节点 (n1*, n2*, n3*)
+  var prefix = 'n' + nodeId;
   var cards = document.querySelectorAll('.chart-card.overview-chart');
   for (var i = 0; i < cards.length; i++) {
-    if (isFault) {
-      cards[i].classList.add('fault-active');
-    } else {
-      cards[i].classList.remove('fault-active');
+    var canvas = cards[i].querySelector('canvas');
+    if (canvas && canvas.id && canvas.id.indexOf(prefix) === 0) {
+      if (isFault) {
+        cards[i].classList.add('fault-active');
+      } else {
+        cards[i].classList.remove('fault-active');
+      }
     }
   }
 }
@@ -2095,12 +2109,6 @@ function doReset() {
     document.getElementById('siRate').textContent = '--';
     document.getElementById('siPts').textContent = '--';
     document.getElementById('siFault').textContent = '--';
-    // 配置
-    document.getElementById('cfgGen').textContent = '--';
-    document.getElementById('cfgBus').textContent = '--';
-    document.getElementById('cfgRate').textContent = '--';
-    document.getElementById('cfgSW').textContent = '--';
-    document.getElementById('cfgFC').textContent = '--';
     // 状态
     var pill = document.getElementById('statusPill');
     pill.className = 'status-pill status-ready';
@@ -2184,7 +2192,6 @@ function switchTab(tab) {
     Object.keys(panels).forEach(function(k){
       document.getElementById(panels[k]).style.display = (k===tab)? '' : 'none';
     });
-    if (tab === 'config') updateConfigTab();
     if (tab === 'log') updateLogTab();
     if (tab === 'history') loadFaultReplays();
   }
@@ -2208,24 +2215,6 @@ function simDisaster(key) {
       el.innerHTML = '<span style="color:var(--danger)">✗ 模拟失败</span>';
     }
   }).catch(function() {});
-}
-
-function updateConfigTab() {
-  api('/status').then(function(d){
-    if (d.params) {
-      document.getElementById('cfgGen').textContent = d.params.n;
-      document.getElementById('cfgBus').textContent = d.params.s;
-      document.getElementById('cfgRate').textContent = d.params.fs + ' Hz';
-      if (d.params.fault_times) {
-        var ft = d.params.fault_times[0];
-        document.getElementById('cfgSW').textContent = (ft[0]*1000).toFixed(0) + ' ms';
-        document.getElementById('cfgFC').textContent = (ft[1]*1000).toFixed(0) + ' ms';
-      } else if (d.params.t_SW_ms) {
-        document.getElementById('cfgSW').textContent = d.params.t_SW_ms.toFixed(0) + ' ms';
-        document.getElementById('cfgFC').textContent = d.params.t_FC_ms.toFixed(0) + ' ms';
-      }
-    }
-  });
 }
 
 var currentLogFilter = 'all';

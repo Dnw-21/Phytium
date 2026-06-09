@@ -14,17 +14,18 @@
 cd /home/alientek/Phytium/dashboard_board
 
 # 打包
-tar czf /tmp/dash.tar.gz config.json server/ templates/dashboard.html static/ data/dashboard_data.json data/node_1/ data/node_2/ data/node_3/ data/estimates_node_1.csv data/estimates_node_2.csv data/estimates_node_3.csv data/measurements_node_1.txt data/measurements_node_2.txt data/measurements_node_3.txt data/true_states.csv data/system_params.txt data/weather_cache.json tools/
+tar czf /tmp/dash.tar.gz config.json server/ templates/dashboard.html static/ data/dashboard_data.json data/node_1/ data/node_2/ data/node_3/ data/estimates_node_1.csv data/estimates_node_2.csv data/estimates_node_3.csv data/true_states.csv data/weather_cache.json tools/
 
 # 部署
 sshpass -p 'user' scp -o StrictHostKeyChecking=no /tmp/dash.tar.gz root@192.168.88.10:/tmp/
 
 sshpass -p 'user' ssh -o StrictHostKeyChecking=no root@192.168.88.10 '
-fuser -k 5000/tcp 2>/dev/null; sleep 1
+kill $(pidof python3) 2>/dev/null; sleep 2
 rm -rf /opt/dashboard_board; mkdir -p /opt/dashboard_board
 cd /opt/dashboard_board && tar xzf /tmp/dash.tar.gz
 find /opt -name "__pycache__" -exec rm -rf {} + 2>/dev/null
-python3 -B server/dashboard_server.py > /tmp/dash.log 2>&1 &
+find /opt -name "*.pyc" -delete 2>/dev/null
+nohup python3 -u -B /opt/dashboard_board/server/dashboard_server.py > /tmp/dash.log 2>&1 &
 '
 ```
 
