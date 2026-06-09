@@ -7,16 +7,23 @@
 ```
 dashboard_board/
 ├── README.md
-├── config.json                  # 系统配置（服务器、节点、心跳、VNC、飞书/微信通知）
+├── 需求开发文档.md              # 需求清单 & 接口契约
 ├── DEPLOY.md                    # 部署指南（详细版）
+├── config.json                  # 系统配置（3节点全部启用、WiFi、飞书通知）
 ├── data/
-│   ├── dashboard_data.json      # 预计算数据（VM 端 prepare_data.py 生成）
+│   ├── dashboard_data.json      # 预计算数据（VM 端 build_data_1000hz.py 生成）
 │   ├── true_states.csv          # 真实状态（1Hz，供参考）
-│   ├── measurements.txt         # 测量数据
-│   ├── system_params.txt        # 系统参数
-│   └── weather_cache.json       # 天气缓存
+│   ├── measurements.txt         # 测量数据（node_1 遗留）
+│   ├── system_params.txt        # 系统参数（node_1 遗留）
+│   ├── weather_cache.json       # 天气缓存
+│   ├── node_1/                  # Z1 数据：Bus 8, Line 8-9 故障
+│   ├── node_2/                  # Z2 数据：Bus 4, Line 4-5 故障
+│   ├── node_3/                  # Z3 数据：Bus 3, Line 3-9 故障
+│   ├── estimates_node_*.csv     # 三节点 UKF 预计算估值
+│   └── measurements_node_*.txt  # 三节点测量数据
 ├── prep/
-│   └── prepare_data.py          # 数据预处理器（VM 端运行，需要 numpy）
+│   ├── build_data_1000hz.py     # 三节点数据构建脚本（从 DSE 目录取材）
+│   └── generate_3node_data.py   # 三节点 UKF 估值生成脚本
 ├── scripts/
 │   ├── deploy_to_board.sh       # 一键部署脚本（VM → 飞腾派）
 │   ├── start_vnc.sh             # VNC 桌面启动脚本
@@ -24,7 +31,7 @@ dashboard_board/
 │   ├── start.sh / stop.sh / status.sh / tail_log.sh
 │   └── connect_wifi.sh
 ├── server/
-│   ├── dashboard_server.py      # Flask 主服务
+│   ├── dashboard_server.py      # Flask 主服务（三节点、飞书合并推送、UKF 仿真）
 │   ├── heartbeat_source.py      # 心跳源（模拟节点在线状态）
 │   ├── feishu_notifier.py       # 飞书自定义机器人推送
 │   └── wechat_notifier.py       # 微信 Server酱推送
@@ -32,7 +39,10 @@ dashboard_board/
 │   ├── dashboard-board.service  # HTTP 服务 systemd 单元
 │   └── dashboard-vnc.service    # VNC 桌面 systemd 单元
 ├── templates/
-│   └── dashboard.html           # 前端大屏（Chart.js 6 曲线 + 故障回放 + 灾害仿真）
+│   └── dashboard.html           # 前端大屏（Chart.js 18 图表 + 三节点历史/日志 + 灾害仿真）
+├── tools/
+│   ├── controller_online        # C UKF 二进制 (x86_64)
+│   └── controller_online.arm    # C UKF 二进制 (aarch64, 飞腾派)
 └── static/
     └── vendor/
         └── chart.umd.min.js     # Chart.js 4.x

@@ -3,44 +3,35 @@
 ## 前置条件
 
 - 飞腾派 IP: 192.168.88.10
-- SSH 用户: user / 密码: user
-- sudo 密码: user
+- SSH 用户: root / 密码: user
 - VM 端已安装 sshpass
 
-## 首次部署
+## 部署方法
 
-### 步骤 1: 生成预计算数据
+### 方式一：tar.gz 快速部署（推荐）
 
 ```bash
 cd /home/alientek/Phytium/dashboard_board
-python3 prep/prepare_data.py
+
+# 打包
+tar czf /tmp/dash.tar.gz config.json server/ templates/dashboard.html static/ data/dashboard_data.json data/node_1/ data/node_2/ data/node_3/ data/estimates_node_1.csv data/estimates_node_2.csv data/estimates_node_3.csv data/measurements_node_1.txt data/measurements_node_2.txt data/measurements_node_3.txt data/true_states.csv data/system_params.txt data/weather_cache.json tools/
+
+# 部署
+sshpass -p 'user' scp -o StrictHostKeyChecking=no /tmp/dash.tar.gz root@192.168.88.10:/tmp/
+
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no root@192.168.88.10 '
+fuser -k 5000/tcp 2>/dev/null; sleep 1
+rm -rf /opt/dashboard_board; mkdir -p /opt/dashboard_board
+cd /opt/dashboard_board && tar xzf /tmp/dash.tar.gz
+find /opt -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+python3 -B server/dashboard_server.py > /tmp/dash.log 2>&1 &
+'
 ```
 
-如果 ukf_cache.npz 不存在，请先从 state_estimation/ 复制。
-
-### 步骤 2: 一键部署
+### 方式二：一键部署脚本
 
 ```bash
 bash scripts/deploy_to_board.sh
-```
-
-脚本会自动完成：
-- scp 文件到飞腾派
-- 安装 Flask（pip3 install flask）
-- 注册 systemd 服务
-- 启动 HTTP + VNC
-
-### 步骤 3: 验证
-
-```bash
-# VM 端验证 HTTP
-curl http://192.168.88.10:5000/api/status
-
-# 浏览器访问
-http://192.168.88.10:5000
-
-# VNC 访问
-vncviewer 192.168.88.10:5901
 ```
 
 ## 手动部署（如果脚本失败）
