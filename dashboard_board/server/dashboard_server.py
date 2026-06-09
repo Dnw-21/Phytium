@@ -71,21 +71,37 @@ def add_log(level, node_id, msg):
     log_buffer.append(entry)
     print(f"[{entry['ts']}] [{level.upper()}] [{node_id}] {msg}")
 
-def notify_fault(node_id, phase, time_sec):
-    """飞书/微信故障推送（异步线程，不阻塞主循环）"""
+def notify_fault(node_id, phase, time_sec, delta_est=None, omega_est=None):
+    """飞书/微信故障推送（异步线程，不阻塞主循环）
+    支持多节点同时触发（node_id 可以是逗号分隔的列表如 "node_1,node_2,node_3"）
+    """
     if not config['notify'].get('feishu_enabled', True):
         return
+    # 生成节点可读标签
+    node_labels = {'node_1': '终端节点 1', 'node_2': '终端节点 2', 'node_3': '终端节点 3'}
+    # 支持多节点
+    if ',' in node_id:
+        ids = node_id.split(',')
+        node_label = ', '.join(node_labels.get(n, n) for n in ids)
+    else:
+        node_label = node_labels.get(node_id, node_id)
     def _do():
         fault_info = {
-            'bus': node_id,
+            'bus': f'{node_label} (ID: {node_id})',
             'phase': phase,
             'time': time_sec,
             'severity': 'critical',
         }
-        add_log('error', 'system', f'故障告警: {node_id} @ {time_sec}s, phase={phase}')
+        # 附加 UKF 估计值（仅单节点时有）
+        if delta_est and omega_est:
+            fault_info['post_fault'] = {
+                'delta': delta_est,
+                'omega': omega_est,
+            }
+        add_log('error', 'system', f'[{node_label}] 故障告警: {node_id} @ {time_sec}s, phase={phase}')
         try:
             result = feishu_fault(fault_info, bypass_rate_limit=False)
-            add_log('info', 'system', f'飞书故障推送: {"成功" if result else "已限流"}' )
+            add_log('info', 'system', f'[{node_label}] 飞书推送: {"成功" if result else "已限流"}' )
         except Exception as e:
             add_log('warn', node_id, f'飞书故障推送失败: {e}')
         try:
@@ -135,6 +151,10 @@ class DashboardEngine:
         self.steps = raw['steps']  # list of frame dicts
         self.total_steps = len(self.steps)
         self.fault_snapshots = raw.get('fault_snapshots', [])
+
+        # 检测是否三节点新格式
+        self._is_3node = (self.total_steps > 0 and 'nodes' in self.steps[0])
+        self._node_ids = raw.get('node_ids', ['node_1']) if self._is_3node else ['node_1']
 
         # 防止空数据
         if self.total_steps == 0:
@@ -249,13 +269,21 @@ class DashboardEngine:
         elif step_data.get('fault_phase') in ('pre', 'fault'):
             status = 'FAULT'
 
+        # 真实 bytes: 每条测量 24 字段 × 8 bytes = 192 bytes/step
+        real_step_bytes = 24 * 8
+        total_bytes = step_data['step'] * real_step_bytes
+
+        # 电池电量固定
+        battery = {'node_1': 98, 'node_2': 99, 'node_3': 99}
+
         frame = {
             'node_id': node_cfg['id'],
             'label': node_cfg['label'],
             'timestamp_ms': int(time.time() * 1000),
             'status': status,
             'last_heartbeat_ms': heartbeat_source.last_seen_ms(node_cfg['id']),
-            'bytes_total': step_data['step'],
+            'bytes_total': total_bytes,
+            'battery_level': battery.get(node_cfg['id'], 98),
             'ukf': {
                 'delta_est': step_data.get('delta_est', [0,0,0]),
                 'omega_est': step_data.get('omega_est', [0,0,0]),
@@ -275,7 +303,8 @@ class DashboardEngine:
             return None
 
         sd = self.steps[self.step_idx]
-        time_sec = sd['time_sec']
+        # 时间 = step 编号 (1点=1秒)，不按原始采样率
+        time_sec = float(sd['step'])
 
         # 首次记录起始北京时间
         if self.start_beijing_ms is None:
@@ -295,26 +324,46 @@ class DashboardEngine:
             if frame['status'] != 'HIDDEN':
                 node_frames.append(frame)
 
-        # 兼容旧版 frontend 的扁平字段（取第一个节点的数据）
+        # 兼容旧版 frontend 的扁平字段
+        if self._is_3node:
+            # 三节点新格式：从第一个节点取兼容字段
+            nd0 = sd['nodes'].get('node_1', {})
+            _de = nd0.get('delta_est', [0,0,0])
+            _oe = nd0.get('omega_est', [0,0,0])
+            _rmse = nd0.get('rmse', 0.0)
+            _is_fault = nd0.get('is_fault', False)
+            _phase = nd0.get('fault_phase', 'normal')
+            _delta_true = sd.get('delta_true', [0,0,0])
+            _omega_true = sd.get('omega_true', [0,0,0])
+        else:
+            # 旧格式
+            _de = sd['delta_est']
+            _oe = sd['omega_est']
+            _rmse = sd.get('rmse', 0.0)
+            _is_fault = sd.get('is_fault', False)
+            _phase = sd.get('fault_phase', 'normal')
+            _delta_true = sd.get('delta_true', [0,0,0])
+            _omega_true = sd.get('omega_true', [0,0,0])
+
         compat = {
             'running': self.running,
             'elapsed_sec': time_sec,
             'time_sec': time_sec,
             'step': sd['step'],
             'total': self.params['num_samples'],
-            'is_fault': sd.get('is_fault', False),
-            'fault_phase': {'normal': 0, 'pre': 0, 'fault': 1, 'post': 2}.get(sd.get('fault_phase', 'normal'), 0),
-            'rmse': sd.get('rmse', 0.0),
-            'delta_est': sd['delta_est'],
-            'omega_est': sd['omega_est'],
-            'delta_true': sd.get('delta_true', [0,0,0]),
-            'omega_true': sd.get('omega_true', [0,0,0]),
-            'phase': sd.get('fault_phase', 'normal'),
+            'is_fault': _is_fault,
+            'fault_phase': {'normal': 0, 'pre': 0, 'fault': 1, 'post': 2}.get(_phase, 0),
+            'rmse': _rmse,
+            'delta_est': _de,
+            'omega_est': _oe,
+            'delta_true': _delta_true,
+            'omega_true': _omega_true,
+            'phase': _phase,
             'params': self.params,
             'nodes': {
-                '1': {'bytes_total': sd['step'] * 16},
-                '2': {'bytes_total': 0},
-                '3': {'bytes_total': 0},
+                '1': {'bytes_total': sd['step'] * 192, 'battery_level': 98},
+                '2': {'bytes_total': sd['step'] * 192, 'battery_level': 99},
+                '3': {'bytes_total': sd['step'] * 192, 'battery_level': 99},
             },
             'weather_risk': self._build_weather_risk(),
             'start_beijing_ms': self.start_beijing_ms,
@@ -325,45 +374,93 @@ class DashboardEngine:
             'ts': round(time_sec, 3),
             'beijing_time': bj_time,
             'refresh_interval_ms': self.config.get('refresh_interval_ms', 1000),
+            '_is_3node': self._is_3node,
+            '_node_ids': self._node_ids,
         }}
 
         # 更新历史 + 故障检测（都在 lock 内，确保 get_fault_replays 能看到一致状态）
         with self.lock:
-            for nc in enabled:
-                hid = nc['id']
-                self.history.setdefault(hid, {
-                    'time': [], 'beijing_time_ms': [],
-                    'delta_est': [[],[],[]], 'omega_est': [[],[],[]],
-                    'delta_true': [[],[],[]], 'omega_true': [[],[],[]],
-                    'fault_flags': [], 'phase': [],
-                })
-                h = self.history[hid]
-                t_ms = round(time_sec * 1000, 3)
-                bj_ms = t_ms + (self.start_beijing_ms or 0)
-                h['time'].append(t_ms)
-                h['beijing_time_ms'].append(bj_ms)
-                h['fault_flags'].append(sd.get('is_fault', False))
-                h['phase'].append(sd.get('fault_phase', 'normal'))
-                for i in range(3):
-                    h['delta_est'][i].append(float(sd['delta_est'][i]))
-                    h['omega_est'][i].append(float(sd['omega_est'][i]))
-                    if 'delta_true' in sd:
-                        h['delta_true'][i].append(float(sd['delta_true'][i]))
-                        h['omega_true'][i].append(float(sd['omega_true'][i]))
+            if self._is_3node:
+                # 三节点模式：每个节点独立存储历史
+                for nid in self._node_ids:
+                    nd = sd['nodes'].get(nid, {})
+                    self.history.setdefault(nid, {
+                        'time': [], 'beijing_time_ms': [],
+                        'delta_est': [[],[],[]], 'omega_est': [[],[],[]],
+                        'delta_true': [[],[],[]], 'omega_true': [[],[],[]],
+                        'fault_flags': [], 'phase': [],
+                    })
+                    h = self.history[nid]
+                    t_ms = round(time_sec * 1000, 3)
+                    bj_ms = t_ms + (self.start_beijing_ms or 0)
+                    h['time'].append(t_ms)
+                    h['beijing_time_ms'].append(bj_ms)
+                    h['fault_flags'].append(nd.get('is_fault', False))
+                    h['phase'].append(nd.get('fault_phase', 'normal'))
+                    de = nd.get('delta_est', [0,0,0])
+                    oe = nd.get('omega_est', [0,0,0])
+                    for i in range(3):
+                        h['delta_est'][i].append(float(de[i]))
+                        h['omega_est'][i].append(float(oe[i]))
+            else:
+                # 旧格式：按配置节点存储（共用同一份数据）
+                for nc in enabled:
+                    hid = nc['id']
+                    self.history.setdefault(hid, {
+                        'time': [], 'beijing_time_ms': [],
+                        'delta_est': [[],[],[]], 'omega_est': [[],[],[]],
+                        'delta_true': [[],[],[]], 'omega_true': [[],[],[]],
+                        'fault_flags': [], 'phase': [],
+                    })
+                    h = self.history[hid]
+                    t_ms = round(time_sec * 1000, 3)
+                    bj_ms = t_ms + (self.start_beijing_ms or 0)
+                    h['time'].append(t_ms)
+                    h['beijing_time_ms'].append(bj_ms)
+                    h['fault_flags'].append(sd.get('is_fault', False))
+                    h['phase'].append(sd.get('fault_phase', 'normal'))
+                    for i in range(3):
+                        h['delta_est'][i].append(float(sd['delta_est'][i]))
+                        h['omega_est'][i].append(float(sd['omega_est'][i]))
+                        if 'delta_true' in sd:
+                            h['delta_true'][i].append(float(sd['delta_true'][i]))
+                            h['omega_true'][i].append(float(sd['omega_true'][i]))
 
-            # 故障检测：只有 fault_phase == 'fault' 才算真正故障
-            phase = sd.get('fault_phase', 'normal')
-            is_real_fault = (phase == 'fault')
-            if is_real_fault and (not self.fault_detected or self.fault_detected[-1].get('end') is not None):
-                record = {'start': round(time_sec, 3), 'end': None, 'phase': phase}
-                self.fault_detected.append(record)
-                add_log('error', enabled[0]['id'] if enabled else 'system',
-                        f'故障开始: {time_sec}s, phase={phase}')
-                notify_fault(enabled[0]['id'] if enabled else 'system', phase, time_sec)
-            elif not is_real_fault and self.fault_detected and self.fault_detected[-1].get('end') is None:
-                self.fault_detected[-1]['end'] = round(time_sec, 3)
-                add_log('info', enabled[0]['id'] if enabled else 'system',
-                        f'故障结束: {time_sec}s')
+            # 故障检测：三节点模式下每个节点独立检测故障
+            if self._is_3node:
+                entering = []  # 本轮进入故障的节点
+                for nid in self._node_ids:
+                    nd = sd['nodes'].get(nid, {})
+                    node_fault = nd.get('is_fault', False)
+                    node_phase = nd.get('fault_phase', 'normal')
+                    prev_state = getattr(self, '_prev_fault_' + nid, False)
+                    if node_fault and not prev_state:
+                        entering.append(nid)
+                        add_log('error', nid, f'[{nid}] 故障开始: {time_sec}s')
+                    elif not node_fault and prev_state:
+                        add_log('info', nid, f'[{nid}] 故障结束: {time_sec}s')
+                    setattr(self, '_prev_fault_' + nid, node_fault)
+                # 多个节点同时故障 → 合并推送
+                if entering:
+                    if len(entering) >= 2:
+                        notify_fault(','.join(entering), 'fault', time_sec)
+                    else:
+                        nd = sd['nodes'].get(entering[0], {})
+                        notify_fault(entering[0], nd.get('fault_phase', 'normal'), time_sec,
+                                     nd.get('delta_est', []), nd.get('omega_est', []))
+            else:
+                phase = sd.get('fault_phase', 'normal')
+                is_real_fault = (phase == 'fault')
+                if is_real_fault and (not self.fault_detected or self.fault_detected[-1].get('end') is not None):
+                    record = {'start': round(time_sec, 3), 'end': None, 'phase': phase}
+                    self.fault_detected.append(record)
+                    add_log('error', enabled[0]['id'] if enabled else 'system',
+                            f'故障开始: {time_sec}s, phase={phase}')
+                    notify_fault(enabled[0]['id'] if enabled else 'system', phase, time_sec)
+                elif not is_real_fault and self.fault_detected and self.fault_detected[-1].get('end') is None:
+                    self.fault_detected[-1]['end'] = round(time_sec, 3)
+                    add_log('info', enabled[0]['id'] if enabled else 'system',
+                            f'故障结束: {time_sec}s')
 
             self.latest = result
             self.step_idx += 1
@@ -541,8 +638,14 @@ def api_status():
 
 @app.route('/api/history')
 def api_history():
-    node_id = request.args.get('node_id')
+    node_id = request.args.get('node_id', 'node_1')
     return jsonify(engine.get_history(node_id))
+
+
+@app.route('/api/history_all')
+def api_history_all():
+    """返回所有节点的历史数据（三节点模式）"""
+    return jsonify(engine.get_history(None))
 
 
 @app.route('/api/config')
