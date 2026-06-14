@@ -171,10 +171,62 @@ class DashboardEngine:
         self.start_beijing_ms = None
         self.finished = False
 
-        add_log('info', 'system', f'数据加载完成: {self.total_steps} 步, {self.params["total_time"]:.1f}s')
+        # ── 轮播配置：每 20 点一个 chunk，每 3s 切换一个节点 ──
+        self.chunk_size = 20
+        self.num_chunks = (self.total_steps + self.chunk_size - 1) // self.chunk_size
+        self.chunks = self._precompute_chunks()
+
+        add_log('info', 'system', f'数据加载完成: {self.total_steps} 步, {self.params["total_time"]:.1f}s, {self.num_chunks} chunks')
 
     def _get_enabled_nodes(self):
         return [n for n in self.config['nodes'] if n.get('enabled', False)]
+
+    def _precompute_chunks(self):
+        """预计算 chunk 数据：每 chunk 20 个点（20ms），用于轮播显示"""
+        chunks = []
+        for chunk_idx in range(self.num_chunks):
+            start = chunk_idx * self.chunk_size
+            end = min(start + self.chunk_size, self.total_steps)
+            chunk_data = {}
+            for nid in self._node_ids:
+                h = {
+                    'time': [], 'beijing_time_ms': [],
+                    'delta_est': [[], [], []], 'omega_est': [[], [], []],
+                    'delta_true': [[], [], []], 'omega_true': [[], [], []],
+                    'fault_flags': [], 'phase': [],
+                }
+                for i in range(start, end):
+                    sd = self.steps[i]
+                    nd = sd['nodes'].get(nid, {}) if self._is_3node else sd
+                    t_ms = i  # 毫秒时间（fs=1000，每点 1ms）
+                    h['time'].append(t_ms)
+                    h['beijing_time_ms'].append(t_ms)
+                    h['fault_flags'].append(nd.get('is_fault', False))
+                    h['phase'].append(nd.get('fault_phase', 'normal'))
+                    de = nd.get('delta_est', [0, 0, 0])
+                    oe = nd.get('omega_est', [0, 0, 0])
+                    for k in range(3):
+                        h['delta_est'][k].append(float(de[k]))
+                        h['omega_est'][k].append(float(oe[k]))
+                        dt = nd.get('delta_true', [0, 0, 0])
+                        ot = nd.get('omega_true', [0, 0, 0])
+                        h['delta_true'][k].append(float(dt[k]))
+                        h['omega_true'][k].append(float(ot[k]))
+                chunk_data[nid] = h
+            chunks.append(chunk_data)
+        return chunks
+
+    def _get_active_node_and_chunk(self):
+        """轮播逻辑：每 3s 一个节点"""
+        cycle_pos = self.step_idx % 9          # 0-8
+        active_node_idx = cycle_pos // 3       # 0,0,0,1,1,1,2,2,2
+        chunk_idx = self.step_idx // 9         # 0,0,0,0,0,0,0,0,0,1,1,1...
+        if chunk_idx >= self.num_chunks:
+            chunk_idx = self.num_chunks - 1
+        active_node = (self._node_ids[active_node_idx]
+                       if active_node_idx < len(self._node_ids)
+                       else self._node_ids[0])
+        return active_node, chunk_idx, cycle_pos
 
     def _build_weather_risk(self):
         """构造 weather_risk 字段。优先尝试心知天气 API（如果有 key 且网络可达），否则用仿真天气数据。"""
@@ -308,6 +360,9 @@ class DashboardEngine:
         if self.step_idx >= self.total_steps:
             return None
 
+        # 轮播状态
+        active_node, chunk_idx, cycle_pos = self._get_active_node_and_chunk()
+
         sd = self.steps[self.step_idx]
         # 时间 = step 编号 (1点=1秒)，不按原始采样率
         time_sec = float(sd['step'])
@@ -382,6 +437,9 @@ class DashboardEngine:
             'refresh_interval_ms': self.config.get('refresh_interval_ms', 1000),
             '_is_3node': self._is_3node,
             '_node_ids': self._node_ids,
+            'active_node': active_node,
+            'chunk_idx': chunk_idx,
+            'cycle_pos': cycle_pos,
         }}
 
         # 更新历史 + 故障检测（都在 lock 内，确保 get_fault_replays 能看到一致状态）
@@ -561,13 +619,16 @@ class DashboardEngine:
                 'finished': False,
                 'beijing_time': datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S'),
                 'refresh_interval_ms': self.config.get('refresh_interval_ms', 1000),
+                'active_node': self._node_ids[0] if self._node_ids else 'node_1',
+                'chunk_idx': 0,
+                'cycle_pos': 0,
             }}
 
     def get_history(self, node_id=None):
         with self.lock:
             if node_id:
-                return self.history.get(node_id, {})
-            return dict(self.history)
+                return dict(self.history.get(node_id, {}))
+            return {k: dict(v) for k, v in self.history.items()}
 
     def get_fault_info(self):
         with self.lock:

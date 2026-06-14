@@ -1150,100 +1150,40 @@ body {
       </div>
     </div>
 
-    <!-- Charts: 3 columns × 6 charts per node = 18 charts total -->
-    <!-- Node 1 Column -->
-    <div class="charts-section" data-node="1" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
-      <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div class="node-avatar g1" style="width:28px;height:28px;font-size:12px;">G1</div>
-        <span style="font-size:13px;font-weight:600;">终端节点 1</span>
+    <!-- Charts: 6 charts × 3 curves per chart = 3 nodes in one view -->
+    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+      <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:12px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div class="node-avatar g1" style="width:28px;height:28px;font-size:12px;">G1</div>
+          <div class="node-avatar g2" style="width:28px;height:28px;font-size:12px;">G2</div>
+          <div class="node-avatar g3" style="width:28px;height:28px;font-size:12px;">G3</div>
         </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₁</h3></div>
-        <div class="chart-wrap"><canvas id="n1d1"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₂</h3></div>
-        <div class="chart-wrap"><canvas id="n1d2"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₃</h3></div>
-        <div class="chart-wrap"><canvas id="n1d3"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₁</h3></div>
-        <div class="chart-wrap"><canvas id="n1w1"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₂</h3></div>
-        <div class="chart-wrap"><canvas id="n1w2"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₃</h3></div>
-        <div class="chart-wrap"><canvas id="n1w3"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Node 2 Column -->
-    <div class="charts-section" data-node="2" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
-      <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div class="node-avatar g2" style="width:28px;height:28px;font-size:12px;">G2</div>
-        <span style="font-size:13px;font-weight:600;">终端节点 2</span>
+        <span style="font-size:13px;font-weight:600;">三节点对比 · <span id="activeNodeLabel">终端节点 1</span> 高亮</span>
+        <span style="margin-left:auto; font-size:11px; color:var(--text-muted);" id="chunkLabel">Chunk 0 (0-19ms)</span>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">δ₁</h3></div>
-        <div class="chart-wrap"><canvas id="n2d1"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1d1"></canvas></div>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">δ₂</h3></div>
-        <div class="chart-wrap"><canvas id="n2d2"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1d2"></canvas></div>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">δ₃</h3></div>
-        <div class="chart-wrap"><canvas id="n2d3"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1d3"></canvas></div>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">ω₁</h3></div>
-        <div class="chart-wrap"><canvas id="n2w1"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1w1"></canvas></div>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">ω₂</h3></div>
-        <div class="chart-wrap"><canvas id="n2w2"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1w2"></canvas></div>
       </div>
       <div class="chart-card overview-chart">
         <div class="card-header"><h3 style="font-size:12px;">ω₃</h3></div>
-        <div class="chart-wrap"><canvas id="n2w3"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Node 3 Column -->
-    <div class="charts-section" data-node="3" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
-      <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div class="node-avatar g3" style="width:28px;height:28px;font-size:12px;">G3</div>
-        <span style="font-size:13px;font-weight:600;">终端节点 3</span>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₁</h3></div>
-        <div class="chart-wrap"><canvas id="n3d1"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₂</h3></div>
-        <div class="chart-wrap"><canvas id="n3d2"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">δ₃</h3></div>
-        <div class="chart-wrap"><canvas id="n3d3"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₁</h3></div>
-        <div class="chart-wrap"><canvas id="n3w1"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₂</h3></div>
-        <div class="chart-wrap"><canvas id="n3w2"></canvas></div>
-      </div>
-      <div class="chart-card overview-chart">
-        <div class="card-header"><h3 style="font-size:12px;">ω₃</h3></div>
-        <div class="chart-wrap"><canvas id="n3w3"></canvas></div>
+        <div class="chart-wrap"><canvas id="c1w3"></canvas></div>
       </div>
     </div>
 
@@ -1504,9 +1444,8 @@ function mkSmallChartOpts(yTitle) {
         ticks: { color: '#9ca3af', font: { size: 9 }, padding: 2, maxTicksLimit: 5,
           callback: function(v) {
             var d = new Date(v);
-            return String(d.getHours()).padStart(2,'0') + ':' +
-                   String(d.getMinutes()).padStart(2,'0') + ':' +
-                   String(d.getSeconds()).padStart(2,'0');
+            return String(d.getSeconds()).padStart(2,'0') + '.' +
+                   String(d.getMilliseconds()).padStart(3,'0');
           }
         }
       },
@@ -1526,12 +1465,9 @@ function mkSmallChartOpts(yTitle) {
           title: function(items) {
             if (items.length === 0) return '';
             var d = new Date(items[0].parsed.x);
-            return d.getFullYear()+'-'+
-              String(d.getMonth()+1).padStart(2,'0')+'-'+
-              String(d.getDate()).padStart(2,'0')+' '+
-              String(d.getHours()).padStart(2,'0')+':'+
-              String(d.getMinutes()).padStart(2,'0')+':'+
-              String(d.getSeconds()).padStart(2,'0');
+            return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+
+                   String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+
+                   String(d.getSeconds()).padStart(2,'0')+'.'+String(d.getMilliseconds()).padStart(3,'0');
           }
         }
       }
@@ -1539,20 +1475,32 @@ function mkSmallChartOpts(yTitle) {
   };
 }
 
-// Create all 18 charts
+// Create 6 charts, each with 3 datasets (node_1, node_2, node_3)
 var allCharts = {};
-['n1','n2','n3'].forEach(function(nid) {
-  ['d1','d2','d3','w1','w2','w3'].forEach(function(k) {
-    var canvasId = nid + k;
-    var el = document.getElementById(canvasId);
-    if (!el) return;
-    var isOmega = k[0] === 'w';
-    var color = NODE_COLORS[parseInt(nid[1]) - 1];
-    allCharts[canvasId] = new Chart(el.getContext('2d'), {
-      type: 'line',
-      data: { datasets: [mkDS3(k, color)] },
-      options: mkSmallChartOpts(isOmega ? 'rad/s' : 'rad'),
-    });
+var NODE_NAMES = ['node_1', 'node_2', 'node_3'];
+
+function mkDS3Multi(label, color) {
+  return {
+    label: label, data: [],
+    borderColor: color, backgroundColor: color + '18',
+    borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
+    tension: 0.15, fill: false,
+  };
+}
+
+['d1','d2','d3','w1','w2','w3'].forEach(function(k) {
+  var canvasId = 'c1' + k;
+  var el = document.getElementById(canvasId);
+  if (!el) return;
+  var isOmega = k[0] === 'w';
+  var datasets = [];
+  for (var ni = 0; ni < 3; ni++) {
+    datasets.push(mkDS3Multi(k + ' N' + (ni+1), NODE_COLORS[ni]));
+  }
+  allCharts[canvasId] = new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: { datasets: datasets },
+    options: mkSmallChartOpts(isOmega ? 'rad/s' : 'rad'),
   });
 });
 
@@ -1592,11 +1540,48 @@ function fetchResults() {
     document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
     running = data.running;
     updateStatusPill(data);
-    // Per-node fault highlight
+    // 更新活跃节点标签 + chunk 标签
+    var activeNode = data.active_node || 'node_1';
+    var nodeLabelMap = {'node_1': '终端节点 1', 'node_2': '终端节点 2', 'node_3': '终端节点 3'};
+    var al = document.getElementById('activeNodeLabel');
+    if (al) al.textContent = nodeLabelMap[activeNode] || activeNode;
+    var cl = document.getElementById('chunkLabel');
+    if (cl && data.chunk_idx !== undefined) {
+      var cs = data.chunk_idx * 20;
+      var ce = cs + 19;
+      cl.textContent = 'Chunk ' + data.chunk_idx + ' (step ' + cs + '-' + ce + ')';
+    }
+    highlightActiveNode(activeNode);
+    // Per-node fault highlight + 面板故障状态实时更新
+    var anyFault = false;
+    var faultLabels = [];
+    var nodeNames = {node_1: '终端节点1', node_2: '终端节点2', node_3: '终端节点3'};
     for (var ni = 1; ni <= 3; ni++) {
       var nd = (data.nodes && data.nodes.length >= ni) ? data.nodes[ni-1] : null;
       var nFault = nd ? (nd.fault && nd.fault.is_fault || false) : false;
+      var nPhase = nd ? (nd.fault && nd.fault.phase || 'normal') : 'normal';
       setChartsFaultHighlight('' + ni, nFault);
+      if (nFault || nPhase === 'fault') {
+        anyFault = true;
+        faultLabels.push(nodeNames['node_' + ni] + '故障');
+      }
+    }
+    // 实时更新故障面板
+    var faultEl = document.getElementById('faultValue');
+    var faultIcon = document.getElementById('faultIcon');
+    var faultDetailEl = document.querySelector('#faultValue + .card-detail');
+    if (anyFault) {
+      faultEl.textContent = '⚡ ' + faultLabels.join(' + ');
+      faultEl.style.color = 'var(--danger)';
+      faultIcon.className = 'card-icon danger';
+      faultIcon.innerHTML = '⚡';
+      if (faultDetailEl) faultDetailEl.textContent = faultLabels.join(' + ') + ' · 母线三相短路';
+    } else {
+      faultEl.textContent = '正常';
+      faultEl.style.color = 'var(--success)';
+      faultIcon.className = 'card-icon success';
+      faultIcon.innerHTML = '✓';
+      if (faultDetailEl) faultDetailEl.textContent = '三节点运行正常';
     }
     if (data.params) {
       if (data.start_beijing_ms) {
@@ -1637,6 +1622,11 @@ function fetchResults() {
     }
     document.getElementById('btnStart').disabled = data.running;
     document.getElementById('btnPause').disabled = !data.running;
+
+    // 触发历史更新（只更新活跃节点）
+    if (data.running) {
+      getHistory(data.active_node || 'node_1');
+    }
   }).catch(function(e) {
     console.warn('fetchResults error:', e);
     // 错误时短暂显示"重连中"而非永久红字，避免覆盖正常态
@@ -1647,94 +1637,65 @@ function fetchResults() {
   });
 }
 
-function getHistory() {
-  // 三节点模式：从 /api/history_all 批量获取
+function getHistory(activeNode) {
+  // 只更新当前活跃节点的数据，其他节点保持静止
+  activeNode = activeNode || 'node_1';
+  var activeIdx = NODE_NAMES.indexOf(activeNode);
+  if (activeIdx < 0) activeIdx = 0;
+
   return api('/history_all').then(function(allH) {
     if (!allH) return;
-    var nodeIds = ['node_1', 'node_2', 'node_3'];
-    var anyData = false;
+    var h = allH[activeNode];
+    if (!h || !h.time || h.time.length === 0) return;
 
-    nodeIds.forEach(function(nodeId, nodeIdx) {
-      var h = allH[nodeId];
-      if (!h || !h.time || h.time.length === 0) return;
-      anyData = true;
-      // 使用北京时间戳 (ms) 作为 X 轴
-      var t = (h.beijing_time_ms && h.beijing_time_ms.length > 0)
-        ? h.beijing_time_ms.map(function(v) { return v; })
-        : h.time.map(function(v) { return v; });
-      var curLast = t[t.length-1];
-      if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
-        // reset detected, clear all charts
-        Object.values(allCharts).forEach(function(c) {
-          c.data.datasets.forEach(function(ds) { ds.data = []; });
-          c.update('none');
-        });
-      }
-      prevLastTime = curLast;
+    // 使用北京时间戳 (ms) 作为 X 轴
+    var t = (h.beijing_time_ms && h.beijing_time_ms.length > 0)
+      ? h.beijing_time_ms.map(function(v) { return v; })
+      : h.time.map(function(v) { return v; });
+    var curLast = t[t.length-1];
 
-      var prefix = 'n' + (nodeIdx + 1);
-
-      // 滑动窗口: 只显示最近 WINDOW_MS 毫秒的数据
-      var WINDOW_MS = 15000;  // 15 秒窗口
-      var xMax = t[t.length-1];
-      var xMin = Math.max(t[0], xMax - WINDOW_MS) - 200;
-
-      // Update 6 charts for this node
-      ['d1','d2','d3'].forEach(function(k, gi) {
-        var ch = allCharts[prefix + k];
-        if (!ch) return;
-        var arr = h.delta_est[gi] || [];
-        ch.data.datasets[0].data = t.map(function(tv, idx) {
-          return { x: tv, y: idx < arr.length ? arr[idx] : null };
-        });
-        ch.options.scales.x.min = xMin;
-        ch.options.scales.x.max = xMax + 200;
-        ch.update('none');
+    // 检测 reset（step_idx 回绕到 0）——全部清空
+    if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
+      Object.values(allCharts).forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        c.update('none');
       });
-      ['w1','w2','w3'].forEach(function(k, gi) {
-        var ch = allCharts[prefix + k];
-        if (!ch) return;
-        var arr = h.omega_est[gi] || [];
-        ch.data.datasets[0].data = t.map(function(tv, idx) {
-          return { x: tv, y: idx < arr.length ? arr[idx] : null };
-        });
-        ch.options.scales.x.min = xMin;
-        ch.options.scales.x.max = xMax + 200;
-        ch.update('none');
+    }
+    prevLastTime = curLast;
+
+    // 滑动窗口：只取最近 20 个点
+    var windowSize = 20;
+    var startIdx = Math.max(0, t.length - windowSize);
+    var tWin = t.slice(startIdx);
+
+    var xMin = tWin[0] - 200;
+    var xMax = tWin[tWin.length - 1] + 200;
+
+    // 只更新活跃节点的 dataset
+    ['d1','d2','d3'].forEach(function(k, gi) {
+      var ch = allCharts['c1' + k];
+      if (!ch) return;
+      var arr = h.delta_est[gi] || [];
+      var arrWin = arr.slice(startIdx);
+      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
+        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
       });
+      ch.options.scales.x.min = xMin;
+      ch.options.scales.x.max = xMax;
+      ch.update('none');
     });
-
-    // Update fault status — 三节点模式聚合显示
-    var faultEl = document.getElementById('faultValue');
-    var faultIcon = document.getElementById('faultIcon');
-    var faultDetailEl = document.querySelector('#faultValue + .card-detail');
-    var anyFault = false;
-    var faultLabels = [];
-    var nodeNames = {node_1: '终端节点1', node_2: '终端节点2', node_3: '终端节点3'};
-    for (var ni = 1; ni <= 3; ni++) {
-      var nkey = 'node_' + ni;
-      var hn = allH[nkey];
-      if (hn && hn.phase && hn.phase.length > 0) {
-        var lp = hn.phase[hn.phase.length - 1];
-        if (lp === 'fault') {
-          anyFault = true;
-          faultLabels.push(nodeNames[nkey] + '故障');
-        }
-      }
-    }
-    if (anyFault) {
-      faultEl.textContent = '⚡ ' + faultLabels.join(' + ');
-      faultEl.style.color = 'var(--danger)';
-      faultIcon.className = 'card-icon danger';
-      faultIcon.innerHTML = '⚡';
-      if (faultDetailEl) faultDetailEl.textContent = faultLabels.join(' + ') + ' · 母线三相短路';
-    } else {
-      faultEl.textContent = '正常';
-      faultEl.style.color = 'var(--success)';
-      faultIcon.className = 'card-icon success';
-      faultIcon.innerHTML = '✓';
-      if (faultDetailEl) faultDetailEl.textContent = '三节点运行正常';
-    }
+    ['w1','w2','w3'].forEach(function(k, gi) {
+      var ch = allCharts['c1' + k];
+      if (!ch) return;
+      var arr = h.omega_est[gi] || [];
+      var arrWin = arr.slice(startIdx);
+      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
+        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
+      });
+      ch.options.scales.x.min = xMin;
+      ch.options.scales.x.max = xMax;
+      ch.update('none');
+    });
 
     // Update history table if tab open
     if (document.getElementById('panelHistory').style.display !== 'none' && allH['node_1']) {
@@ -2013,20 +1974,43 @@ function updateChartData(chart, times, arrays, isOverview) {
 }
 
 // ==================== Controls ====================
-function setChartsFaultHighlight(nodeId, isFault) {
-  // 通过 canvas ID 前缀判断属于哪个节点 (n1*, n2*, n3*)
-  var prefix = 'n' + nodeId;
-  var cards = document.querySelectorAll('.chart-card.overview-chart');
-  for (var i = 0; i < cards.length; i++) {
-    var canvas = cards[i].querySelector('canvas');
-    if (canvas && canvas.id && canvas.id.indexOf(prefix) === 0) {
-      if (isFault) {
-        cards[i].classList.add('fault-active');
+function highlightActiveNode(activeNode) {
+  // 高亮活跃节点，其他变淡
+  var activeIdx = NODE_NAMES.indexOf(activeNode);
+  Object.values(allCharts).forEach(function(ch) {
+    for (var i = 0; i < 3; i++) {
+      var ds = ch.data.datasets[i];
+      if (!ds) continue;
+      if (i === activeIdx) {
+        ds.borderWidth = 2.5;
+        ds.borderColor = NODE_COLORS[i];
+        ds.backgroundColor = NODE_COLORS[i] + '30';
       } else {
-        cards[i].classList.remove('fault-active');
+        ds.borderWidth = 1;
+        ds.borderColor = NODE_COLORS[i] + '60';
+        ds.backgroundColor = NODE_COLORS[i] + '10';
       }
     }
-  }
+    ch.update('none');
+  });
+}
+
+function setChartsFaultHighlight(nodeId, isFault) {
+  // 新布局：6 个图表共享，故障时高亮对应节点的 dataset
+  var nodeIdx = NODE_NAMES.indexOf(nodeId);
+  if (nodeIdx < 0) return;
+  Object.values(allCharts).forEach(function(ch) {
+    var ds = ch.data.datasets[nodeIdx];
+    if (!ds) return;
+    if (isFault) {
+      ds.borderColor = '#dc2626';
+      ds.backgroundColor = 'rgba(220,38,38,0.15)';
+    } else {
+      ds.borderColor = NODE_COLORS[nodeIdx];
+      ds.backgroundColor = NODE_COLORS[nodeIdx] + '18';
+    }
+    ch.update('none');
+  });
 }
 
 function updateNodeBytes(nodeId, totalBytes) {
@@ -2253,12 +2237,12 @@ function updateLogTab() {
 
 // ==================== Init ====================
 fetchResults();
-getHistory().catch(function(e) { console.warn('getHistory init error:', e); });
+getHistory('node_1').catch(function(e) { console.warn('getHistory init error:', e); });
 // 故障回放不在初始化时加载，等引擎跑过故障点后再显示
 
 setTimeout(function() {
   api('/status').then(function(d) {
-    if (d.running) { startPolling(); getHistory().catch(function() {}); }
+    if (d.running) { startPolling(); getHistory(d.active_node || 'node_1').catch(function() {}); }
   }).catch(function() {});
 }, 300);
 
