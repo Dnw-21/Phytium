@@ -1,0 +1,16 @@
+# Build artifacts
+*_arm64
+*.exe
+*.o
+*.out
+
+# Data files
+*.bin
+*.mat
+*.csv
+*.txt
+*.png
+
+# Python cache
+__pycache__/
+*.pyc
