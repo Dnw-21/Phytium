@@ -1,0 +1,20 @@
+[Unit]
+Description=UKF State Estimation Dashboard (HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+Group=user
+WorkingDirectory=/home/user/dashboard_board/server
+Environment="PYTHONUNBUFFERED=1"
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 /home/user/dashboard_board/server/dashboard_server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/user/dashboard_board/logs/server.log
+StandardError=append:/home/user/dashboard_board/logs/server.err
+
+[Install]
+WantedBy=multi-user.target

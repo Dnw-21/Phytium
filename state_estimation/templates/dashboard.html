@@ -1,0 +1,2061 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UKF 动态状态估计 — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+window.onerror = function(msg, url, line) {
+  var el = document.getElementById('errMsg');
+  if (el) { el.style.display = 'flex'; el.textContent = 'JS 错误: ' + msg + ' (行 ' + line + ')'; }
+};
+</script>
+<style>
+/* ===== Design Tokens ===== */
+:root {
+  /* Backgrounds - Clean monitoring theme */
+  --bg-deep: #eef1f5;
+  --bg-base: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+
+  /* Borders */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-accent: rgba(59, 130, 246, 0.25);
+
+  /* Text */
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-tertiary: #6b7280;
+  --text-muted: #9ca3af;
+
+  /* Accent colors - Blue primary */
+  --accent: #3b82f6;
+  --accent-dim: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.12);
+
+  /* Semantic colors */
+  --success: #059669;
+  --success-dim: #047857;
+  --success-glow: rgba(5, 150, 105, 0.1);
+  --warning: #d97706;
+  --warning-dim: #b45309;
+  --warning-glow: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-dim: #b91c1c;
+  --danger-glow: rgba(220, 38, 38, 0.1);
+
+  /* Chart colors */
+  --chart-1: #3b82f6;
+  --chart-2: #f59e0b;
+  --chart-3: #8b5cf6;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.06), 0 4px 6px rgba(0,0,0,0.04);
+
+  /* Spacing scale - 4pt base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace;
+}
+
+/* ===== Reset & Base ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Error Banner ===== */
+.err-banner {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  background: rgba(220, 38, 38, 0.06);
+  color: #dc2626;
+  padding: var(--space-3) var(--space-6);
+  font-size: 13px;
+  border-bottom: 1px solid rgba(220, 38, 38, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+/* ===== App Shell - Bento Grid Layout ===== */
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: 64px 1fr;
+  grid-template-areas:
+    "sidebar header"
+    "sidebar main";
+  min-height: 100vh;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 64px 1fr;
+    grid-template-areas:
+      "header"
+      "main";
+  }
+  .sidebar { display: none; }
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+  gap: var(--space-6);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 0 var(--space-2);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+  background: none;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-item:hover {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent);
+}
+
+.nav-item .nav-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+/* System info in sidebar */
+.system-info {
+  margin-top: auto;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.info-row .label {
+  color: var(--text-tertiary);
+}
+
+.info-row .value {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ===== Header ===== */
+.header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.breadcrumb .current {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Status indicators */
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all var(--transition);
+}
+
+.status-ready {
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.status-running {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.2);
+}
+
+.status-fault {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+.status-done {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.status-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-running .dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.5); }
+}
+
+.phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all var(--transition);
+}
+
+.phase-normal {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.15);
+}
+
+.phase-fault {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+.phase-post {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+}
+
+/* Step counter */
+.step-counter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.step-counter .current {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.step-counter .sep {
+  color: var(--text-muted);
+}
+
+.step-counter .total {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  grid-area: main;
+  padding: var(--space-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.main-content .charts-section:last-of-type {
+  margin-bottom: 20px;
+}
+
+/* ===== Bento Grid - Top Metrics ===== */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 1280px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .bento-grid { grid-template-columns: 1fr; }
+}
+
+.bento-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.bento-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.bento-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.bento-card:hover::before {
+  opacity: 0.5;
+}
+
+.bento-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bento-card .card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bento-card .card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.card-icon.accent { background: rgba(59, 130, 246, 0.08); color: var(--accent); }
+.card-icon.success { background: rgba(5, 150, 105, 0.08); color: var(--success); }
+.card-icon.warning { background: rgba(217, 119, 6, 0.08); color: var(--warning); }
+.card-icon.danger { background: rgba(220, 38, 38, 0.08); color: var(--danger); }
+
+.bento-card .card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  letter-spacing: -0.5px;
+}
+
+.bento-card .card-detail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.bento-card .card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.trend-up {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+}
+
+.trend-down {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
+/* ===== Node Cards Row ===== */
+.nodes-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 900px) {
+  .nodes-row { grid-template-columns: 1fr; }
+}
+
+.node-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 10px var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.node-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+}
+
+.node-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.node-avatar.g1 {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.04));
+  color: var(--chart-1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.node-avatar.g2 {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+  color: var(--chart-2);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.node-avatar.g3 {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(139, 92, 246, 0.04));
+  color: var(--chart-3);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.node-avatar .status-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 3px solid var(--bg-card);
+  box-shadow: 0 0 6px rgba(5, 150, 105, 0.4);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 6px rgba(5, 150, 105, 0.4); }
+  50% { transform: scale(1.25); opacity: 0.75; box-shadow: 0 0 12px rgba(5, 150, 105, 0.6); }
+}
+
+.node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-info .name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.node-info .detail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.node-metric {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.node-metric .value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.node-metric .label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== Charts Section ===== */
+.charts-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .charts-section { grid-template-columns: 1fr; }
+}
+
+.chart-card.main-chart {
+  height: 200px;
+}
+
+.chart-card.overview-chart {
+  height: 140px;
+}
+
+.overview-section {
+  min-height: 0;
+}
+
+.overview-wrap {
+  height: 100px;
+  min-height: 100px;
+  flex: none;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.chart-card.fault-active {
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239,68,68,0.25), 0 0 3px rgba(239,68,68,0.4);
+  background: linear-gradient(135deg, rgba(239,68,68,0.03), var(--bg-card));
+}
+
+.chart-card:hover {
+  border-color: var(--border-default);
+}
+
+.chart-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chart-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-card h3::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.chart-legends {
+  display: flex;
+  gap: var(--space-4);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.chart-legends .legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-legends .line-true {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--text-tertiary);
+}
+
+.chart-legends .line-est {
+  width: 16px;
+  height: 0;
+  border-top: 1.5px dashed var(--accent);
+}
+
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Waiting overlay */
+.waiting-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: rgba(244, 246, 249, 0.92);
+  border-radius: var(--radius);
+  z-index: 5;
+  color: var(--text-secondary);
+  font-size: 14px;
+  backdrop-filter: blur(4px);
+  transition: opacity var(--transition-slow);
+}
+
+.waiting-overlay .play-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--accent);
+  transition: all var(--transition);
+  cursor: pointer;
+}
+
+.waiting-overlay .play-icon:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: scale(1.05);
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.15);
+}
+
+/* ===== Controls Bar ===== */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 10px var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-play {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+.btn-play:hover:not(:disabled) {
+  background: rgba(5, 150, 105, 0.15);
+  border-color: rgba(5, 150, 105, 0.35);
+  box-shadow: 0 0 16px rgba(5, 150, 105, 0.12);
+  transform: translateY(-1px);
+}
+
+.btn-play:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-pause {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.btn-pause:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--text-muted);
+}
+
+.btn-pause:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-reset {
+  background: transparent;
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+.btn-reset:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+  box-shadow: 0 0 16px rgba(220, 38, 38, 0.1);
+}
+
+.btn-reset:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Speed control */
+.speed-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.speed-group label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.speed-group input[type="range"] {
+  width: 100px;
+  accent-color: var(--accent);
+  height: 4px;
+}
+
+.speed-group .speed-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* ===== Footer ===== */
+.footer {
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ===== Simulation Buttons ===== */
+.sim-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 16px 12px; border-radius: var(--radius); border: 2px solid var(--border-subtle);
+  background: var(--bg-card); cursor: pointer; transition: all var(--transition);
+  font-family: inherit; font-size: 13px; color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+.sim-btn:hover {
+  border-color: var(--border-accent); transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.sim-btn:active { transform: scale(0.97); }
+.sim-sandstorm { border-left: 3px solid #d97706; }
+.sim-thunder   { border-left: 3px solid #7c3aed; }
+.sim-rain      { border-left: 3px solid #2563eb; }
+.sim-temp      { border-left: 3px solid #dc2626; }
+.sim-ice       { border-left: 3px solid #0891b2; }
+.sim-heat      { border-left: 3px solid #ea580c; }
+</style>
+</head>
+<body>
+
+<div class="err-banner" id="errMsg"></div>
+
+<div class="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <div class="brand-title">UKF Dashboard</div>
+        <div class="brand-subtitle">状态估计系统</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">导航</div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" id="navMonitor" onclick="switchTab('monitor')">
+          <span class="nav-icon">📊</span>
+          <span>实时监控</span>
+        </button>
+        <button class="nav-item" id="navHistory" onclick="switchTab('history')">
+          <span class="nav-icon">📈</span>
+          <span>历史数据</span>
+        </button>
+        <button class="nav-item" id="navConfig" onclick="switchTab('config')">
+          <span class="nav-icon">⚙️</span>
+          <span>系统配置</span>
+        </button>
+        <button class="nav-item" id="navLog" onclick="switchTab('log')">
+          <span class="nav-icon">📋</span>
+          <span>日志记录</span>
+        </button>
+        <button class="nav-item" id="navSim" onclick="switchTab('sim')">
+          <span class="nav-icon">🌪</span>
+          <span>仿真模拟</span>
+        </button>
+      </nav>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">系统信息</div>
+      <div class="system-info">
+        <div class="info-row">
+          <span class="label">发电机</span>
+          <span class="value" id="siGen">3 台</span>
+        </div>
+        <div class="info-row">
+          <span class="label">母线</span>
+          <span class="value" id="siBus">9 条</span>
+        </div>
+        <div class="info-row">
+          <span class="label">采样率</span>
+          <span class="value" id="siRate">1000 Hz</span>
+        </div>
+        <div class="info-row">
+          <span class="label">数据点</span>
+          <span class="value" id="siPts">5000</span>
+        </div>
+        <div class="info-row">
+          <span class="label">故障时段</span>
+          <span class="value" id="siFault">2.0~2.05s</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="breadcrumb">
+        <span>Dashboard</span>
+        <span style="color:var(--text-muted)">/</span>
+        <span class="current">实时监控</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="phaseLabel" class="phase-badge phase-normal">就绪</span>
+      <div class="step-counter">
+        <span class="current" id="elapsedTime">0.0</span>
+        <span class="sep">s</span>
+      </div>
+      <span id="statusPill" class="status-pill status-ready">
+        <span class="dot"></span>
+        <span id="statusText">初始化中</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- Bento Grid Metrics -->
+    <div class="bento-grid">
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">运行时间</span>
+          <div class="card-icon accent">⏱</div>
+        </div>
+        <div class="card-value" id="elapsedValue">0.0s</div>
+        <div class="card-detail">系统已运行时长</div>
+      </div>
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">故障检测</span>
+          <div class="card-icon warning" id="faultIcon">⚠</div>
+        </div>
+        <div class="card-value" id="faultValue">未检测到</div>
+        <div class="card-detail">母线 8-9 三相短路</div>
+      </div>
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">天气 · 风险</span>
+          <div class="card-icon accent" id="weatherIcon">☁</div>
+        </div>
+        <div class="card-value" id="weatherRiskValue" style="font-size:22px;">--</div>
+        <div class="card-detail" id="weatherRiskDetail" style="font-size:11px;">甘肃酒泉 · 等待数据</div>
+      </div>
+    </div>
+
+    <!-- Node Cards -->
+    <div class="nodes-row">
+      <div class="node-card">
+        <div class="node-avatar g1">
+          G1
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 1</div>
+          <div class="detail">Bus 1, 4, 5</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes1">--</div>
+          <div class="label">数据接收</div>
+        </div>
+      </div>
+      <div class="node-card">
+        <div class="node-avatar g2">
+          G2
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 2</div>
+          <div class="detail">Bus 2, 6, 7</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes2">--</div>
+          <div class="label">数据接收</div>
+        </div>
+      </div>
+      <div class="node-card">
+        <div class="node-avatar g3">
+          G3
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 3</div>
+          <div class="detail">Bus 3, 8, 9</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes3">--</div>
+          <div class="label">数据接收</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts: 3x2 = 6 charts (Delta1,2,3 + Omega1,2,3) -->
+    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转子角度 δ₁ (rad)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartDelta1"></canvas>
+          <div class="waiting-overlay" id="overlayDelta1">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转子角度 δ₂ (rad)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartDelta2"></canvas>
+          <div class="waiting-overlay" id="overlayDelta2">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转子角度 δ₃ (rad)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartDelta3"></canvas>
+          <div class="waiting-overlay" id="overlayDelta3">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转速 ω₁ (rad/s)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartOmega1"></canvas>
+          <div class="waiting-overlay" id="overlayOmega1">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转速 ω₂ (rad/s)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartOmega2"></canvas>
+          <div class="waiting-overlay" id="overlayOmega2">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+      <div class="chart-card main-chart">
+        <div class="card-header">
+          <h3>转速 ω₃ (rad/s)</h3>
+          <div class="chart-legends">
+            <span class="legend-item"><span class="line-true"></span>真实值</span>
+            <span class="legend-item"><span class="line-est"></span>UKF估计</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chartOmega3"></canvas>
+          <div class="waiting-overlay" id="overlayOmega3">
+            <div class="play-icon" onclick="doStart()">▶</div>
+            点击开始运行仿真
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab panels: 历史/配置/日志 -->
+    <div id="tabPanel" style="display:none; margin-top:16px;">
+      <div id="panelHistory" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>历史数据</h3><span style="font-size:11px;color:var(--text-muted)">最近 600 条 · 旧数据自动覆盖</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);color:var(--text-secondary)">
+            <table style="width:100%;border-collapse:collapse;" id="historyTable">
+              <thead><tr style="border-bottom:1px solid var(--border-default);text-align:left;font-weight:600;">
+                <th style="padding:4px 8px;">时间</th><th style="padding:4px 8px;">δ₁</th><th style="padding:4px 8px;">ω₁</th><th style="padding:4px 8px;">δ₂</th><th style="padding:4px 8px;">ω₂</th><th style="padding:4px 8px;">δ₃</th><th style="padding:4px 8px;">ω₃</th><th style="padding:4px 8px;">阶段</th>
+              </tr></thead><tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- 故障回放 -->
+        <div class="chart-card" style="margin-top:16px;">
+          <div class="card-header"><h3>故障回放</h3><span style="font-size:11px;color:var(--text-muted)">已记录故障片段 · 点击播放</span></div>
+          <div style="padding:12px;" id="replayContainer">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelConfig" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>系统配置 ⚙️</h3></div>
+          <div style="padding:16px;" id="configContent">
+            <table class="config-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);width:140px;">系统模型</td><td id="cfgModel">IEEE 9-Bus</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">发电机数</td><td id="cfgGen">3</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">母线数</td><td id="cfgBus">9</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">采样频率</td><td id="cfgRate">1000 Hz</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障位置</td><td>母线 8-9 三相短路</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障开始</td><td id="cfgSW">--</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">故障切除</td><td id="cfgFC">--</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">UKF 噪声</td><td>σ=1e-2</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">积分方法</td><td>RK4 (四阶Runge-Kutta)</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="panelLog" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>事件日志 📋</h3><span style="font-size:11px;color:var(--text-muted)">最近 50 条 · 旧数据自动覆盖</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);" id="logContent">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">等待事件...</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelSim" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>🌪 自然灾害仿真模拟 — 甘肃酒泉</h3><span style="font-size:11px;color:var(--text-muted)">模拟灾害天气，触发风险评估与飞书预警推送</span></div>
+          <div style="padding:16px;">
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;">
+              <button class="sim-btn sim-sandstorm" onclick="simDisaster('sandstorm')">
+                <span style="font-size:24px;">🌪</span>
+                <span style="font-weight:600;">沙尘暴</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">强风+扬沙</span>
+              </button>
+              <button class="sim-btn sim-thunder" onclick="simDisaster('thunderstorm')">
+                <span style="font-size:24px;">⛈</span>
+                <span style="font-weight:600;">雷暴</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">雷击风险</span>
+              </button>
+              <button class="sim-btn sim-rain" onclick="simDisaster('rain_hail')">
+                <span style="font-size:24px;">🌧</span>
+                <span style="font-weight:600;">暴雨冰雹</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">设备进水</span>
+              </button>
+              <button class="sim-btn sim-temp" onclick="simDisaster('extreme_temp')">
+                <span style="font-size:24px;">🌡</span>
+                <span style="font-weight:600;">极端温差</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">热疲劳</span>
+              </button>
+              <button class="sim-btn sim-ice" onclick="simDisaster('icing')">
+                <span style="font-size:24px;">❄</span>
+                <span style="font-weight:600;">冻雨覆冰</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">线路断裂</span>
+              </button>
+              <button class="sim-btn sim-heat" onclick="simDisaster('heatwave')">
+                <span style="font-size:24px;">🔥</span>
+                <span style="font-weight:600;">极端高温</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">设备过热</span>
+              </button>
+            </div>
+            <div style="margin-top:16px;text-align:center;">
+              <button class="btn btn-reset" onclick="simDisaster('clear')" style="padding:8px 24px;">↻ 清除模拟，恢复真实天气</button>
+            </div>
+            <div id="simResult" style="margin-top:16px;padding:12px;background:var(--bg-surface-elevated);border-radius:var(--radius);display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-bar">
+      <button id="btnStart" class="btn btn-play" onclick="doStart()">▶ 开始</button>
+      <button id="btnPause" class="btn btn-pause" onclick="doPause()">⏸ 暂停</button>
+      <button id="btnReset" class="btn btn-reset" onclick="doReset()">↻ 重置</button>
+
+    </div>
+
+    <div class="footer">UKF 动态状态估计 · IEEE 9-Bus System · 采样率 1000Hz</div>
+
+  </main>
+</div>
+
+<script>
+try {
+
+// ==================== Config ====================
+var COLORS = { g1:'#3b82f6', g2:'#f59e0b', g3:'#8b5cf6' };
+var COLORS_ALPHA = { g1:'rgba(59,130,246,0.08)', g2:'rgba(245,158,11,0.08)', g3:'rgba(139,92,246,0.08)' };
+// faultStart/faultEnd 不再硬编码，改为从后端 params.fault_times 动态读取
+var pollTimer = null;
+var running = false;
+
+// ==================== Chart Setup ====================
+function mkDS(label, color, dashed) {
+  return {
+    label: label, data: [],
+    borderColor: color, backgroundColor: color+'18',
+    borderWidth: dashed ? 1.5 : 2.5,
+    borderDash: dashed ? [6, 4] : [],
+    pointRadius: 0, pointHoverRadius: 5,
+    pointHoverBackgroundColor: color,
+    pointHoverBorderColor: '#fff',
+    pointHoverBorderWidth: 2,
+    tension: 0.15, fill: false,
+  };
+}
+
+var faultRegions = [];
+
+function drawFaultRegions(chart, ctx, xAxis, yAxis) {
+  if (!faultRegions || faultRegions.length === 0) return;
+  var meta = chart.getDatasetMeta(0);
+  if (!meta.data || meta.data.length < 2) return;
+  var dataMax = meta.data[meta.data.length-1].x;
+  if (dataMax === undefined) return;
+  ctx.save();
+  for (var i = 0; i < faultRegions.length; i++) {
+    var r = faultRegions[i];
+    var sw = r.start, fc = r.end;
+    if (dataMax < sw) continue;
+    var x1 = xAxis.getPixelForValue(sw);
+    var x2 = xAxis.getPixelForValue(Math.min(fc, dataMax));
+    if (x2 <= x1) continue;
+    var grad = ctx.createLinearGradient(x1, 0, x2, 0);
+    grad.addColorStop(0, 'rgba(239,68,68,0.06)');
+    grad.addColorStop(0.5, 'rgba(239,68,68,0.12)');
+    grad.addColorStop(1, 'rgba(239,68,68,0.06)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x1, yAxis.top, x2 - x1, yAxis.bottom - yAxis.top);
+    ctx.strokeStyle = 'rgba(239,68,68,0.2)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x2, yAxis.top); ctx.lineTo(x2, yAxis.bottom);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(220,38,38,0.85)';
+    ctx.lineWidth = 2; ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x1, yAxis.top); ctx.lineTo(x1, yAxis.bottom);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,38,38,0.85)';
+    ctx.font = 'bold 12px -apple-system, "PingFang SC", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.label || '故障', x1 + 4, yAxis.top + 16);
+  }
+  ctx.restore();
+}
+
+var faultPlugin = {
+  id: 'faultRegion',
+  beforeDraw: function(chart) {
+    drawFaultRegions(chart, chart.ctx, chart.scales.x, chart.scales.y);
+  }
+};
+
+function mkChartOpts(yTitle) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 200, easing: 'easeOutQuart' },
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: '北京时间', color: '#6b7280', font: { size: 12, weight: '500' } },
+        grid: { color: 'rgba(0,0,0,0.06)', drawBorder: false },
+        ticks: {
+          color: '#6b7280', font: { size: 11 }, padding: 8, maxTicksLimit: 10,
+          callback: function(v) {
+            var d = new Date(v);
+            var H = String(d.getHours()).padStart(2, '0');
+            var M = String(d.getMinutes()).padStart(2, '0');
+            var S = String(d.getSeconds()).padStart(2, '0');
+            return H + ':' + M + ':' + S;
+          }
+        }
+      },
+      y: {
+        title: { display: true, text: yTitle, color: '#6b7280', font: { size: 12, weight: '500' } },
+        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        ticks: { color: '#6b7280', font: { size: 11 }, padding: 8, maxTicksLimit: 8 }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top',
+        align: 'end',
+        labels: {
+          color: '#6b7280', usePointStyle: true, pointStyleWidth: 8,
+          boxHeight: 2, padding: 16, font: { size: 11 }, filter: function() { return false; }
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        titleColor: '#111827', bodyColor: '#374151',
+        borderColor: '#e5e7eb', borderWidth: 1,
+        padding: 12, cornerRadius: 8,
+        titleFont: { size: 12, weight: '600' }, bodyFont: { size: 12 },
+        displayColors: true, boxPadding: 3
+      }
+    }
+  };
+}
+
+var chartDelta1 = new Chart(document.getElementById('chartDelta1').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('δ₁ True', COLORS.g1, false), mkDS('δ₁ Est.', COLORS.g1, true),
+  ]},
+  options: mkChartOpts('角度 (rad)'),
+  plugins: [faultPlugin],
+});
+
+var chartDelta2 = new Chart(document.getElementById('chartDelta2').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('δ₂ True', COLORS.g2, false), mkDS('δ₂ Est.', COLORS.g2, true),
+  ]},
+  options: mkChartOpts('角度 (rad)'),
+  plugins: [faultPlugin],
+});
+
+var chartDelta3 = new Chart(document.getElementById('chartDelta3').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('δ₃ True', COLORS.g3, false), mkDS('δ₃ Est.', COLORS.g3, true),
+  ]},
+  options: mkChartOpts('角度 (rad)'),
+  plugins: [faultPlugin],
+});
+
+var chartOmega1 = new Chart(document.getElementById('chartOmega1').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('ω₁ True', COLORS.g1, false), mkDS('ω₁ Est.', COLORS.g1, true),
+  ]},
+  options: mkChartOpts('转速 (rad/s)'),
+  plugins: [faultPlugin],
+});
+
+var chartOmega2 = new Chart(document.getElementById('chartOmega2').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('ω₂ True', COLORS.g2, false), mkDS('ω₂ Est.', COLORS.g2, true),
+  ]},
+  options: mkChartOpts('转速 (rad/s)'),
+  plugins: [faultPlugin],
+});
+
+var chartOmega3 = new Chart(document.getElementById('chartOmega3').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [
+    mkDS('ω₃ True', COLORS.g3, false), mkDS('ω₃ Est.', COLORS.g3, true),
+  ]},
+  options: mkChartOpts('转速 (rad/s)'),
+  plugins: [faultPlugin],
+});
+
+// ==================== Data Loading (Polling) ====================
+function api(path, method, body) {
+  var opts = { method: method || 'GET', headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  return fetch(path, opts).then(function(r) { return r.json(); });
+}
+
+function updateStatusPill(data) {
+  var el = document.getElementById('statusPill');
+  var txt = document.getElementById('statusText');
+  el.className = 'status-pill';
+  if (data.running) { el.className += ' status-running'; txt.textContent = '运行中'; }
+  else if (data.finished) { el.className += ' status-done'; txt.textContent = '已完成'; }
+  else { el.className += ' status-ready'; txt.textContent = '就绪'; }
+}
+
+function updateStatusPillText(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+function fetchResults() {
+  api('/status').then(function(data) {
+    if (!data) return;
+    var elapsed = data.elapsed_sec || 0;
+    document.getElementById('elapsedTime').textContent = elapsed.toFixed(2);
+    document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
+    running = data.running;
+    updateStatusPill(data);
+    setChartsFaultHighlight(data.is_fault);
+    if (data.params) {
+      var bjMs = data.start_beijing_ms || 0;
+      faultRegions = [
+        {start: bjMs + data.params.fault1_start * 1000, end: bjMs + (data.params.fault1_start + 2.0) * 1000, label: '故障1 (母线8-9)'},
+        {start: bjMs + data.params.fault2_start * 1000, end: bjMs + (data.params.fault2_start + 2.0) * 1000, label: '故障2 (母线8-9)'},
+      ];
+      document.getElementById('siGen').textContent = data.params.n + ' 台';
+      document.getElementById('siBus').textContent = data.params.s + ' 条';
+      document.getElementById('siRate').textContent = data.params.fs + ' Hz';
+      document.getElementById('siPts').textContent = data.params.total;
+      document.getElementById('siFault').textContent = '实时读取';
+    }
+    if (data.nodes) {
+      updateNodeBytes('1', data.nodes['1'].bytes_total);
+      updateNodeBytes('2', data.nodes['2'].bytes_total);
+      updateNodeBytes('3', data.nodes['3'].bytes_total);
+    }
+    if (data.weather_risk) {
+      var wr = data.weather_risk;
+      var wnow = wr.now;
+      var riskColor = wr.overall_color || '#059669';
+      var riskIcon = '☁';
+      if (wr.overall === 'extreme') riskIcon = '🔴';
+      else if (wr.overall === 'high') riskIcon = '🟠';
+      else if (wr.overall === 'moderate') riskIcon = '🟡';
+      document.getElementById('weatherRiskValue').innerHTML = wnow.text + ' ' + wnow.temperature + '°C &nbsp;|&nbsp; <span style="color:' + riskColor + ';font-weight:700;">' + riskIcon + ' ' + wr.overall_label + '</span>';
+      document.getElementById('weatherRiskDetail').textContent = wr.location + ' · ' + wr.summary;
+      document.getElementById('weatherIcon').innerHTML = riskIcon;
+    }
+    document.getElementById('btnStart').disabled = data.running;
+    document.getElementById('btnPause').disabled = !data.running;
+  }).catch(function(e) { updateStatusPillText('连接失败'); });
+}
+
+function getHistory() {
+  return api('/history').then(function(h) {
+    if (!h || !h.beijing_time_ms || h.beijing_time_ms.length === 0) {
+      [chartDelta1, chartDelta2, chartDelta3, chartOmega1, chartOmega2, chartOmega3].forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        c.update('none');
+      });
+      prevLastTime = -1;
+      return;
+    }
+    var t = h.beijing_time_ms;
+    var curLast = t[t.length-1];
+    if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
+      [chartDelta1, chartDelta2, chartDelta3, chartOmega1, chartOmega2, chartOmega3].forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        c.update('none');
+      });
+    }
+    prevLastTime = curLast;
+    updateChartData(chartDelta1, t, [h.delta_true[0], h.delta_est[0]]);
+    updateChartData(chartDelta2, t, [h.delta_true[1], h.delta_est[1]]);
+    updateChartData(chartDelta3, t, [h.delta_true[2], h.delta_est[2]]);
+    updateChartData(chartOmega1, t, [h.omega_true[0], h.omega_est[0]]);
+    updateChartData(chartOmega2, t, [h.omega_true[1], h.omega_est[1]]);
+    updateChartData(chartOmega3, t, [h.omega_true[2], h.omega_est[2]]);
+    var faultEl = document.getElementById('faultValue');
+    var faultIcon = document.getElementById('faultIcon');
+    if (h.phase && h.phase.length > 0) {
+      var lastPhase = h.phase[h.phase.length-1];
+      var isFault = lastPhase.startsWith('fault');
+      if (isFault) {
+        faultEl.textContent = '⚠ ' + lastPhase;
+        faultEl.style.color = 'var(--danger)';
+        faultIcon.className = 'card-icon danger';
+        faultIcon.innerHTML = '⚡';
+      } else if (lastPhase === 'post') {
+        faultEl.textContent = '故障已切除';
+        faultEl.style.color = 'var(--success)';
+        faultIcon.className = 'card-icon success';
+        faultIcon.innerHTML = '✓';
+      } else {
+        faultEl.textContent = '未检测到';
+        faultEl.style.color = 'var(--text-primary)';
+        faultIcon.className = 'card-icon warning';
+        faultIcon.innerHTML = '⚠';
+      }
+    }
+    document.getElementById('overlayDelta1').style.display = 'none';
+    document.getElementById('overlayDelta2').style.display = 'none';
+    document.getElementById('overlayDelta3').style.display = 'none';
+    document.getElementById('overlayOmega1').style.display = 'none';
+    document.getElementById('overlayOmega2').style.display = 'none';
+    document.getElementById('overlayOmega3').style.display = 'none';
+    // Update history table if tab open
+    if (document.getElementById('panelHistory').style.display !== 'none') {
+      updateHistoryTable(h);
+      loadFaultReplays();
+    }
+    // Update log if tab open
+    if (document.getElementById('panelLog').style.display !== 'none') {
+      updateLogTab();
+    }
+  }).catch(function(e) {});
+}
+
+var faultSnapshots = [];
+
+function loadFaultReplays() {
+  api('/api/fault_replays').then(function(res) {
+    if (res && res.snapshots) {
+      faultSnapshots = res.snapshots;
+      updateReplayPanel();
+    }
+  });
+}
+
+function updateReplayPanel() {
+  var el = document.getElementById('replayContainer');
+  if (faultSnapshots.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>';
+    return;
+  }
+  var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  for (var i = 0; i < faultSnapshots.length; i++) {
+    var s = faultSnapshots[i];
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">';
+    html += '<div style="font-size:13px;font-weight:600;color:var(--danger);">' + s.id + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-tertiary);">' + s.time_range + '</div>';
+    html += '<button class="btn btn-play" style="padding:4px 10px;font-size:11px;" onclick="playFaultReplay(' + i + ')">▶ 回放(6图)</button>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+var replayCharts = [];
+function playFaultReplay(idx) {
+  var s = faultSnapshots[idx];
+  if (!s) return;
+  var modal = document.createElement('div');
+  modal.id = 'replayModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  var header = s.id + ' @ ' + s.center_sec + 's (±1s回放)   ';
+  header += '<span style="font-weight:normal;color:var(--text-secondary);">True— / Est.---</span>';
+  modal.innerHTML = '<div style="background:var(--bg-card);border-radius:var(--radius-lg);padding:16px;width:95vw;max-width:1200px;box-shadow:var(--shadow-lg);">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+    '<h3 style="font-size:15px;margin:0;">' + header + '</h3>' +
+    '<button onclick="closeReplayModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-muted);">×</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;height:420px;">' +
+    '<div style="position:relative;"><canvas id="replayC0"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC1"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC2"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC3"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC4"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC5"></canvas></div>' +
+    '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  closeReplayCharts();
+  var titles = ['δ₁', 'δ₂', 'δ₃', 'ω₁', 'ω₂', 'ω₃'];
+  var colors = [COLORS.g1, COLORS.g2, COLORS.g3, COLORS.g1, COLORS.g2, COLORS.g3];
+  for (var c = 0; c < 6; c++) {
+    var ctx = document.getElementById('replayC' + c).getContext('2d');
+    var isOmega = c >= 3;
+    var gi = c % 3;
+    var datasets = [];
+    var arrTrueCheck = isOmega ? s.omega_true : s.delta_true;
+    var arrEstCheck = isOmega ? s.omega_est : s.delta_est;
+    if (arrTrueCheck[gi] && arrTrueCheck[gi].length > 0) {
+      datasets.push(mkDS(titles[c] + ' True', colors[c], false));
+    }
+    if (arrEstCheck[gi] && arrEstCheck[gi].length > 0) {
+      datasets.push(mkDS(titles[c] + ' Est.', colors[c], true));
+    }
+    replayCharts.push(new Chart(ctx, {
+      type: 'line',
+      data: { datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: '仿真秒数', color: '#6b7280', font: { size: 10 } },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 6 },
+          },
+          y: {
+            title: { display: true, text: isOmega ? 'rad/s' : 'rad', color: '#6b7280', font: { size: 10 } },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 4 },
+          }
+        },
+        plugins: {
+          legend: { labels: { font: { size: 9 }, boxWidth: 12, padding: 4 } },
+        }
+      },
+    }));
+    // Populate data
+    var ch = replayCharts[replayCharts.length - 1];
+    var arrTrue = isOmega ? s.omega_true[gi] : s.delta_true[gi];
+    var arrEst = isOmega ? s.omega_est[gi] : s.delta_est[gi];
+    if (ch.data.datasets[0]) {
+      ch.data.datasets[0].data = s.times.map(function(t, idx) { return { x: t, y: arrTrue[idx] }; });
+    }
+    if (ch.data.datasets[1]) {
+      ch.data.datasets[1].data = s.times.map(function(t, idx) { return { x: t, y: arrEst[idx] }; });
+    }
+    ch.update('none');
+  }
+}
+
+function closeReplayModal() {
+  var m = document.getElementById('replayModal');
+  if (m) m.remove();
+  closeReplayCharts();
+}
+
+function closeReplayCharts() {
+  for (var i = 0; i < replayCharts.length; i++) {
+    if (replayCharts[i]) replayCharts[i].destroy();
+  }
+  replayCharts = [];
+}
+
+function captureFaultSnapshot(h) {
+  // 使用服务端存储的快照，前端不再自行捕获
+}
+
+function updateHistoryTable(h) {
+  var t = h.beijing_time_ms || [], rows = [], n = Math.min(t.length, 30);
+  for (var i = t.length - n; i < t.length; i++) {
+    var d = new Date(t[i]);
+    var ts = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+    rows.push('<tr><td>'+ts+'</td>'+
+      '<td>'+(h.delta_est[0][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[0][i]||0).toFixed(4)+'</td>'+
+      '<td>'+(h.delta_est[1][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[1][i]||0).toFixed(4)+'</td>'+
+      '<td>'+(h.delta_est[2][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[2][i]||0).toFixed(4)+'</td>'+
+      '<td>'+(h.phase && h.phase[i] ? h.phase[i] : '')+'</td></tr>');
+  }
+  document.getElementById('historyBody').innerHTML = rows.join('');
+}
+
+function updateChartData(chart, times, arrays, isOverview) {
+  for (var i = 0; i < chart.data.datasets.length && i < arrays.length; i++) {
+    var arr = arrays[i];
+    if (!arr) continue;
+    chart.data.datasets[i].data = times.map(function(t, idx) { return { x: t, y: arr[idx] }; });
+  }
+  var lastT = times.length > 0 ? times[times.length-1] : 0;
+  if (isOverview) {
+    // 整体趋势图: 固定显示全部数据范围
+    chart.options.scales.x.min = 0;
+    chart.options.scales.x.max = Math.max(1000, lastT + 500);
+  } else {
+    // 主图: 固定窗口大小(10秒)，随数据滚动
+    var windowSize = 10000; // 10秒窗口
+    if (lastT <= windowSize) {
+      chart.options.scales.x.min = 0;
+      chart.options.scales.x.max = windowSize;
+    } else {
+      chart.options.scales.x.min = lastT - windowSize;
+      chart.options.scales.x.max = lastT;
+    }
+  }
+  chart.update('none');
+}
+
+// ==================== Controls ====================
+function setChartsFaultHighlight(isFault) {
+  var cards = document.querySelectorAll('.chart-card.main-chart');
+  for (var i = 0; i < cards.length; i++) {
+    if (isFault) {
+      cards[i].classList.add('fault-active');
+    } else {
+      cards[i].classList.remove('fault-active');
+    }
+  }
+}
+
+function updateNodeBytes(nodeId, totalBytes) {
+  var el = document.getElementById('nodeBytes' + nodeId);
+  if (!el) return;
+  var abs = Math.abs(totalBytes);
+  var val, unit;
+  if (abs >= 1073741824) {
+    val = totalBytes / 1073741824; unit = 'GB';
+  } else if (abs >= 1048576) {
+    val = totalBytes / 1048576; unit = 'MB';
+  } else if (abs >= 1024) {
+    val = totalBytes / 1024; unit = 'KB';
+  } else {
+    val = totalBytes; unit = 'B';
+  }
+  el.textContent = val.toFixed(val >= 100 ? 0 : (val >= 10 ? 1 : 2)) + ' ' + unit;
+}
+
+function doStart() {
+  document.getElementById('btnStart').disabled = true;
+  updateStatusPillText('UKF计算中...');
+  api('/control/start', 'POST').then(function(r) {
+    if (r.status === 'ok') {
+      if (r.ukf_pending) {
+        setTimeout(doStart, 2000);
+      } else {
+        startPolling();
+      }
+    }
+  });
+}
+
+function doPause() {
+  if (running) {
+    api('/control/pause', 'POST').then(function(r) {
+      if (r.status === 'ok') {
+        stopPolling();
+        if (!histInterval) {
+          histInterval = setInterval(getHistory, 1000);
+        }
+        document.getElementById('btnPause').textContent = '▶ 继续';
+        document.getElementById('btnPause').disabled = false;
+      }
+    });
+  } else {
+    api('/control/start', 'POST').then(function(r) {
+      if (r.status === 'ok') {
+        startPolling();
+        document.getElementById('btnPause').textContent = '⏸ 暂停';
+      }
+    });
+  }
+}
+
+function doReset() {
+  stopPolling();
+  api('/control/reset', 'POST').then(function(r) {
+    document.getElementById('elapsedTime').textContent = '0.0';
+    document.getElementById('elapsedValue').textContent = '0.0s';
+    document.getElementById('faultValue').textContent = '未检测到';
+    document.getElementById('faultValue').style.color = 'var(--text-primary)';
+    var faultIcon = document.getElementById('faultIcon');
+    faultIcon.className = 'card-icon warning';
+    faultIcon.innerHTML = '⚠';
+    document.getElementById('nodeBytes1').textContent = '--';
+    document.getElementById('nodeBytes2').textContent = '--';
+    document.getElementById('nodeBytes3').textContent = '--';
+    document.getElementById('weatherRiskValue').textContent = '--';
+    document.getElementById('weatherRiskDetail').textContent = '甘肃酒泉 · 等待数据';
+    document.getElementById('weatherIcon').innerHTML = '☁';
+    var pill = document.getElementById('statusPill');
+    pill.className = 'status-pill status-ready';
+    document.getElementById('statusText').textContent = '就绪';
+    document.getElementById('overlayDelta1').style.display = 'flex';
+    document.getElementById('overlayDelta2').style.display = 'flex';
+    document.getElementById('overlayDelta3').style.display = 'flex';
+    document.getElementById('overlayOmega1').style.display = 'flex';
+    document.getElementById('overlayOmega2').style.display = 'flex';
+    document.getElementById('overlayOmega3').style.display = 'flex';
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnPause').disabled = true;
+    document.getElementById('btnPause').textContent = '⏸ 暂停';
+    [chartDelta1, chartDelta2, chartDelta3, chartOmega1, chartOmega2, chartOmega3].forEach(function(c) {
+      c.data.datasets.forEach(function(ds) { ds.data = []; });
+      c.update('none');
+    });
+    running = false;
+    prevLastTime = -1;
+  });
+}
+
+function doSetSpeed(val) {
+  api('/control/speed', 'POST', { speed: 1 }).then(function() {});
+}
+
+var pollInterval = null;
+var histInterval = null;
+var prevLastTime = -1;
+
+function startPolling() {
+  stopPolling();
+  var pollMs = 1000;
+  var histMs = 1000;
+  pollInterval = setInterval(fetchResults, pollMs);
+  histInterval = setInterval(getHistory, histMs);
+  var pill = document.getElementById('statusPill');
+  pill.className = 'status-pill status-running';
+  document.getElementById('statusText').textContent = '运行中';
+  document.getElementById('btnPause').textContent = '⏸ 暂停';
+  running = true;
+}
+
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (histInterval) { clearInterval(histInterval); histInterval = null; }
+  running = false;
+  document.getElementById('btnPause').textContent = '⏸ 暂停';
+  document.getElementById('btnPause').disabled = true;
+  document.getElementById('btnStart').disabled = false;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); });
+  var capTab = tab.charAt(0).toUpperCase() + tab.slice(1);
+  var navEl = document.getElementById('nav' + capTab);
+  if (navEl) navEl.classList.add('active');
+  var panel = document.getElementById('tabPanel');
+  var allCharts = document.querySelectorAll('.charts-section');
+  if (tab === 'monitor') {
+    panel.style.display = 'none';
+    allCharts.forEach(function(c){ c.style.display = ''; });
+  } else {
+    allCharts.forEach(function(c){ c.style.display = 'none'; });
+    panel.style.display = '';
+    var panels = {history: 'panelHistory', config: 'panelConfig', log: 'panelLog', sim: 'panelSim'};
+    Object.keys(panels).forEach(function(k){
+      document.getElementById(panels[k]).style.display = (k===tab)? '' : 'none';
+    });
+    if (tab === 'config') updateConfigTab();
+    if (tab === 'log') updateLogTab();
+  }
+}
+
+function simDisaster(key) {
+  api('/api/simulate_disaster', 'POST', {disaster: key}).then(function(res) {
+    var el = document.getElementById('simResult');
+    el.style.display = '';
+    if (res.status === 'ok') {
+      if (key === 'clear') {
+        el.innerHTML = '<span style="color:var(--success)">✓ ' + res.message + '</span>';
+      } else {
+        var risk = res.risk || {};
+        var sent = res.feishu_sent ? ' ✅ 已推送飞书' : '';
+        el.innerHTML = '<div style="color:var(--warning);font-weight:600;">⚠ 已激活「' + res.disaster + '」仿真</div>' +
+          '<div style="margin-top:4px;font-size:12px;">风险等级: <b style="color:' + risk.overall_color + '">' + risk.overall_label + '</b>' + sent + '</div>' +
+          '<div style="margin-top:4px;font-size:12px;color:var(--text-secondary);">' + risk.summary + '</div>';
+      }
+    } else {
+      el.innerHTML = '<span style="color:var(--danger)">✗ 模拟失败</span>';
+    }
+  }).catch(function() {});
+}
+
+function updateConfigTab() {
+  api('/status').then(function(d){
+    if (d.params) {
+      document.getElementById('cfgGen').textContent = d.params.n;
+      document.getElementById('cfgBus').textContent = d.params.s;
+      document.getElementById('cfgRate').textContent = d.params.fs + ' Hz';
+      if (d.params.fault_times) {
+        var ft = d.params.fault_times[0];
+        document.getElementById('cfgSW').textContent = (ft[0]*1000).toFixed(0) + ' ms';
+        document.getElementById('cfgFC').textContent = (ft[1]*1000).toFixed(0) + ' ms';
+      } else if (d.params.t_SW_ms) {
+        document.getElementById('cfgSW').textContent = d.params.t_SW_ms.toFixed(0) + ' ms';
+        document.getElementById('cfgFC').textContent = d.params.t_FC_ms.toFixed(0) + ' ms';
+      }
+    }
+  });
+}
+
+function updateLogTab() {
+  api('/events').then(function(d){
+    var el = document.getElementById('logContent');
+    if (!d.events || d.events.length === 0) { el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>'; return; }
+    var rows = d.events.reverse().map(function(e){
+      var c = e.type === 'fault' ? 'var(--danger)' : (e.type === 'info' ? 'var(--text-secondary)' : 'var(--warning)');
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border-subtle);color:'+c+'">['+e.time+'] '+e.msg+'</div>';
+    }).join('');
+    el.innerHTML = rows || '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>';
+  });
+}
+
+// ==================== Init ====================
+fetchResults();
+getHistory();
+
+setTimeout(function() {
+  api('/status').then(function(d) {
+    if (d.running) { startPolling(); getHistory(); }
+  }).catch(function() {});
+}, 300);
+
+} catch(e) {
+  document.getElementById('errMsg').style.display = 'flex';
+  document.getElementById('errMsg').textContent = 'JS 致命错误: ' + e.message;
+  document.getElementById('statusText').textContent = '脚本错误: ' + e.message;
+}
+</script>
+</body>
+</html>
