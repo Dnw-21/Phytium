@@ -1,0 +1,2256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UKF 动态状态估计 — Dashboard</title>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script>
+window.onerror = function(msg, url, line) {
+  var el = document.getElementById('errMsg');
+  if (el) { el.style.display = 'flex'; el.textContent = 'JS 错误: ' + msg + ' (行 ' + line + ')'; }
+};
+</script>
+<style>
+/* ===== Design Tokens ===== */
+:root {
+  /* Backgrounds - Clean monitoring theme */
+  --bg-deep: #eef1f5;
+  --bg-base: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+
+  /* Borders */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-accent: rgba(59, 130, 246, 0.25);
+
+  /* Text */
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-tertiary: #6b7280;
+  --text-muted: #9ca3af;
+
+  /* Accent colors - Blue primary */
+  --accent: #3b82f6;
+  --accent-dim: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.12);
+
+  /* Semantic colors */
+  --success: #059669;
+  --success-dim: #047857;
+  --success-glow: rgba(5, 150, 105, 0.1);
+  --warning: #d97706;
+  --warning-dim: #b45309;
+  --warning-glow: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-dim: #b91c1c;
+  --danger-glow: rgba(220, 38, 38, 0.1);
+
+  /* Chart colors */
+  --chart-1: #3b82f6;
+  --chart-2: #f59e0b;
+  --chart-3: #8b5cf6;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.06), 0 4px 6px rgba(0,0,0,0.04);
+
+  /* Spacing scale - 4pt base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace;
+}
+
+/* ===== Reset & Base ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Error Banner ===== */
+.err-banner {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  background: rgba(220, 38, 38, 0.06);
+  color: #dc2626;
+  padding: var(--space-3) var(--space-6);
+  font-size: 13px;
+  border-bottom: 1px solid rgba(220, 38, 38, 0.15);
+  backdrop-filter: blur(8px);
+}
+
+/* ===== App Shell - Bento Grid Layout ===== */
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: 64px 1fr;
+  grid-template-areas:
+    "sidebar header"
+    "sidebar main";
+  min-height: 100vh;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 64px 1fr;
+    grid-template-areas:
+      "header"
+      "main";
+  }
+  .sidebar { display: none; }
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+  gap: var(--space-6);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 0 var(--space-2);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+  background: none;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-item:hover {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent);
+}
+
+.nav-item .nav-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+/* System info in sidebar */
+.system-info {
+  margin-top: auto;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.info-row .label {
+  color: var(--text-tertiary);
+}
+
+.info-row .value {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ===== Header ===== */
+.header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.breadcrumb .current {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Status indicators */
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all var(--transition);
+}
+
+.status-ready {
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.status-running {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.2);
+}
+
+.status-fault {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+.status-done {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.status-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-running .dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.5); }
+}
+
+.phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all var(--transition);
+}
+
+.phase-normal {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border: 1px solid rgba(5, 150, 105, 0.15);
+}
+
+.phase-fault {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+.phase-post {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+}
+
+/* Step counter */
+.step-counter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.step-counter .current {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.step-counter .sep {
+  color: var(--text-muted);
+}
+
+.step-counter .total {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  grid-area: main;
+  padding: var(--space-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.main-content .charts-section:last-of-type {
+  margin-bottom: 20px;
+}
+
+/* ===== Bento Grid - Top Metrics ===== */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 1280px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .bento-grid { grid-template-columns: 1fr; }
+}
+
+.bento-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.bento-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.bento-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.bento-card:hover::before {
+  opacity: 0.5;
+}
+
+.bento-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bento-card .card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.bento-card .card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.card-icon.accent { background: rgba(59, 130, 246, 0.08); color: var(--accent); }
+.card-icon.success { background: rgba(5, 150, 105, 0.08); color: var(--success); }
+.card-icon.warning { background: rgba(217, 119, 6, 0.08); color: var(--warning); }
+.card-icon.danger { background: rgba(220, 38, 38, 0.08); color: var(--danger); }
+
+.bento-card .card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  letter-spacing: -0.5px;
+}
+
+.bento-card .card-detail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.bento-card .card-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.trend-up {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+}
+
+.trend-down {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
+/* ===== Node Cards Row ===== */
+.nodes-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 900px) {
+  .nodes-row { grid-template-columns: 1fr; }
+}
+
+.node-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 10px var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.node-card:hover {
+  border-color: var(--border-default);
+  background: var(--bg-card-hover);
+}
+
+.node-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.node-avatar.g1 {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.04));
+  color: var(--chart-1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.node-avatar.g2 {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+  color: var(--chart-2);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.node-avatar.g3 {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(139, 92, 246, 0.04));
+  color: var(--chart-3);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.node-avatar .status-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 3px solid var(--bg-card);
+  box-shadow: 0 0 6px rgba(5, 150, 105, 0.4);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 6px rgba(5, 150, 105, 0.4); }
+  50% { transform: scale(1.25); opacity: 0.75; box-shadow: 0 0 12px rgba(5, 150, 105, 0.6); }
+}
+
+.node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-info .name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.node-info .detail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.node-metric {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.node-metric .value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.node-metric .label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== Charts Section ===== */
+.charts-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .charts-section { grid-template-columns: 1fr; }
+}
+
+.chart-card.main-chart {
+  height: 200px;
+}
+
+.chart-card.overview-chart {
+  height: 140px;
+}
+
+.overview-section {
+  min-height: 0;
+}
+
+.overview-wrap {
+  height: 100px;
+  min-height: 100px;
+  flex: none;
+}
+
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  gap: 4px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.chart-card.fault-active {
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239,68,68,0.25), 0 0 3px rgba(239,68,68,0.4);
+  background: linear-gradient(135deg, rgba(239,68,68,0.03), var(--bg-card));
+}
+
+.chart-card:hover {
+  border-color: var(--border-default);
+}
+
+.chart-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chart-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-card h3::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.chart-legends {
+  display: flex;
+  gap: var(--space-4);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.chart-legends .legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chart-legends .line-true {
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--text-tertiary);
+}
+
+.chart-legends .line-est {
+  width: 16px;
+  height: 0;
+  border-top: 1.5px dashed var(--accent);
+}
+
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Waiting overlay */
+.waiting-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: rgba(244, 246, 249, 0.92);
+  border-radius: var(--radius);
+  z-index: 5;
+  color: var(--text-secondary);
+  font-size: 14px;
+  backdrop-filter: blur(4px);
+  transition: opacity var(--transition-slow);
+}
+
+.waiting-overlay .play-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--accent);
+  transition: all var(--transition);
+  cursor: pointer;
+}
+
+.waiting-overlay .play-icon:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: scale(1.05);
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.15);
+}
+
+/* ===== Controls Bar ===== */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 10px var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-play {
+  background: rgba(5, 150, 105, 0.08);
+  color: #059669;
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+.btn-play:hover:not(:disabled) {
+  background: rgba(5, 150, 105, 0.15);
+  border-color: rgba(5, 150, 105, 0.35);
+  box-shadow: 0 0 16px rgba(5, 150, 105, 0.12);
+  transform: translateY(-1px);
+}
+
+.btn-play:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-pause {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.btn-pause:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--text-muted);
+}
+
+.btn-pause:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-reset {
+  background: transparent;
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+.btn-reset:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+  box-shadow: 0 0 16px rgba(220, 38, 38, 0.1);
+}
+
+.btn-reset:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Speed control */
+.speed-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.speed-group label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.speed-group input[type="range"] {
+  width: 100px;
+  accent-color: var(--accent);
+  height: 4px;
+}
+
+.speed-group .speed-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* ===== Footer ===== */
+.footer {
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ===== Simulation Buttons ===== */
+.sim-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 16px 12px; border-radius: var(--radius); border: 2px solid var(--border-subtle);
+  background: var(--bg-card); cursor: pointer; transition: all var(--transition);
+  font-family: inherit; font-size: 13px; color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+.sim-btn:hover {
+  border-color: var(--border-accent); transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.sim-btn:active { transform: scale(0.97); }
+.sim-sandstorm { border-left: 3px solid #d97706; }
+.sim-thunder   { border-left: 3px solid #7c3aed; }
+.sim-rain      { border-left: 3px solid #2563eb; }
+.sim-temp      { border-left: 3px solid #dc2626; }
+.sim-ice       { border-left: 3px solid #0891b2; }
+.sim-heat      { border-left: 3px solid #ea580c; }
+</style>
+</head>
+<body>
+
+<div class="err-banner" id="errMsg"></div>
+
+<div class="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <div class="brand-title">UKF Dashboard</div>
+        <div class="brand-subtitle">状态估计系统</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">导航</div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" id="navMonitor" onclick="switchTab('monitor')">
+          <span class="nav-icon">📊</span>
+          <span>实时监控</span>
+        </button>
+        <button class="nav-item" id="navHistory" onclick="switchTab('history')">
+          <span class="nav-icon">📈</span>
+          <span>历史数据</span>
+        </button>
+        <button class="nav-item" id="navConfig" onclick="switchTab('config')">
+          <span class="nav-icon">⚙️</span>
+          <span>系统配置</span>
+        </button>
+        <button class="nav-item" id="navLog" onclick="switchTab('log')">
+          <span class="nav-icon">📋</span>
+          <span>日志记录</span>
+        </button>
+        <button class="nav-item" id="navSim" onclick="switchTab('sim')">
+          <span class="nav-icon">🌪</span>
+          <span>仿真模拟</span>
+        </button>
+      </nav>
+    </div>
+
+  </aside>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="breadcrumb">
+        <span>Dashboard</span>
+        <span style="color:var(--text-muted)">/</span>
+        <span class="current">实时监控</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="phaseLabel" class="phase-badge phase-normal">就绪</span>
+      <div class="step-counter">
+        <span class="current" id="elapsedTime">0.0</span>
+        <span class="sep">s</span>
+      </div>
+      <span id="statusPill" class="status-pill status-ready">
+        <span class="dot"></span>
+        <span id="statusText">初始化中</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content">
+
+    <!-- Bento Grid Metrics -->
+    <div class="bento-grid">
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">运行时间</span>
+          <div class="card-icon accent">⏱</div>
+        </div>
+        <div class="card-value" id="elapsedValue">0.0s</div>
+        <div class="card-detail">系统已运行时长</div>
+      </div>
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">故障检测</span>
+          <div class="card-icon warning" id="faultIcon">⚠</div>
+        </div>
+        <div class="card-value" id="faultValue">未检测到</div>
+        <div class="card-detail">母线 8-9 三相短路</div>
+      </div>
+      <div class="bento-card">
+        <div class="card-header">
+          <span class="card-label">天气 · 风险</span>
+          <div class="card-icon accent" id="weatherIcon">☁</div>
+        </div>
+        <div class="card-value" id="weatherRiskValue" style="font-size:22px;">--</div>
+        <div class="card-detail" id="weatherRiskDetail" style="font-size:11px;">甘肃酒泉 · 等待数据</div>
+      </div>
+    </div>
+
+    <!-- Node Cards -->
+    <div class="nodes-row">
+      <div class="node-card">
+        <div class="node-avatar g1">
+          G1
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 1</div>
+          <div class="detail">3-Generator · UKF</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes1">--</div>
+          <div class="label">数据接收</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBatt1" style="font-size:16px;color:var(--success);">98%</div>
+          <div class="label">电量</div>
+        </div>
+      </div>
+      <div class="node-card">
+        <div class="node-avatar g2">
+          G2
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 2</div>
+          <div class="detail">3-Generator · UKF</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes2">--</div>
+          <div class="label">数据接收</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBatt2" style="font-size:16px;color:var(--success);">99%</div>
+          <div class="label">电量</div>
+        </div>
+      </div>
+      <div class="node-card">
+        <div class="node-avatar g3">
+          G3
+          <span class="status-dot"></span>
+        </div>
+        <div class="node-info">
+          <div class="name">终端节点 3</div>
+          <div class="detail">3-Generator · UKF</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBytes3">--</div>
+          <div class="label">数据接收</div>
+        </div>
+        <div class="node-metric">
+          <div class="value" id="nodeBatt3" style="font-size:16px;color:var(--success);">99%</div>
+          <div class="label">电量</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts: 6 charts × 3 curves per chart = 3 nodes in one view -->
+    <div class="charts-section" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+      <div class="node-col-header" style="grid-column:1/-1; display:flex; align-items:center; gap:12px; padding:6px 10px; background:var(--bg-surface-elevated); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div class="node-avatar g1" style="width:28px;height:28px;font-size:12px;">G1</div>
+          <div class="node-avatar g2" style="width:28px;height:28px;font-size:12px;">G2</div>
+          <div class="node-avatar g3" style="width:28px;height:28px;font-size:12px;">G3</div>
+        </div>
+        <span style="font-size:13px;font-weight:600;">三节点对比 · <span id="activeNodeLabel">终端节点 1</span> 高亮</span>
+        <span style="margin-left:auto; font-size:11px; color:var(--text-muted);" id="chunkLabel">Chunk 0 (0-19ms)</span>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">δ₁</h3></div>
+        <div class="chart-wrap"><canvas id="c1d1"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">δ₂</h3></div>
+        <div class="chart-wrap"><canvas id="c1d2"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">δ₃</h3></div>
+        <div class="chart-wrap"><canvas id="c1d3"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">ω₁</h3></div>
+        <div class="chart-wrap"><canvas id="c1w1"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">ω₂</h3></div>
+        <div class="chart-wrap"><canvas id="c1w2"></canvas></div>
+      </div>
+      <div class="chart-card overview-chart">
+        <div class="card-header"><h3 style="font-size:12px;">ω₃</h3></div>
+        <div class="chart-wrap"><canvas id="c1w3"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Tab panels: 历史/配置/日志 -->
+    <div id="tabPanel" style="display:none; margin-top:16px;">
+      <div id="panelHistory" class="panel-content" style="display:none;">
+        <!-- 三节点历史标签切换 -->
+        <div style="display:flex;gap:4px;margin-bottom:12px;">
+          <button class="hist-tab-btn active" onclick="switchHistTab('node_1')" id="histTab1" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--accent);color:#fff;cursor:pointer;font-size:12px;font-weight:600;">节点 1</button>
+          <button class="hist-tab-btn" onclick="switchHistTab('node_2')" id="histTab2" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface);cursor:pointer;font-size:12px;">节点 2</button>
+          <button class="hist-tab-btn" onclick="switchHistTab('node_3')" id="histTab3" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface);cursor:pointer;font-size:12px;">节点 3</button>
+        </div>
+        <div class="chart-card">
+          <div class="card-header"><h3>历史数据 <span id="histNodeLabel">— 终端节点 1</span></h3><span style="font-size:11px;color:var(--text-muted)">最近 80 条</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);color:var(--text-secondary)">
+            <table style="width:100%;border-collapse:collapse;" id="historyTable">
+              <thead><tr style="border-bottom:1px solid var(--border-default);text-align:left;font-weight:600;">
+                <th style="padding:4px 8px;">步</th><th style="padding:4px 8px;">北京时间</th><th style="padding:4px 8px;">δ₁</th><th style="padding:4px 8px;">ω₁</th><th style="padding:4px 8px;">δ₂</th><th style="padding:4px 8px;">ω₂</th><th style="padding:4px 8px;">δ₃</th><th style="padding:4px 8px;">ω₃</th><th style="padding:4px 8px;">阶段</th>
+              </tr></thead><tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- 故障回放 -->
+        <div class="chart-card" style="margin-top:16px;">
+          <div class="card-header"><h3>故障回放</h3><span style="font-size:11px;color:var(--text-muted)">已记录故障片段 · 点击播放</span></div>
+          <div style="padding:12px;" id="replayContainer">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelConfig" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>系统配置 ⚙️</h3></div>
+          <div style="padding:16px;" id="configContent">
+            <table class="config-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);width:140px;">系统模型</td><td>IEEE 9-Bus</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">发电机数</td><td>3</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">母线数</td><td>9</td></tr>
+              <tr><td style="padding:6px 12px;color:var(--text-tertiary);">采样频率</td><td>1000 Hz</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div id="panelLog" class="panel-content" style="display:none;">
+        <!-- 三节点日志过滤 -->
+        <div style="display:flex;gap:4px;margin-bottom:12px;">
+          <button class="log-tab-btn active" onclick="switchLogTab('all')" id="logTabAll" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--accent);color:#fff;cursor:pointer;font-size:12px;font-weight:600;">全部</button>
+          <button class="log-tab-btn" onclick="switchLogTab('node_1')" id="logTab1" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface);cursor:pointer;font-size:12px;">节点 1</button>
+          <button class="log-tab-btn" onclick="switchLogTab('node_2')" id="logTab2" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface);cursor:pointer;font-size:12px;">节点 2</button>
+          <button class="log-tab-btn" onclick="switchLogTab('node_3')" id="logTab3" style="padding:6px 16px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface);cursor:pointer;font-size:12px;">节点 3</button>
+        </div>
+        <div class="chart-card">
+          <div class="card-header"><h3>事件日志 📋</h3><span style="font-size:11px;color:var(--text-muted)">最近 50 条 · 旧数据自动覆盖</span></div>
+          <div style="padding:12px;max-height:400px;overflow-y:auto;font-size:12px;font-family:var(--font-mono);" id="logContent">
+            <div style="color:var(--text-muted);text-align:center;padding:20px;">等待事件...</div>
+          </div>
+        </div>
+      </div>
+      <div id="panelSim" class="panel-content" style="display:none;">
+        <div class="chart-card">
+          <div class="card-header"><h3>🌪 自然灾害仿真模拟 — 甘肃酒泉</h3><span style="font-size:11px;color:var(--text-muted)">模拟灾害天气，触发风险评估与飞书预警推送</span></div>
+          <div style="padding:16px;">
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;">
+              <button class="sim-btn sim-sandstorm" onclick="simDisaster('sandstorm')">
+                <span style="font-size:24px;">🌪</span>
+                <span style="font-weight:600;">沙尘暴</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">强风+扬沙</span>
+              </button>
+              <button class="sim-btn sim-thunder" onclick="simDisaster('thunderstorm')">
+                <span style="font-size:24px;">⛈</span>
+                <span style="font-weight:600;">雷暴</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">雷击风险</span>
+              </button>
+              <button class="sim-btn sim-rain" onclick="simDisaster('rain_hail')">
+                <span style="font-size:24px;">🌧</span>
+                <span style="font-weight:600;">暴雨冰雹</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">设备进水</span>
+              </button>
+              <button class="sim-btn sim-temp" onclick="simDisaster('extreme_temp')">
+                <span style="font-size:24px;">🌡</span>
+                <span style="font-weight:600;">极端温差</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">热疲劳</span>
+              </button>
+              <button class="sim-btn sim-ice" onclick="simDisaster('icing')">
+                <span style="font-size:24px;">❄</span>
+                <span style="font-weight:600;">冻雨覆冰</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">线路断裂</span>
+              </button>
+              <button class="sim-btn sim-heat" onclick="simDisaster('heatwave')">
+                <span style="font-size:24px;">🔥</span>
+                <span style="font-weight:600;">极端高温</span>
+                <span style="font-size:11px;color:var(--text-tertiary)">设备过热</span>
+              </button>
+            </div>
+            <div style="margin-top:16px;text-align:center;">
+              <button class="btn btn-reset" onclick="simDisaster('clear')" style="padding:8px 24px;">↻ 清除模拟，恢复真实天气</button>
+            </div>
+            <div id="simResult" style="margin-top:16px;padding:12px;background:var(--bg-surface-elevated);border-radius:var(--radius);display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-bar">
+      <button id="btnStart" class="btn btn-play" onclick="doStart()">▶ 开始</button>
+      <button id="btnPause" class="btn btn-pause" onclick="doPause()">⏸ 暂停</button>
+      <button id="btnReset" class="btn btn-reset" onclick="doReset()">↻ 重置</button>
+
+    </div>
+
+    <div class="footer">UKF 动态状态估计 · IEEE 9-Bus System · 采样率 1000Hz</div>
+
+  </main>
+</div>
+
+<script>
+try {
+
+// ==================== Config ====================
+var COLORS = { g1:'#3b82f6', g2:'#f59e0b', g3:'#8b5cf6' };
+var COLORS_ALPHA = { g1:'rgba(59,130,246,0.08)', g2:'rgba(245,158,11,0.08)', g3:'rgba(139,92,246,0.08)' };
+// faultStart/faultEnd 不再硬编码，改为从后端 params.fault_times 动态读取
+var pollTimer = null;
+var running = false;
+
+// ==================== Chart Setup ====================
+function mkDS(label, color, dashed) {
+  return {
+    label: label, data: [],
+    borderColor: color, backgroundColor: color+'18',
+    borderWidth: dashed ? 1.5 : 2.5,
+    borderDash: dashed ? [6, 4] : [],
+    pointRadius: 0, pointHoverRadius: 5,
+    pointHoverBackgroundColor: color,
+    pointHoverBorderColor: '#fff',
+    pointHoverBorderWidth: 2,
+    tension: 0.15, fill: false,
+  };
+}
+
+var faultRegions = [];
+
+function drawFaultRegions(chart, ctx, xAxis, yAxis) {
+  if (!faultRegions || faultRegions.length === 0) return;
+  var meta = chart.getDatasetMeta(0);
+  if (!meta.data || meta.data.length < 2) return;
+  var dataMax = meta.data[meta.data.length-1].x;
+  if (dataMax === undefined) return;
+  ctx.save();
+  for (var i = 0; i < faultRegions.length; i++) {
+    var r = faultRegions[i];
+    var sw = r.start, fc = r.end;
+    if (dataMax < sw) continue;
+    var x1 = xAxis.getPixelForValue(sw);
+    var x2 = xAxis.getPixelForValue(Math.min(fc, dataMax));
+    if (x2 <= x1) continue;
+    var grad = ctx.createLinearGradient(x1, 0, x2, 0);
+    grad.addColorStop(0, 'rgba(239,68,68,0.06)');
+    grad.addColorStop(0.5, 'rgba(239,68,68,0.12)');
+    grad.addColorStop(1, 'rgba(239,68,68,0.06)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x1, yAxis.top, x2 - x1, yAxis.bottom - yAxis.top);
+    ctx.strokeStyle = 'rgba(239,68,68,0.2)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x2, yAxis.top); ctx.lineTo(x2, yAxis.bottom);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(220,38,38,0.85)';
+    ctx.lineWidth = 2; ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x1, yAxis.top); ctx.lineTo(x1, yAxis.bottom);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,38,38,0.85)';
+    ctx.font = 'bold 12px -apple-system, "PingFang SC", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.label || '故障', x1 + 4, yAxis.top + 16);
+  }
+  ctx.restore();
+}
+
+var faultPlugin = {
+  id: 'faultRegion',
+  beforeDraw: function(chart) {
+    drawFaultRegions(chart, chart.ctx, chart.scales.x, chart.scales.y);
+  }
+};
+
+function mkChartOpts(yTitle) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 200, easing: 'easeOutQuart' },
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: '北京时间', color: '#6b7280', font: { size: 12, weight: '500' } },
+        grid: { color: 'rgba(0,0,0,0.06)', drawBorder: false },
+        ticks: {
+          color: '#6b7280', font: { size: 11 }, padding: 8, maxTicksLimit: 10,
+          callback: function(v) {
+            var d = new Date(v);
+            var H = String(d.getHours()).padStart(2, '0');
+            var M = String(d.getMinutes()).padStart(2, '0');
+            var S = String(d.getSeconds()).padStart(2, '0');
+            return H + ':' + M + ':' + S;
+          }
+        }
+      },
+      y: {
+        title: { display: true, text: yTitle, color: '#6b7280', font: { size: 12, weight: '500' } },
+        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        ticks: { color: '#6b7280', font: { size: 11 }, padding: 8, maxTicksLimit: 8 }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top',
+        align: 'end',
+        labels: {
+          color: '#6b7280', usePointStyle: true, pointStyleWidth: 8,
+          boxHeight: 2, padding: 16, font: { size: 11 }, filter: function() { return false; }
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        titleColor: '#111827', bodyColor: '#374151',
+        borderColor: '#e5e7eb', borderWidth: 1,
+        padding: 12, cornerRadius: 8,
+        titleFont: { size: 12, weight: '600' }, bodyFont: { size: 12 },
+        displayColors: true, boxPadding: 3
+      }
+    }
+  };
+}
+
+// ==================== Chart Setup (18 charts: 3 nodes × 6) ====================
+var NODE_COLORS = ['#3b82f6', '#f59e0b', '#8b5cf6'];
+
+function mkDS3(label, color) {
+  return {
+    label: label, data: [],
+    borderColor: color, backgroundColor: color + '18',
+    borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
+    tension: 0.15, fill: false,
+  };
+}
+
+function mkSmallChartOpts(yTitle) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 100 },
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        grid: { color: 'rgba(0,0,0,0.06)', drawBorder: false },
+        ticks: { color: '#9ca3af', font: { size: 9 }, padding: 2, maxTicksLimit: 5,
+          callback: function(v) {
+            var d = new Date(v);
+            return String(d.getSeconds()).padStart(2,'0') + '.' +
+                   String(d.getMilliseconds()).padStart(3,'0');
+          }
+        }
+      },
+      y: {
+        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        ticks: { color: '#9ca3af', font: { size: 9 }, padding: 2, maxTicksLimit: 4 }
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        titleColor: '#111827', bodyColor: '#374151',
+        borderColor: '#e5e7eb', borderWidth: 1,
+        padding: 8, cornerRadius: 6,
+        callbacks: {
+          title: function(items) {
+            if (items.length === 0) return '';
+            var d = new Date(items[0].parsed.x);
+            return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+
+                   String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+
+                   String(d.getSeconds()).padStart(2,'0')+'.'+String(d.getMilliseconds()).padStart(3,'0');
+          }
+        }
+      }
+    }
+  };
+}
+
+// Create 6 charts, each with 3 datasets (node_1, node_2, node_3)
+var allCharts = {};
+var NODE_NAMES = ['node_1', 'node_2', 'node_3'];
+
+function mkDS3Multi(label, color) {
+  return {
+    label: label, data: [],
+    borderColor: color, backgroundColor: color + '18',
+    borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
+    tension: 0.15, fill: false,
+  };
+}
+
+['d1','d2','d3','w1','w2','w3'].forEach(function(k) {
+  var canvasId = 'c1' + k;
+  var el = document.getElementById(canvasId);
+  if (!el) return;
+  var isOmega = k[0] === 'w';
+  var datasets = [];
+  for (var ni = 0; ni < 3; ni++) {
+    datasets.push(mkDS3Multi(k + ' N' + (ni+1), NODE_COLORS[ni]));
+  }
+  allCharts[canvasId] = new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: { datasets: datasets },
+    options: mkSmallChartOpts(isOmega ? 'rad/s' : 'rad'),
+  });
+});
+
+// ==================== Data Loading (Polling) ====================
+function api(path, method, body) {
+  // 自动补 /api 前缀（如果调用方没写）
+  var url = (path && path.indexOf('/api/') !== 0) ? '/api' + path : path;
+  var opts = { method: method || 'GET', headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  return fetch(url, opts).then(function(r) {
+    if (!r.ok) {
+      console.error('api() fetch failed:', url, 'status', r.status);
+      throw new Error('HTTP ' + r.status + ' on ' + url);
+    }
+    return r.json();
+  });
+}
+
+function updateStatusPill(data) {
+  var el = document.getElementById('statusPill');
+  var txt = document.getElementById('statusText');
+  el.className = 'status-pill';
+  if (data.running) { el.className += ' status-running'; txt.textContent = '运行中'; }
+  else if (data.finished) { el.className += ' status-done'; txt.textContent = '已完成'; }
+  else { el.className += ' status-ready'; txt.textContent = '就绪'; }
+}
+
+function updateStatusPillText(text) {
+  document.getElementById('statusText').textContent = text;
+}
+
+function fetchResults() {
+  api('/status').then(function(data) {
+    if (!data) return;
+    var elapsed = data.elapsed_sec || 0;
+    document.getElementById('elapsedTime').textContent = elapsed.toFixed(2);
+    document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
+    running = data.running;
+    updateStatusPill(data);
+    // 更新活跃节点标签 + chunk 标签
+    var activeNode = data.active_node || 'node_1';
+    var nodeLabelMap = {'node_1': '终端节点 1', 'node_2': '终端节点 2', 'node_3': '终端节点 3'};
+    var al = document.getElementById('activeNodeLabel');
+    if (al) al.textContent = nodeLabelMap[activeNode] || activeNode;
+    var cl = document.getElementById('chunkLabel');
+    if (cl && data.chunk_idx !== undefined) {
+      var cs = data.chunk_idx * 20;
+      var ce = cs + 19;
+      cl.textContent = 'Chunk ' + data.chunk_idx + ' (step ' + cs + '-' + ce + ')';
+    }
+    highlightActiveNode(activeNode);
+    // Per-node fault highlight + 面板故障状态实时更新
+    var anyFault = false;
+    var faultLabels = [];
+    var nodeNames = {node_1: '终端节点1', node_2: '终端节点2', node_3: '终端节点3'};
+    for (var ni = 1; ni <= 3; ni++) {
+      var nd = (data.nodes && data.nodes.length >= ni) ? data.nodes[ni-1] : null;
+      var nFault = nd ? (nd.fault && nd.fault.is_fault || false) : false;
+      var nPhase = nd ? (nd.fault && nd.fault.phase || 'normal') : 'normal';
+      setChartsFaultHighlight('' + ni, nFault);
+      if (nFault || nPhase === 'fault') {
+        anyFault = true;
+        faultLabels.push(nodeNames['node_' + ni] + '故障');
+      }
+    }
+    // 实时更新故障面板
+    var faultEl = document.getElementById('faultValue');
+    var faultIcon = document.getElementById('faultIcon');
+    var faultDetailEl = document.querySelector('#faultValue + .card-detail');
+    if (anyFault) {
+      faultEl.textContent = '⚡ ' + faultLabels.join(' + ');
+      faultEl.style.color = 'var(--danger)';
+      faultIcon.className = 'card-icon danger';
+      faultIcon.innerHTML = '⚡';
+      if (faultDetailEl) faultDetailEl.textContent = faultLabels.join(' + ') + ' · 母线三相短路';
+    } else {
+      faultEl.textContent = '正常';
+      faultEl.style.color = 'var(--success)';
+      faultIcon.className = 'card-icon success';
+      faultIcon.innerHTML = '✓';
+      if (faultDetailEl) faultDetailEl.textContent = '三节点运行正常';
+    }
+    if (data.params) {
+      if (data.start_beijing_ms) {
+        startBeijingMs = data.start_beijing_ms;
+      }
+    }
+    if (data.nodes && data.nodes.length) {
+      // data.nodes 是数组（node_frames），按位置映射到节点 1/2/3
+      var steps = data.step || 0;
+      var bytesPerStep = 192;  // 24 字段 × 8 bytes
+      var battValues = {1: 98, 2: 99, 3: 99};
+      for (var ni = 1; ni <= 3; ni++) {
+        var nd = (data.nodes.length >= ni) ? data.nodes[ni-1] : null;
+        var totalBytes = nd ? (nd.bytes_total || (steps * bytesPerStep)) : (steps * bytesPerStep);
+        updateNodeBytes('' + ni, totalBytes);
+        var battEl = document.getElementById('nodeBatt' + ni);
+        if (battEl) {
+          var bl = nd ? (nd.battery_level || battValues[ni]) : battValues[ni];
+          battEl.textContent = bl + '%';
+        }
+      }
+    }
+    if (data.weather_risk) {
+      var wr = data.weather_risk;
+      var wnow = wr.now || {};
+      // 兜底：location 既可能是字符串也可能是 {name: ...}
+      var locName = (wr.location && typeof wr.location === 'object') ? (wr.location.name || '--') : (wr.location || '--');
+      var riskColor = wr.overall_color || '#059669';
+      var riskIcon = '☁';
+      if (wr.overall === 'extreme') riskIcon = '🔴';
+      else if (wr.overall === 'high') riskIcon = '🟠';
+      else if (wr.overall === 'moderate') riskIcon = '🟡';
+      var txt = (wnow.text || '--') + ' ' + (wnow.temperature || '--') + '°C';
+      var lbl = wr.overall_label || '低风险';
+      document.getElementById('weatherRiskValue').innerHTML = txt + ' &nbsp;|&nbsp; <span style="color:' + riskColor + ';font-weight:700;">' + riskIcon + ' ' + lbl + '</span>';
+      document.getElementById('weatherRiskDetail').textContent = locName + ' · ' + (wr.summary || '');
+      document.getElementById('weatherIcon').innerHTML = riskIcon;
+    }
+    document.getElementById('btnStart').disabled = data.running;
+    document.getElementById('btnPause').disabled = !data.running;
+
+    // 触发历史更新（只更新活跃节点）
+    if (data.running) {
+      getHistory(data.active_node || 'node_1');
+    }
+  }).catch(function(e) {
+    console.warn('fetchResults error:', e);
+    // 错误时短暂显示"重连中"而非永久红字，避免覆盖正常态
+    updateStatusPillText('重连中…');
+    setTimeout(function() {
+      if (!running) updateStatusPillText('就绪');
+    }, 2000);
+  });
+}
+
+function getHistory(activeNode) {
+  // 只更新当前活跃节点的数据，其他节点保持静止
+  activeNode = activeNode || 'node_1';
+  var activeIdx = NODE_NAMES.indexOf(activeNode);
+  if (activeIdx < 0) activeIdx = 0;
+
+  return api('/history_all').then(function(allH) {
+    if (!allH) return;
+    var h = allH[activeNode];
+    if (!h || !h.time || h.time.length === 0) return;
+
+    // 使用北京时间戳 (ms) 作为 X 轴
+    var t = (h.beijing_time_ms && h.beijing_time_ms.length > 0)
+      ? h.beijing_time_ms.map(function(v) { return v; })
+      : h.time.map(function(v) { return v; });
+    var curLast = t[t.length-1];
+
+    // 检测 reset（step_idx 回绕到 0）——全部清空
+    if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
+      Object.values(allCharts).forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        c.update('none');
+      });
+    }
+    prevLastTime = curLast;
+
+    // 滑动窗口：只取最近 20 个点
+    var windowSize = 20;
+    var startIdx = Math.max(0, t.length - windowSize);
+    var tWin = t.slice(startIdx);
+
+    var xMin = tWin[0] - 200;
+    var xMax = tWin[tWin.length - 1] + 200;
+
+    // 只更新活跃节点的 dataset
+    ['d1','d2','d3'].forEach(function(k, gi) {
+      var ch = allCharts['c1' + k];
+      if (!ch) return;
+      var arr = h.delta_est[gi] || [];
+      var arrWin = arr.slice(startIdx);
+      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
+        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
+      });
+      ch.options.scales.x.min = xMin;
+      ch.options.scales.x.max = xMax;
+      ch.update('none');
+    });
+    ['w1','w2','w3'].forEach(function(k, gi) {
+      var ch = allCharts['c1' + k];
+      if (!ch) return;
+      var arr = h.omega_est[gi] || [];
+      var arrWin = arr.slice(startIdx);
+      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
+        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
+      });
+      ch.options.scales.x.min = xMin;
+      ch.options.scales.x.max = xMax;
+      ch.update('none');
+    });
+
+    // Update history table if tab open
+    if (document.getElementById('panelHistory').style.display !== 'none' && allH['node_1']) {
+      updateHistoryTable(allH[currentHistNode]);
+      loadFaultReplays();
+    }
+    // Update log if tab open
+    if (document.getElementById('panelLog').style.display !== 'none') {
+      updateLogTab();
+    }
+  }).catch(function(e) { console.warn('getHistory error:', e); });
+}
+
+var faultSnapshots = [];
+
+function loadFaultReplays() {
+  api('/api/fault_replays').then(function(res) {
+    if (res && res.snapshots) {
+      faultSnapshots = res.snapshots;
+      updateReplayPanel();
+    }
+  });
+}
+
+function updateReplayPanel() {
+  var el = document.getElementById('replayContainer');
+  if (faultSnapshots.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>';
+    return;
+  }
+  var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  for (var i = 0; i < faultSnapshots.length; i++) {
+    var s = faultSnapshots[i];
+    var labelColor = 'var(--cyan)';
+    if (s.node_id === 'node_2') labelColor = 'var(--amber)';
+    else if (s.node_id === 'node_3') labelColor = 'var(--purple)';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">';
+    html += '<div style="font-size:13px;font-weight:700;color:' + labelColor + ';">' + s.id + '</div>';
+    html += '<button class="btn btn-play" style="padding:4px 10px;font-size:11px;" onclick="playFaultReplay(' + i + ')">▶ 回放</button>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+var replayCharts = [];
+var replayTab = 'chart';  // 'chart' | 'data'
+function playFaultReplay(idx) {
+  var s = faultSnapshots[idx];
+  if (!s) return;
+  var modal = document.createElement('div');
+  modal.id = 'replayModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  var center = (typeof s.center_sec === 'number') ? s.center_sec.toFixed(2) : (s.center_sec || '--');
+  var sid = s.id || '回放';
+  var header = sid + ' @ ' + center + 's (±1s回放)';
+  // 1Hz 时间用于曲线
+  var times = (s.times && s.times.length > 0) ? s.times : (s.times_1hz && s.times_1hz.length > 0) ? s.times_1hz : [];
+  if (times.length === 0) {
+    alert('此快照数据不完整，无法回放');
+    return;
+  }
+  // 1kHz 原始数据用于表格
+  var rawTimes = s.times_raw || times;
+  var rawDelta = s.delta_est_raw || s.delta_est || [];
+  var rawOmega = s.omega_est_raw || s.omega_est || [];
+  var nPoints = times.length;
+  var nRaw = rawTimes.length;
+  modal.innerHTML = '<div style="background:var(--bg-card);border-radius:var(--radius-lg);padding:24px 32px;width:95vw;max-width:1300px;max-height:95vh;overflow-y:auto;box-shadow:var(--shadow-lg);">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+    '<h3 style="font-size:16px;margin:0;">' + header + '</h3>' +
+    '<button onclick="closeReplayModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-muted);">×</button>' +
+    '</div>' +
+    // 分页标签
+    '<div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border-subtle);">' +
+    '<button id="tabChart" onclick="switchReplayTab(\'chart\')" style="padding:8px 16px;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:600;cursor:pointer;">📈 曲线</button>' +
+    '<button id="tabData" onclick="switchReplayTab(\'data\')" style="padding:8px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-tertiary);cursor:pointer;">📋 数据 (' + nRaw + '点@1kHz)</button>' +
+    '</div>' +
+    // 曲线页
+    '<div id="replayChartPage">' +
+    '<div style="margin-bottom:12px;font-size:12px;color:var(--text-tertiary);">' + nPoints + ' 点 @ 1Hz · UKF 估计数据</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;height:420px;">' +
+    '<div style="position:relative;"><canvas id="replayC0"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC1"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC2"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC3"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC4"></canvas></div>' +
+    '<div style="position:relative;"><canvas id="replayC5"></canvas></div>' +
+    '</div></div>' +
+    // 数据页
+    '<div id="replayDataPage" style="display:none;">' +
+    '<div style="margin-bottom:12px;font-size:12px;color:var(--text-tertiary);">' + nRaw + ' 点 @ 1kHz · 原始估计数据</div>' +
+    '<div style="max-height:500px;overflow-y:auto;">' +
+    '<table style="width:100%;font-size:11px;font-family:var(--font-mono);border-collapse:collapse;" id="replayDataTable">' +
+    '<thead><tr style="background:var(--border-subtle);text-align:left;position:sticky;top:0;">' +
+    '<th style="padding:4px 6px;">时间(s)</th>' +
+    '<th style="padding:4px 6px;">δ₁</th><th style="padding:4px 6px;">δ₂</th><th style="padding:4px 6px;">δ₃</th>' +
+    '<th style="padding:4px 6px;">ω₁</th><th style="padding:4px 6px;">ω₂</th><th style="padding:4px 6px;">ω₃</th>' +
+    '</tr></thead><tbody id="replayDataBody"></tbody></table></div></div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  // 渲染曲线
+  closeReplayCharts();
+  var titles = ['δ₁', 'δ₂', 'δ₃', 'ω₁', 'ω₂', 'ω₃'];
+  var colors = [COLORS.g1, COLORS.g2, COLORS.g3, COLORS.g1, COLORS.g2, COLORS.g3];
+  for (var c = 0; c < 6; c++) {
+    var ctx = document.getElementById('replayC' + c).getContext('2d');
+    var isOmega = c >= 3;
+    var gi = c % 3;
+    var arrEst = isOmega ? s.omega_est : s.delta_est;
+    var estArr = (arrEst && arrEst[gi]) ? arrEst[gi] : [];
+    var ch = new Chart(ctx, {
+      type: 'line',
+      data: { datasets: [mkDS(titles[c] + ' Est.', colors[c], false)] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        parsing: false,
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: '仿真秒数', color: '#6b7280', font: { size: 11 } },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 },
+          },
+          y: {
+            title: { display: true, text: isOmega ? 'rad/s' : 'rad', color: '#6b7280', font: { size: 11 } },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 4 },
+          }
+        },
+        plugins: {
+          legend: { labels: { font: { size: 10 }, boxWidth: 14, padding: 6 } },
+        }
+      },
+    });
+    replayCharts.push(ch);
+    ch.data.datasets[0].data = estArr.map(function(v, idx) { return { x: times[idx] || idx, y: v }; });
+    ch.update('none');
+  }
+
+  // 渲染数据表格（1kHz 原始数据，只显示前 100 行 + 提示）
+  var tbody = document.getElementById('replayDataBody');
+  var rows = [];
+  var maxRows = Math.min(nRaw, 100);
+  for (var i = 0; i < maxRows; i++) {
+    var t = rawTimes[i] || i;
+    var d1 = (rawDelta[0] && rawDelta[0][i] !== undefined) ? rawDelta[0][i].toFixed(6) : '--';
+    var d2 = (rawDelta[1] && rawDelta[1][i] !== undefined) ? rawDelta[1][i].toFixed(6) : '--';
+    var d3 = (rawDelta[2] && rawDelta[2][i] !== undefined) ? rawDelta[2][i].toFixed(6) : '--';
+    var w1 = (rawOmega[0] && rawOmega[0][i] !== undefined) ? rawOmega[0][i].toFixed(6) : '--';
+    var w2 = (rawOmega[1] && rawOmega[1][i] !== undefined) ? rawOmega[1][i].toFixed(6) : '--';
+    var w3 = (rawOmega[2] && rawOmega[2][i] !== undefined) ? rawOmega[2][i].toFixed(6) : '--';
+    rows.push('<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:3px 6px;">' + t.toFixed(3) + '</td>' +
+      '<td style="padding:3px 6px;">' + d1 + '</td><td style="padding:3px 6px;">' + d2 + '</td><td style="padding:3px 6px;">' + d3 + '</td>' +
+      '<td style="padding:3px 6px;">' + w1 + '</td><td style="padding:3px 6px;">' + w2 + '</td><td style="padding:3px 6px;">' + w3 + '</td></tr>');
+  }
+  if (nRaw > 100) {
+    rows.push('<tr><td colspan="7" style="text-align:center;padding:8px;color:var(--text-muted);">... 共 ' + nRaw + ' 行，仅显示前 100 行 ...</td></tr>');
+  }
+  tbody.innerHTML = rows.join('');
+}
+
+function switchReplayTab(tab) {
+  replayTab = tab;
+  var chartPage = document.getElementById('replayChartPage');
+  var dataPage = document.getElementById('replayDataPage');
+  var tabChart = document.getElementById('tabChart');
+  var tabData = document.getElementById('tabData');
+  if (tab === 'chart') {
+    chartPage.style.display = '';
+    dataPage.style.display = 'none';
+    tabChart.style.borderBottomColor = 'var(--accent)';
+    tabChart.style.color = 'var(--accent)';
+    tabData.style.borderBottomColor = 'transparent';
+    tabData.style.color = 'var(--text-tertiary)';
+  } else {
+    chartPage.style.display = 'none';
+    dataPage.style.display = '';
+    tabChart.style.borderBottomColor = 'transparent';
+    tabChart.style.color = 'var(--text-tertiary)';
+    tabData.style.borderBottomColor = 'var(--accent)';
+    tabData.style.color = 'var(--accent)';
+  }
+}
+
+function closeReplayModal() {
+  var m = document.getElementById('replayModal');
+  if (m) m.remove();
+  closeReplayCharts();
+}
+
+function closeReplayCharts() {
+  for (var i = 0; i < replayCharts.length; i++) {
+    if (replayCharts[i]) replayCharts[i].destroy();
+  }
+  replayCharts = [];
+}
+
+function captureFaultSnapshot(h) {
+  // 使用服务端存储的快照，前端不再自行捕获
+}
+
+var currentHistNode = 'node_1';
+
+function switchHistTab(nodeId) {
+  currentHistNode = nodeId;
+  // Update tab button styles
+  for (var ni = 1; ni <= 3; ni++) {
+    var btn = document.getElementById('histTab' + ni);
+    if (btn) {
+      btn.style.background = (('node_' + ni) === nodeId) ? 'var(--accent)' : 'var(--bg-surface)';
+      btn.style.color = (('node_' + ni) === nodeId) ? '#fff' : 'var(--text-secondary)';
+    }
+  }
+  document.getElementById('histNodeLabel').textContent = '— 终端节点 ' + nodeId.slice(-1);
+  // Re-render with new node data
+  api('/history_all').then(function(allH) {
+    if (allH && allH[nodeId]) updateHistoryTable(allH[nodeId]);
+  });
+}
+
+function updateHistoryTable(h) {
+  var t = h.beijing_time_ms || [], rows = [], n = Math.min(t.length, 80);
+  for (var i = t.length - n; i < t.length; i++) {
+    var d = new Date(t[i]);
+    var ts = d.getFullYear()+'-'+
+      String(d.getMonth()+1).padStart(2,'0')+'-'+
+      String(d.getDate()).padStart(2,'0')+' '+
+      String(d.getHours()).padStart(2,'0')+':'+
+      String(d.getMinutes()).padStart(2,'0')+':'+
+      String(d.getSeconds()).padStart(2,'0');
+    var stepNum = i;  // step index corresponds to time in seconds
+    var rmse = Math.sqrt(
+      (Math.pow(h.delta_est[0][i]||0,2) +
+       Math.pow(h.delta_est[1][i]||0,2) +
+       Math.pow(h.delta_est[2][i]||0,2)) / 3
+    ).toFixed(4);
+    rows.push('<tr><td>'+stepNum+'</td><td style="font-size:10px;">'+ts+'</td>'+
+      '<td>'+(h.delta_est[0][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[0][i]||0).toFixed(4)+'</td>'+
+      '<td>'+(h.delta_est[1][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[1][i]||0).toFixed(4)+'</td>'+
+      '<td>'+(h.delta_est[2][i]||0).toFixed(4)+'</td><td>'+(h.omega_est[2][i]||0).toFixed(4)+'</td>'+
+      '<td>'+rmse+'</td>'+
+      '<td>'+(h.phase && h.phase[i] ? h.phase[i] : '')+'</td></tr>');
+  }
+  document.getElementById('historyBody').innerHTML = rows.join('');
+}
+
+function updateChartData(chart, times, arrays, isOverview) {
+  var WINDOW_SEC = 10;  // 滑动窗口：只显示最近 N 秒
+  var WINDOW_MS = WINDOW_SEC * 1000;
+  for (var i = 0; i < chart.data.datasets.length && i < arrays.length; i++) {
+    var arr = arrays[i];
+    if (!arr) {
+      chart.data.datasets[i].data = [];
+      continue;
+    }
+    chart.data.datasets[i].data = times.map(function(t, idx) {
+      var v = idx < arr.length ? arr[idx] : null;
+      return (v === undefined || v === null || Number.isNaN(v)) ? { x: t, y: null } : { x: t, y: v };
+    });
+  }
+  var lastT = times.length > 0 ? times[times.length-1] : 0;
+  var firstT = times.length > 0 ? times[0] : 0;
+  if (isOverview) {
+    // 整体趋势图: 全部显示
+    chart.options.scales.x.min = firstT;
+    chart.options.scales.x.max = Math.max(firstT + 1000, lastT + 500);
+  } else {
+    // 主图：滑动窗口显示最近 WINDOW_SEC 秒
+    chart.options.scales.x.min = Math.max(firstT, lastT - WINDOW_MS);
+    chart.options.scales.x.max = lastT + 2000;
+  }
+  chart.update('none');
+}
+
+// ==================== Controls ====================
+function highlightActiveNode(activeNode) {
+  // 高亮活跃节点，其他变淡
+  var activeIdx = NODE_NAMES.indexOf(activeNode);
+  Object.values(allCharts).forEach(function(ch) {
+    for (var i = 0; i < 3; i++) {
+      var ds = ch.data.datasets[i];
+      if (!ds) continue;
+      if (i === activeIdx) {
+        ds.borderWidth = 2.5;
+        ds.borderColor = NODE_COLORS[i];
+        ds.backgroundColor = NODE_COLORS[i] + '30';
+      } else {
+        ds.borderWidth = 1;
+        ds.borderColor = NODE_COLORS[i] + '60';
+        ds.backgroundColor = NODE_COLORS[i] + '10';
+      }
+    }
+    ch.update('none');
+  });
+}
+
+function setChartsFaultHighlight(nodeId, isFault) {
+  // 新布局：6 个图表共享，故障时高亮对应节点的 dataset
+  var nodeIdx = NODE_NAMES.indexOf(nodeId);
+  if (nodeIdx < 0) return;
+  Object.values(allCharts).forEach(function(ch) {
+    var ds = ch.data.datasets[nodeIdx];
+    if (!ds) return;
+    if (isFault) {
+      ds.borderColor = '#dc2626';
+      ds.backgroundColor = 'rgba(220,38,38,0.15)';
+    } else {
+      ds.borderColor = NODE_COLORS[nodeIdx];
+      ds.backgroundColor = NODE_COLORS[nodeIdx] + '18';
+    }
+    ch.update('none');
+  });
+}
+
+function updateNodeBytes(nodeId, totalBytes) {
+  var el = document.getElementById('nodeBytes' + nodeId);
+  if (!el) return;
+  var abs = Math.abs(totalBytes);
+  var val, unit;
+  if (abs >= 1073741824) {
+    val = totalBytes / 1073741824; unit = 'GB';
+  } else if (abs >= 1048576) {
+    val = totalBytes / 1048576; unit = 'MB';
+  } else if (abs >= 1024) {
+    val = totalBytes / 1024; unit = 'KB';
+  } else {
+    val = totalBytes; unit = 'B';
+  }
+  el.textContent = val.toFixed(val >= 100 ? 0 : (val >= 10 ? 1 : 2)) + ' ' + unit;
+}
+
+function doStart() {
+  document.getElementById('btnStart').disabled = true;
+  updateStatusPillText('UKF计算中...');
+  api('/control', 'POST', { action: 'start' }).then(function(r) {
+    if (r.status === 'ok') {
+      if (r.ukf_pending) {
+        setTimeout(doStart, 2000);
+      } else {
+        startPolling();
+      }
+    }
+  });
+}
+
+function doPause() {
+  if (running) {
+    api('/control', 'POST', { action: 'pause' }).then(function(r) {
+      if (r.status === 'ok') {
+        stopPolling();
+        if (!histInterval) {
+          histInterval = setInterval(getHistory, 1000);
+        }
+        document.getElementById('btnPause').textContent = '▶ 继续';
+        document.getElementById('btnPause').disabled = false;
+      }
+    });
+  } else {
+    api('/control', 'POST', { action: 'start' }).then(function(r) {
+      if (r.status === 'ok') {
+        startPolling();
+        document.getElementById('btnPause').textContent = '⏸ 暂停';
+      }
+    });
+  }
+}
+
+function doReset() {
+  stopPolling();
+  api('/control', 'POST', { action: 'reset' }).then(function(r) {
+    // ── 全局重置：清除所有 UI 状态 ──
+    // 时间
+    document.getElementById('elapsedTime').textContent = '0.0';
+    document.getElementById('elapsedValue').textContent = '0.0s';
+    // 故障状态
+    document.getElementById('faultValue').textContent = '未检测到';
+    document.getElementById('faultValue').style.color = 'var(--text-primary)';
+    var faultIcon = document.getElementById('faultIcon');
+    faultIcon.className = 'card-icon warning';
+    faultIcon.innerHTML = '⚠';
+    // 节点数据
+    document.getElementById('nodeBytes1').textContent = '--';
+    document.getElementById('nodeBytes2').textContent = '--';
+    document.getElementById('nodeBytes3').textContent = '--';
+    // 天气
+    document.getElementById('weatherRiskValue').textContent = '--';
+    document.getElementById('weatherRiskDetail').textContent = '甘肃酒泉 · 等待数据';
+    document.getElementById('weatherIcon').innerHTML = '☁';
+    // 系统信息
+    document.getElementById('siGen').textContent = '--';
+    document.getElementById('siBus').textContent = '--';
+    document.getElementById('siRate').textContent = '--';
+    document.getElementById('siPts').textContent = '--';
+    document.getElementById('siFault').textContent = '--';
+    // 状态
+    var pill = document.getElementById('statusPill');
+    pill.className = 'status-pill status-ready';
+    document.getElementById('statusText').textContent = '就绪';
+    // 按钮
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnPause').disabled = true;
+    document.getElementById('btnPause').textContent = '⏸ 暂停';
+    // 图表覆盖层 — removed (no overlay elements in new layout)
+    // 图表数据清空
+    Object.values(allCharts).forEach(function(c) {
+      c.data.datasets.forEach(function(ds) { ds.data = []; });
+      c.update('none');
+    });
+    // 历史数据
+    var hb = document.getElementById('historyBody');
+    if (hb) hb.innerHTML = '';
+    // 故障回放
+    var rc = document.getElementById('replayContainer');
+    if (rc) rc.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无故障记录</div>';
+    faultSnapshots = [];
+    // 事件日志
+    var lc = document.getElementById('logContent');
+    if (lc) lc.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>';
+    // 灾害仿真结果
+    var sr = document.getElementById('simResult');
+    if (sr) { sr.style.display = 'none'; sr.innerHTML = ''; }
+    // 内部状态
+    running = false;
+    prevLastTime = -1;
+    faultRegions = [];
+    // 切回主监控页面
+    switchTab('monitor');
+  });
+}
+
+function doSetSpeed(val) {
+  api('/control', 'POST', { action: 'speed', speed: 1 }).then(function() {});
+}
+
+var pollInterval = null;
+var histInterval = null;
+var prevLastTime = -1;
+
+function startPolling() {
+  stopPolling();
+  var pollMs = 1000;
+  var histMs = 1000;
+  pollInterval = setInterval(fetchResults, pollMs);
+  histInterval = setInterval(getHistory, histMs);
+  var pill = document.getElementById('statusPill');
+  pill.className = 'status-pill status-running';
+  document.getElementById('statusText').textContent = '运行中';
+  document.getElementById('btnPause').textContent = '⏸ 暂停';
+  running = true;
+}
+
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (histInterval) { clearInterval(histInterval); histInterval = null; }
+  running = false;
+  document.getElementById('btnPause').textContent = '⏸ 暂停';
+  document.getElementById('btnPause').disabled = true;
+  document.getElementById('btnStart').disabled = false;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); });
+  var capTab = tab.charAt(0).toUpperCase() + tab.slice(1);
+  var navEl = document.getElementById('nav' + capTab);
+  if (navEl) navEl.classList.add('active');
+  var panel = document.getElementById('tabPanel');
+  var allCharts = document.querySelectorAll('.charts-section');
+  if (tab === 'monitor') {
+    panel.style.display = 'none';
+    allCharts.forEach(function(c){ c.style.display = ''; });
+  } else {
+    allCharts.forEach(function(c){ c.style.display = 'none'; });
+    panel.style.display = '';
+    var panels = {history: 'panelHistory', config: 'panelConfig', log: 'panelLog', sim: 'panelSim'};
+    Object.keys(panels).forEach(function(k){
+      document.getElementById(panels[k]).style.display = (k===tab)? '' : 'none';
+    });
+    if (tab === 'log') updateLogTab();
+    if (tab === 'history') loadFaultReplays();
+  }
+}
+
+function simDisaster(key) {
+  api('/api/simulate_disaster', 'POST', {disaster: key}).then(function(res) {
+    var el = document.getElementById('simResult');
+    el.style.display = '';
+    if (res.status === 'ok') {
+      if (key === 'clear') {
+        el.innerHTML = '<span style="color:var(--success)">✓ ' + res.message + '</span>';
+      } else {
+        var risk = res.risk || {};
+        var sent = res.feishu_sent ? ' ✅ 已推送飞书' : '';
+        el.innerHTML = '<div style="color:var(--warning);font-weight:600;">⚠ 已激活「' + res.disaster + '」仿真</div>' +
+          '<div style="margin-top:4px;font-size:12px;">风险等级: <b style="color:' + risk.overall_color + '">' + risk.overall_label + '</b>' + sent + '</div>' +
+          '<div style="margin-top:4px;font-size:12px;color:var(--text-secondary);">' + risk.summary + '</div>';
+      }
+    } else {
+      el.innerHTML = '<span style="color:var(--danger)">✗ 模拟失败</span>';
+    }
+  }).catch(function() {});
+}
+
+var currentLogFilter = 'all';
+
+function switchLogTab(filter) {
+  currentLogFilter = filter;
+  // Update button styles
+  ['all','node_1','node_2','node_3'].forEach(function(f) {
+    var btnId = f === 'all' ? 'logTabAll' : ('logTab' + f.slice(-1));
+    var btn = document.getElementById(btnId);
+    if (btn) {
+      btn.style.background = (f === filter) ? 'var(--accent)' : 'var(--bg-surface)';
+      btn.style.color = (f === filter) ? '#fff' : 'var(--text-secondary)';
+    }
+  });
+  updateLogTab();
+}
+
+function updateLogTab() {
+  api('/events').then(function(d){
+    var el = document.getElementById('logContent');
+    var events = d.events || [];
+    // Filter by node if not 'all'
+    if (currentLogFilter !== 'all') {
+      events = events.filter(function(e) { return e.node_id === currentLogFilter; });
+    }
+    if (events.length === 0) { el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>'; return; }
+    var levelColorMap = { 'error': 'var(--danger)', 'warn': 'var(--warning)', 'warning': 'var(--warning)', 'info': 'var(--text-secondary)' };
+    var rows = events.reverse().map(function(e){
+      var c = levelColorMap[e.level] || 'var(--text-secondary)';
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border-subtle);color:'+c+'">['+e.ts+'] ['+e.node_id+'] '+e.msg+'</div>';
+    }).join('');
+    el.innerHTML = rows || '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件</div>';
+  });
+}
+
+// ==================== Init ====================
+fetchResults();
+getHistory('node_1').catch(function(e) { console.warn('getHistory init error:', e); });
+// 故障回放不在初始化时加载，等引擎跑过故障点后再显示
+
+setTimeout(function() {
+  api('/status').then(function(d) {
+    if (d.running) { startPolling(); getHistory(d.active_node || 'node_1').catch(function() {}); }
+  }).catch(function() {});
+}, 300);
+
+} catch(e) {
+  document.getElementById('errMsg').style.display = 'flex';
+  document.getElementById('errMsg').textContent = 'JS 致命错误: ' + e.message;
+  document.getElementById('statusText').textContent = '脚本错误: ' + e.message;
+}
+</script>
+</body>
+</html>

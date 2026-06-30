@@ -1,6 +1,10 @@
 ./objects/mwcc68_app.o: app\BSP\mwcc68_app.c app\BSP\mwcc68_app.h \
   Firmware\CMSIS\GD\GD32L23x\Include\gd32l23x.h \
-  D:\Keil_v5\ARM\Packs\ARM\CMSIS\6.1.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdint.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_version.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_compiler.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_armclang.h \
   Firmware\CMSIS\GD\GD32L23x\Include\system_gd32l23x.h \
   gd32_sys\gd32l23x_libopt.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_adc.h \
@@ -30,4 +34,7 @@
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_slcd.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_lptimer.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_vref.h \
-  app\BSP\mwcc68_cfg.h app\BSP\mwcc68_uart.h gd32_sys\systick.h
+  app\BSP\mwcc68_cfg.h app\BSP\mwcc68_uart.h gd32_sys\systick.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdio.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\string.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\ctype.h

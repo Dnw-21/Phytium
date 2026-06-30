@@ -1,0 +1,21 @@
+[Unit]
+Description=Phytium Pi OpenAMP Heterogeneous Multi-Core Communication
+After=network.target remote-fs.target
+
+[Service]
+Type=forking
+User=root
+ExecStartPre=/sbin/modprobe rpmsg_char
+ExecStartPre=/sbin/modprobe rpmsg_ctrl
+ExecStartPre=/bin/sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+ExecStartPre=/bin/sleep 2
+ExecStartPre=/bin/sh -c 'CH=$(ls /sys/bus/rpmsg/devices/ | grep openamp-demo); [ -n "$CH" ] && echo rpmsg_chrdev > /sys/bus/rpmsg/devices/$CH/driver_override; [ -n "$CH" ] && echo $CH > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind; chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0 2>/dev/null; true'
+ExecStart=/bin/sh -c 'nohup /home/user/dashboard_server > /tmp/dashboard.log 2>&1 & echo $! > /run/openamp.pid'
+ExecStop=/bin/sh -c 'kill $(cat /run/openamp.pid 2>/dev/null) 2>/dev/null; echo stop > /sys/class/remoteproc/remoteproc0/state 2>/dev/null; rmmod rpmsg_ctrl rpmsg_char 2>/dev/null; true'
+ExecReload=/bin/sh -c 'kill $(cat /run/openamp.pid 2>/dev/null) 2>/dev/null; sleep 1; nohup /home/user/dashboard_server > /tmp/dashboard.log 2>&1 & echo $! > /run/openamp.pid'
+PIDFile=/run/openamp.pid
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

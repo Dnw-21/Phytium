@@ -563,13 +563,13 @@ ARM Macro Assembler    Page 9
   349 00000014                 END
               00000000 
               00000000 
-Command Line: --debug --xref --diag_suppress=9931,A1950W --cpu=Cortex-M23 --dep
-end=.\objects\startup_gd32l23x.d -o.\objects\startup_gd32l23x.o -I.\RTE\_Gd32L2
-33C_START -ID:\Keil_v5\ARM\Packs\ARM\CMSIS\6.1.0\CMSIS\Core\Include -ID:\Keil_v
-5\ARM\Packs\GigaDevice\GD32L23x_DFP\1.1.0\Device\Include --predefine="__MICROLI
-B SETA 1" --predefine="__UVISION_VERSION SETA 541" --predefine="GD32L23x SETA 1
-" --predefine="_RTE_ SETA 1" --list=.\listings\startup_gd32l23x.lst Firmware\CM
-SIS\GD\GD32L23x\Source\ARM\startup_gd32l23x.s
+Command Line: --debug --xref --diag_suppress=9931 --cpu=Cortex-M23 --depend=.\o
+bjects\startup_gd32l23x.d -o.\objects\startup_gd32l23x.o -I.\RTE\_Gd32L233C_STA
+RT -IG:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include -IG:\SoftWare\Kei
+l\Pack\GigaDevice\GD32L23x_DFP\1.1.0\Device\Include --predefine="__MICROLIB SET
+A 1" --predefine="__UVISION_VERSION SETA 536" --predefine="_RTE_ SETA 1" --pred
+efine="GD32L23x SETA 1" --predefine="_RTE_ SETA 1" --list=.\listings\startup_gd
+32l23x.lst Firmware\CMSIS\GD\GD32L23x\Source\ARM\startup_gd32l23x.s
 
 
 

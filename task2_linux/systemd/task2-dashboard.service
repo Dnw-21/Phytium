@@ -1,0 +1,20 @@
+[Unit]
+Description=Task2 Multi-Node UKF Dashboard (HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alientek
+Group=alientek
+WorkingDirectory=/home/alientek/Phytium/task2_linux
+Environment="PYTHONUNBUFFERED=1"
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 /home/alientek/Phytium/task2_linux/dashboard_server_v2.py --port 5001
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/alientek/Phytium/task2_linux/logs/dashboard.log
+StandardError=append:/home/alientek/Phytium/task2_linux/logs/dashboard.err
+
+[Install]
+WantedBy=multi-user.target

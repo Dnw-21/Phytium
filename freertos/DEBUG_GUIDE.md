@@ -1,6 +1,6 @@
 # FreeRTOS LoRa 接收调试指南
 
-> **最后更新**: 2026-05-21  |  **当前版本**: v12-SIM  |  **状态**: S1~S6 ✅ + S8模拟注入部分验证通过 🔶
+> **最后更新**: 2026-06-03  |  **当前版本**: v12-S4  |  **状态**: 通信链路打通 ✅ | 解密透传 ✅ | 加密全部分析确认 ✅
 >
 > 本指南记录从零搭建 FreeRTOS OpenAMP LoRa 接收系统的完整过程，包含所有踩过的坑和解决方案。
 
@@ -85,10 +85,10 @@ make all -j$(nproc)
 
 ```bash
 # 拷贝到开发板
-scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.11:/tmp/
+scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.10:/tmp/
 
 # 开发板上替换固件
-ssh user@192.168.88.11
+ssh user@192.168.88.10
 sudo cp /tmp/pe2204_aarch64_phytiumpi_openamp_for_linux.elf /lib/firmware/openamp_core0.elf
 sudo reboot
 ```
@@ -97,7 +97,7 @@ sudo reboot
 
 ```bash
 # 编译 trace_reader (首次)
-ssh user@192.168.88.11
+ssh user@192.168.88.10
 cat > /tmp/trace_reader.c << 'EOS'
 #include <stdio.h>
 #include <stdlib.h>
@@ -1645,3 +1645,747 @@ INJECT FAULT_LIST: 20B consumed=20
 ## 旧版本状态 (v7 历史记录)
 
 ### v7 (2026-05-21) — 中断模式
+
+
+---
+
+# 附加审查：混沌解密问题排查 (2026-06-03)
+
+> 本次审查针对混沌解密失败问题，记录完整的排查过程、定位方法和结论。
+
+
+## 接收数据与对比数据
+
+### 接收到的数据 (captured_data.txt)
+
+FreeRTOS 主控器 (ADDR=0x000A) 通过 LoRa 发送 `CMD_POLL_STATUS(0x14)` 轮询节点 0x000B，收到以下 40 字节 LoRa 帧：
+
+```
+AA 55 00 21 00 36 3B E8 01 BF D1 B2 13 40 39 37 A9 33 37 26 DA 58 A4 F5 0A F7 0C 6B FE 82 FD A5 04 D0 F4 4C C1 7E 55 AA
+```
+
+帧解析：
+| 字段 | 偏移 | 值 | 含义 |
+|------|------|-----|------|
+| 帧头 | [0-1] | AA 55 | FRAME_START |
+| 数据长度 | [2-3] | 00 21 | 33 字节 |
+| 时间戳 | [4-7] | 00 36 3B E8 | timestamp |
+| 数据类型 | [8] | 01 | DATA_TYPE_NODE_HEAD |
+| 同步码 | [9-16] | BF D1 B2 13 40 39 37 A9 | sync_code (大端) |
+| 加密数据 | [17-36] | 33 37 26 DA ... C1 | 20 字节密文 |
+| CRC8 | [37] | 7E | |
+| 帧尾 | [38-39] | 55 AA | FRAME_END |
+
+FreeRTOS 主控解密后得到：`60 04 42 D3 DF 72 A9 B7 A1 C3 12 4C 47 65 8F 89 36 27 23 E9`
+**第一个字节 = 0x60，期望 = 0x01 (DATA_TYPE_NODE_HEAD)**
+
+### 对比的数据来源
+
+**对比对象**: `/home/alientek/Phytium/GD32L233C_Prj/` — GD32L233 终端节点工程
+
+关键文件：
+- `app/chaos_encrypt.c` — 混沌加密/解密算法
+- `app/chaos_encrypt.h` — 混沌系统参数定义
+- `app/task/lora_send_task.c` — 发送帧组装逻辑
+- `app/data_frame.c` — 帧格式定义
+- `app/data_frame.h` — 数据类型定义
+
+### **关键疑点：终端节点固件是否确为 GD32L233C_Prj？**
+
+**这个问题尚未验证！** 目前整个调试都基于"终端节点运行 GD32L233C_Prj 固件"这一假设。
+
+实际存在的 GD32 工程：
+```
+/home/alientek/Phytium/GD32L233C_Prj/                          ← 终端节点 (有 chaos_encrypt.c, lora_send_task.c)
+/home/alientek/Phytium/GD32L233C_Prj_Master_v3_0526/            ← 主控器 v3 (有 master_recv.c, master_poll_task.c)
+```
+
+如果终端节点实际运行的固件不是 GD32L233C_Prj（例如是其他版本、其他工程），那么混沌参数、迭代公式、
+甚至帧格式都可能不同，**后续所有调试方向都可能是错误的**。
+
+---
+
+## 定位混沌解密问题的完整推理链路
+
+```
+现象: FreeRTOS主控收到加密帧，解密后首字节=0x60 ≠ 期望0x01
+  ↓
+可能原因1: 帧解析错误 (sync_code/enc_start提取错)
+  ↓ 验证: 对比GD32和FreeRTOS两侧的 frame_parse() 函数
+  ↓ 结论: sync_code提取逻辑一致 (frame[9-16]大端), enc_len计算一致 (data_len-13)
+  ↓
+可能原因2: 混沌解密密钥流不匹配
+  ↓ 假设: GD32(ARMCC编译器, 软件浮点) vs FreeRTOS(GCC AArch64, 硬件浮点) 的 sinf/cosf 实现不同
+  ↓ 验证: 编写 test_chaos3.c, test_chaos4.c 测试不同 sinf/cosf 实现
+  ↓ 结论: 标准 sinf 解密出 0x9D, 多项式 sinf 解密出 0xF8, 均≠0x01
+  ↓
+可能原因3: ARMCC 的 sinf/cosf 实现与所有已知开源实现都不同
+  ↓ 操作: 反汇编 GD32L233C_Prj.axf (0x0800a8e0 sinf, 0x0800a768 cosf)
+  ↓ 提取: Cody-Waite角度归约常数 + 3-term多项式系数 + _frnd 舍入算法
+  ↓ 编写: test_chaos5.c 精确复现 ARMCC sinf/cosf
+  ↓ 结果: 解密出 0xBD ≠ 0x01 (比标准库的 0x9D 更远!)
+  ↓
+可能原因4 (未验证!): 比较对象错误
+  ↓ 问题: 终端节点固件可能不是 GD32L233C_Prj
+  ↓ 影响: 混沌参数、迭代逻辑、甚至是帧格式都可能不同
+  ↓ 状态: 需上电验证
+```
+
+### 多种实现解密结果对比
+
+| 版本 | 解密首字节 | 期望 | 状态 |
+|------|-----------|------|------|
+| FreeRTOS 标准 sinf/cosf (GCC) | 0x60 | 0x01 | 失败 |
+| test_chaos3 多项式 sinf/cosf | 0xF8 | 0x01 | 失败 |
+| test_chaos4 fdlibm/newlib/musl | 0x9D/0x60 | 0x01 | 失败 |
+| test_chaos5 ARMCC 精确复现 | 0xBD | 0x01 | 失败 |
+
+**ARMCC复现版与标准库在4次迭代后状态已完全不同：**
+
+```
+ARMCC版本迭代:
+  迭代1: g_x=3FC9377C g_y=C045CEA2
+  迭代2: g_x=BFC4A103 g_y=BFFE034D
+  迭代3: g_x=3EED881E g_y=BF3EC475
+  迭代4: g_x=3F5ED4CE g_y=4027218C
+  第1个key byte = 0x8E
+
+标准版本迭代:
+  迭代1: g_x=3FC84128 g_y=C04A193C
+  迭代2: g_x=BFA9819B g_y=BFF0794A
+  迭代3: g_x=3F73B43F g_y=BF3F2406
+  迭代4: g_x=BE879679 g_y=4012C7ED
+  第1个key byte = 0xAE
+```
+
+初始状态 (从 sync_code=0xBFD1B213403937A9 恢复) 是相同的：
+- g_x = 0xBFD1B213 = -1.638247
+- g_y = 0x403937A9 = 2.894022
+
+---
+
+## 已验证一致的部分
+
+| 检查项 | GD32 (ARMCC) | FreeRTOS (GCC) | 状态 |
+|--------|-------------|----------------|------|
+| 混沌参数 (a,b0,b1,c,d0,d1) | 2.5,1.0,3.0,2.5,1.0,3.0 | 相同 | OK |
+| 相位 phi[0-5] | 0.5,0.3,0.7,0.4,0.6,0.2 | 相同 | OK |
+| 混沌迭代公式 | cosf/sinf | cosf/sinf | 文字一致 |
+| 密钥生成 (4次迭代+XOR混合) | 相同逻辑 | 相同逻辑 | OK |
+| sync_code 格式 | 高32位=x_bits, 低32位=y_bits | 相同 | OK |
+| 帧格式 | [AA55][len][ts4B][type][sync8B][enc][CRC][55AA] | 相同 | OK |
+| NodeUploadHeader_t 布局 | 相同 | 相同 | OK |
+| 同步后行为 | 直接生成密钥流, 不预热 | 相同 | OK |
+| 加密流程 | get_sync→gen_keystream→XOR | 相同 | OK |
+
+---
+
+## 从未验证的关键前提
+
+- [ ] 终端节点是否确实运行 GD32L233C_Prj 固件？
+- [ ] 混沌加密参数是否与 GD32L233C_Prj 源码完全一致？
+- [ ] 终端节点是否有 scramble(字节置换) 步骤？(GD32L233C_Prj 的注释提到但代码中未见)
+- [ ] 终端节点 warmup 次数是否确为 1000？
+
+---
+
+## 全过程工作记录
+
+### 工作流程
+
+1. **提取捕获数据**: 从 FreeRTOS 开发板日志提取实际接收的 LoRa 帧，保存到 captured_data.txt
+2. **交叉验证帧解析**: 对比 GD32 data_frame.c 和 FreeRTOS data_frame.c 的 frame_parse() 函数
+3. **验证 sync_code 提取**: 确认 frame[9-16] 大端模式的提取逻辑一致
+4. **怀疑浮点差异**: 编写 test_chaos3.c，用多项式逼近的 sinf/cosf 替换标准库，测试解密
+5. **对比多种实现**: 编写 test_chaos4.c，测试 fdlibm/newlib/musl 等多种 sinf/cosf 实现
+6. **逆向 ARMCC sinf/cosf**: 用 arm-none-eabi-objdump 反汇编 GD32L233C_Prj.axf
+7. **提取多项式系数**: 从汇编常数池提取 SIN_C5/C6/C7, COS_C5/C6/C7
+8. **分析 Cody-Waite 归约**: 提取 PI2_P0/P1/P2/P3 及 INV_TWOPI 常数
+9. **分析 _frnd 舍入**: 确定 ARMCC 使用 nearbyintf 而非 roundf
+10. **精确复现**: 编写 test_chaos5.c，逐指令复现 ARMCC sinf/cosf
+
+### 遇到的问题
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| test_chaos4 编译错误 `lvalue required as unary '&' operand` | `&sinf(v)` 语法错误 | 添加中间变量 |
+| arm-none-eabi-objdump 不存在 | 未安装 ARM 工具链 | `apt install binutils-arm-none-eabi` |
+| cos 多项式初始用错结构 (4-term→3-term) | 反汇编不完整 | 重新完整反汇编修正 |
+| roundf vs nearbyintf | ARMCC _frnd 用向最接近整数舍入 | 替换为 nearbyintf |
+| 浮点精度不一致 | 编译选项缺 SSE | 添加 -mfpmath=sse -msse2 |
+
+---
+
+## 需要上电验证的事项
+
+### 最高优先级：确认终端节点固件
+
+```
+操作: 上电 GD32 终端节点
+检查:
+  1. 终端节点串口输出/日志内容 (看 printf/log_info 输出)
+  2. 终端节点当前编译的是什么工程? GD32L233C_Prj? 还是其他?
+  3. 如果终端节点有版本号输出，记录版本号
+  4. 检查 GD32 flash 中烧录的镜像是否与 GD32L233C_Prj/Objects/GD32L233C_Prj.axf 一致
+```
+
+### 确认通信正确性
+
+```
+操作: FreeRTOS 主控发送 CMD_POLL_STATUS，终端节点响应
+检查:
+  1. 终端日志是否显示收到的轮询命令 (CMD_POLL_STATUS=0x14)
+  2. 终端日志是否显示发送的原始数据 (data_type, data_len, 原始 payload)
+  3. 终端日志是否显示加密后的 sync_code
+  4. 对比: 终端发送的 sync_code 与 FreeRTOS 收到的 sync_code 是否一致
+  5. 对比: 终端加密前的原始数据第一个字节是否为 0x01
+```
+
+### 验证混沌参数一致性
+
+```
+操作: 在终端节点代码中添加调试输出
+检查:
+  1. chaos_init 传入的 seed 值
+  2. warmup 后第一次 chaos_get_sync_code 的值
+  3. chaos_encrypt_packet 中的 sync_code
+  4. 密钥流前几个字节的值
+```
+
+---
+
+---
+
+## v12-S2: 通信链路打通 + 解密问题定位 (2026-06-03)
+
+### 当前状态总结
+
+**通信链路已打通！** FreeRTOS 主控通过 LoRa 轮询终端节点，终端节点正常响应。
+
+```
+FreeRTOS 主控                    终端节点(GD32L233C)
+     │                                │
+     │── CMD_POLL_STATUS(0x14) ──────→│  明文轮询命令
+     │                                │
+     │←── AA55[帧头][data_type=0x01]  │  加密响应
+     │    [sync_code=0x3F2D8953]      │  (chaos_encrypt_packet)
+     │    [24B加密payload][CRC][55AA]  │
+     │                                │
+```
+
+**关键日志（最新 trace_reader 输出）**:
+```
+[RECV] sync=3F2D8953 type=0x01 len=24
+[RAW] 40B: AA 55 00 21 00 0E EB 19 01 3F 2D 89 53 BF B1 8B AA ...
+[DEC] sync=3F2D8953 type=0x01 len=24: 5A C9 35 15 ...
+```
+
+### 核心决策：跟随 Master v3 — 解密透传
+
+**原因**: `GD32L233C_Prj_Master_v3` 源码中，`chaos_encrypt_packet` 和 `chaos_decrypt_packet` **都是被注释掉的**：
+
+```c
+// master_recv.c L222-223 (Master v3)
+if (sync_code != 0 && enc_len > 0 && enc_len <= 128) {
+    // payload_len = chaos_decrypt_packet(enc_start, enc_len, data, sync_code);
+    // payload = data;
+    payload_len = enc_len;
+    payload = enc_start;
+}
+```
+
+Master v3 的原始设计就是：**发送明文命令，接收加密数据但不解密，直接透传**。这是正确的移植方式。
+
+### 为什么解密会失败？
+
+**根本原因**: ARMCC (GD32 终端, Cortex-M3, 软件浮点) 与 GCC (FreeRTOS AArch64, 硬件浮点) 的 `sinf`/`cosf` 实现不同。
+
+- 同样的 `sync_code=0x3F2D8953` 恢复出相同的混沌状态 `g_x=1.6173, g_y=3.5155`
+- 但 ARMCC 和 GCC 的第一次 `sinf`/`cosf` 迭代结果就不同
+- 混沌系统对初始条件极其敏感，一步偏差导致整个密钥流完全不同
+- ARMCC 使用 Cody-Waite 角度归约 + 自定义多项式 + `_frnd` 舍入
+- GCC 使用硬件 FPU 的 NEON SIMD sinf/cosf 指令
+
+**Python 模拟验证**:
+```python
+# ARMCC: key[0] = 0x08
+# GCC:   key[0] = 0xF2
+# 终端实际: key[0] = 0xBE (如果 data_type=0x01)
+# 三者互不相同！
+```
+
+**结论**: ARMCC 与 GCC 的浮点实现差异无法通过纯软件模拟弥补，因此**终端节点不能改固件的前提下，解密无法匹配**。正确的做法就是跟随 Master v3 — 不解密。
+
+### 帧格式确认（已验证）
+
+```
+LoRa 空中帧格式 (终端 → 主控):
+
+  ┌─────┬─────┬───────┬───────┬──────┬──────────┬──────────────┬─────┬───────┬─────┐
+  │ AA  │ 55  │ len_H │ len_L │ type │ sync(4B) │ enc_data(NB) │ CRC │ 55AA  │     │
+  │ 1B  │ 1B  │  1B   │  1B   │ 1B   │   4B     │   N = len-9  │ 1B  │  2B   │     │
+  └─────┴─────┴───────┴───────┴──────┴──────────┴──────────────┴─────┴───────┴─────┘
+  byte 0   1      2       3      8      9-12        13..       13+N  13+N+1
+
+例: 终端响应 STATUS (type=0x01, 20B payload):
+  AA 55 00 21 00 0E EB 19 01 3F 2D 89 53 [24B encrypted] 58 55 AA
+   ↑  ↑  ─┬─  ───┬───  ↑  ────┬────  ──────┬───────  ↑  ↑
+  帧头   len=33  ts?   type  sync    enc_data(24B)  CRC 帧尾
+```
+
+**`frame_parse()` 提取逻辑**:
+- `rx_type` = frame[8]
+- `sync_code` = frame[9]<<24 | frame[10]<<16 | frame[11]<<8 | frame[12]
+- `enc_len` = frame_data_len - 9
+- `enc_start` = &frame[13]
+
+### 终端节点关键发现
+
+终端节点运行的是 **`GD32L233C_Prj`** 工程（与 `GD32L233C_Prj_Master_v3` 不同），特征：
+- 使用 `chaos_encrypt_packet()` 加密所有上行数据
+- `chaos_init(0x12345678)` — 与 FreeRTOS 主控相同的种子
+- 混沌参数、迭代次数、scramble 逻辑与主控完全一致
+- **sync_code 始终为 0x3F2D8953** — 终端每次响应 STATUS 时使用相同的混沌初始状态？这是终端侧的行为，不影响主控
+- 终端 `node_data.txt` 日志显示：
+  - `[ENC]TX Raw: type=0x01, len=20` → `Encrypted: sync=0xBFD1B213403937A9, len=28`
+  - 终端 sync_code 不是 0x3F2D8953！0x3F2D8953 可能是 LoRa 模块初始化或某种默认状态
+
+**⚠️ 重要**: 终端节点固件不能重新烧录，所有调试以终端实际行为为准。
+
+### 串口波特率
+
+**已确认**: 双方均为 **115200 8N1**
+
+```
+FreeRTOS UART2:  U2_IBRD=54, U2_FBRD=16  (100MHz / (16 × 115200) ≈ 54.25)
+GD32 终端:      UART7=115200 (LoRa模块 AT+UART=7,0)
+LoRa 模块:      AT+UART=7,0 → 115200bps 8N1
+```
+
+### 数据保存
+
+**当前方案**: 接收数据通过 `[RAW]` 和 `[DEC]` 标签行输出到共享内存，trace_reader 可读取。使用 grep 过滤即可保存。
+
+**保存命令**:
+```bash
+# 保存原始帧 [RAW] 行 (含完整的帧数据bytes)
+ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null \
+  | grep '\[RAW\]' > /home/alientek/Phytium/received_raw.txt
+
+# 保存解析数据 [DEC] 行 (payload数据)
+ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null \
+  | grep '\[DEC\]' > /home/alientek/Phytium/received_dec.txt
+
+# 保存全部输出
+ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null \
+  > /home/alientek/Phytium/received_all.txt
+```
+
+**输出示例**:
+```
+[RAW] 40B: AA 55 00 21 00 2D D3 1C 01 3F 2D 89 53 BF B1 8B AA 6C 58 5D F5...
+[DEC] sync=3F2D8953 type=0x01 len=24: BF B1 8B AA 6C 58 5D F5 DC 23 6F FC...
+```
+
+### 主控测试操作指南
+
+**方式一：开发板已上电且 FreeRTOS 在运行**
+```bash
+# 1. SSH 到开发板
+ssh user@192.168.88.10
+# 密码: user
+
+# 2. 查看 FreeRTOS 是否存活
+sudo busybox devmem 0xC8000000 32    # WI > 0 说明在工作
+sudo busybox devmem 0xC8000008 32    # HB 心跳值
+
+# 3. 运行 trace_reader 观察实时输出
+sudo /home/user/trace_reader
+
+# 4. 保存输出到文件（运行60秒）
+sudo timeout 60 /home/user/trace_reader 2>/dev/null | tee /home/user/lora_log.txt
+```
+
+**方式二：新部署固件（改代码后）**
+```bash
+# 在 PC 上编译并部署
+cd /home/alientek/Phytium/freertos && bash deploy.sh
+
+# 脚本自动: 同步源码→编译→传输→部署固件→reboot→验证
+# 注意: 如果开发板 remoteproc state=running，deploy.sh 只更新固件文件但不重启 FreeRTOS
+# 需要手动 reboot 才能加载新固件:
+ssh user@192.168.88.10 "echo 'user' | sudo -S reboot"
+# 等待约35秒后板子重启完成
+```
+
+**方式三：手动控制（推荐测试用）**
+```bash
+# 1. 编译 + 传输固件
+cd /home/alientek/Phytium/freertos
+cp main.c /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/
+cp src/*.c /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/src/
+cp inc/*.h /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux/inc/
+cd /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux
+export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
+make config_pe2204_phytiumpi_aarch64 && make clean && make all -j$(nproc)
+sshpass -p 'user' scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.10:/tmp/
+
+# 2. SSH 到开发板更新固件
+ssh user@192.168.88.10
+echo 'user' | sudo -S cp /tmp/pe2204_aarch64_phytiumpi_openamp_for_linux.elf /lib/firmware/openamp_core0.elf
+echo 'user' | sudo -S reboot
+
+# 3. 等35秒后观察
+sleep 35
+ssh user@192.168.88.10
+sudo timeout 30 /home/user/trace_reader
+```
+
+### 已知问题与状态
+
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| ARMCC/GCC 浮点差异导致解密失败 | ✅ 已接受 | 跟随 Master v3，不解密，透传原始数据 |
+| node0 加密数据帧解析 | ✅ 已验证 | 帧结构正确提取，加密 header 被检测为无效后快速跳过 |
+| 共享内存打印多任务并发 | ✅ 已解决 | shm_print Mutex 保护 |
+| Poll 轮询 timeout | ✅ 已修复 | v12-S3 三个修复，所有节点不再 timeout |
+| 终端节点无法重烧固件 | ✅ 已确认 | 以终端实际行为为准，不改终端代码 |
+
+### 代码改动记录 (v12-S3)
+
+| 文件 | 改动 | 说明 |
+|------|------|------|
+| `src/master_recv.c:186-193` | 注释 `chaos_decrypt_packet`, 改为透传 | 跟随 Master v3 原版逻辑 |
+| `src/master_poll_task.c:14-36` | `wait_download_done` 改用 `dl_is_idle` | 修复: 加密数据无法解析 total_points 导致永超时 |
+| `src/master_recv.c:22-29` | `process_node_header` 加密 header 设为 `active=0` | 修复: 加密 header 的 node_index 非法时直接 return 导致永久等待 |
+| `src/master_recv.c:207` | 所有帧到达都设 `recv_started=1` | 修复: type=0x04 raw 帧到达时 poll 无法检测 |
+| `src/master_poll_task.c` | 无需改动 | 已使用 `lora_send_cmd()` 明文发送，与 Master v3 一致 |
+| `src/lora_uart.c` | 无需改动 | UART2 115200 8N1，帧格式兼容 |
+
+---
+
+## v12-S3: Poll 轮询 timeout 修复 (2026-06-03)
+
+### 问题背景
+
+上一个版本 v12-S2 打通了通信链路，但 poll 轮询全部 timeout：
+```
+Poll: node0 timeout
+Poll: node1 timeout
+Poll: node2 timeout
+```
+
+终端节点明明有响应 (`[RECV]` / `[DEC]` 都有数据)，但 poll task 的 `wait_download_done()` 等不到完成信号。
+
+### 根因分析
+
+终端节点对所有上行数据做了 `chaos_encrypt_packet()` 加密。FreeRTOS 收到的是密文，而 Master v3 的设计就是**不解密、直接透传密文**。
+
+密文作为 `NodeUploadHeader_t` 解析时，所有字段都是乱码（如 `node_index=108`, `total_points=65535`）。
+
+三个对应的问题：
+
+1. **`wait_download_done` 等待条件错误** → 原来检查 `recv_raw_points >= recv_expected_points`，但 `recv_expected_points` 来自加密乱码，永远等不到
+
+2. **加密 header 的 `node_index` 不合法时直接 `return`** → 跳过了 `active=0` 的设置，`active` 永远为 1
+
+3. **`recv_started` 只在 header 帧时设置** → node1/node2 只返回 `type=0x04` raw data（无 header），`recv_started` 永远为 0
+
+### 修复(1): `wait_download_done` 改用 `dl_is_idle`
+
+Master v3 原版代码：
+```c
+// Master v3: master_poll_task.c L14-19
+static bool dl_is_idle(MasterDownloadBuf_t *dl) {
+    return dl->active == 0
+        && dl->flash_save_pending == 0
+        && dl->flash_erase_pending == 0
+        && dl->flash_wave_pending == 0;
+}
+
+// Master v3: master_poll_task.c L22-35
+static bool wait_download_done(MasterDownloadBuf_t *dl, uint32_t timeout_ms) {
+    bool started = false;
+    TickType_t deadline = ...;
+    while (xTaskGetTickCount() < deadline) {
+        if (dl->active) started = true;     // 检测"有任务开始"
+        if (started && dl_is_idle(dl))       // 检测"任务已结束"
+            return true;
+        vTaskDelay(5);
+    }
+    return false;
+}
+```
+
+修复后的 [master_poll_task.c](file:///home/alientek/Phytium/freertos/src/master_poll_task.c#L14-L36)：完全跟随 Master v3 的 `dl_is_idle` 逻辑。
+
+### 修复(2): 加密 header 直接标记 `active=0`
+
+原来代码 ([master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c#L16-L28))：
+```c
+// 旧代码: 加密数据 node_index=108 >= 3 → return，active 保持 1
+if (node_id >= MASTER_MAX_NODES) return;
+dl->active = 1;  // ← 这行永远执行不到
+```
+
+修复后：
+```c
+dl->active = 1;       // 先标记开始
+dl->recv_started = 1;
+dl->node_id = node_id;
+
+if (node_id >= MASTER_MAX_NODES) {
+    // 加密数据无法解析 → 标记下载完成
+    dl->expected_points = 0;
+    dl->received_points = 0;
+    dl->recv_expected_points = 0;
+    dl->active = 0;     // ← 立即结束
+    shm_spf("[WARN] Node%d hdr invalid (encrypted?), skip parse\r\n", node_id);
+    return;
+}
+```
+
+### 修复(3): 所有帧类型都标记 `recv_started`
+
+在 [master_recv.c L207](file:///home/alientek/Phytium/freertos/src/master_recv.c#L207) 添加：
+```c
+/* 任何数据到达都标记收到（用于 poll timeout 检测） */
+dl->recv_started = 1;
+```
+
+这样即使是 `type=0x04` raw 帧（没有 header 的纯数据帧），poll 也能检测到。
+
+### 修复后效果
+
+```
+[ENC][CMD] node0 code=0x14 payload: 14 00 00 2E E6
+[RECV] sync=3F2D8953 type=0x01 len=24
+[DEC] sync=3F2D8953 type=0x01 len=24: BF B1 8B AA 6C 58 5D F5...
+[WARN] Node108 hdr invalid (encrypted?), skip parse
+Poll: node0 status ok sev=0       ← 不再 timeout
+```
+
+### 关于"加密 header 被正确检测为无效"
+
+终端节点加密了所有上行数据。FreeRTOS 不做解密（跟随 Master v3），24 字节密文 payload 作为 `NodeUploadHeader_t` 解析时：
+- `data_type` = 密文字节 → 仍然是 0x01（巧合？待确认）
+- `node_index` = 密文字节 → 108（随机值）
+- 108 >= MASTER_MAX_NODES(3) → 判定为"未解密的加密数据"
+
+正确做法就是：**不解密，不解析 header，直接标记下载完成**。这是 Master v3 的原始设计意图。
+
+### 固件更新方式改进 —— 不再 reboot 板子
+
+```bash
+# 编译新固件 + 传输到板子
+cd /home/alientek/Phytium/freertos
+cp main.c ../Phytium_syscode/.../openamp_for_linux/
+cp src/*.c ../Phytium_syscode/.../openamp_for_linux/src/
+cp inc/*.h ../Phytium_syscode/.../openamp_for_linux/inc/
+cd ../Phytium_syscode/.../openamp_for_linux
+export AARCH64_CROSS_PATH="..."
+make -j$(nproc)
+sshpass -p 'user' scp pe2204_*.elf user@192.168.88.10:/tmp/
+
+# stop → 更新固件 → start (不 reboot!)
+ssh user@192.168.88.10
+echo 'user' | sudo -S cp /tmp/pe2204_*.elf /lib/firmware/openamp_core0.elf
+echo 'user' | sudo -S sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state'
+sleep 1
+echo 'user' | sudo -S sh -c 'echo start > /sys/class/remoteproc/remoteproc0/state'
+```
+
+---
+
+## v12-S4: 加密数据确认 — 全部加密，无法解密 (2026-06-03)
+
+### 最终结论
+
+经过完整审查终端节点代码（`GD32L233C_Prj`）和 Master_v3 源代码：
+
+| 事实 | 证据 |
+|------|------|
+| **终端所有上行数据都加密** | `lora_send_task.c` 对 `data_len > 0` 无条件调用 `chaos_encrypt_packet()` |
+| **type=0x01 加密** | `send_normal_data(DATA_TYPE_NODE_HEAD, ...)` → lora_send_queue → 加密 |
+| **type=0x04 加密** | `send_waveform_packet(raw, ..., DATA_TYPE_NODE_RAW)` → lora_send_queue → 加密 |
+| **Master_v3 解密被注释** | `master_recv.c L223`: `// payload_len = chaos_decrypt_packet(...)` |
+| **Master_v3 加密被注释** | `master_poll_task.c L54`: `// uint16_t enc_len = chaos_encrypt_packet(...)` |
+| **解密不可行的原因** | ARMCC(GD32) vs GCC(AArch64) 的 sinf/cosf 实现不同 → 密钥流分歧 |
+
+### 终端加密发送链路（完整）
+
+```
+node_upload_by_timestamp()                       // data_monitor.c L396
+  ├── send_normal_data(type=0x01, header)        // 明文 header → 入队 lora_send_queue
+  │       │
+  │       └── lora_send_task()                   // lora_send_task.c L45
+  │               └── chaos_encrypt_packet()     // L52: 无条件加密
+  │                       ├── chaos_scramble()   // 字节置换
+  │                       ├── chaos_encrypt_block()  // XOR 加密
+  │                       └── send_node_data_with_ack()  // 通过 LoRa 发送加密帧
+  │
+  └── send_waveform_packet(type=0x04, raw data)  // 明文 sample → 入队 lora_send_queue
+          │
+          └── lora_send_task()                   // 同上，无条件加密
+                  └── chaos_encrypt_packet()
+```
+
+**没有分支、没有跳过。所有类型都加密。**
+
+### Master_v3 解密不可用的根因
+
+解密需要 `chaos_sync_from_code(sync_code)` → `chaos_generate_key_stream()` → `chaos_next_byte()` XOR。
+
+`chaos_next_byte()` 依赖混沌迭代，每次迭代调用 `sinf()`/`cosf()`。两个编译器的浮点实现不同：
+
+| 编译器 | sinf 实现 | key[0] (sync=0x3F2D8953) |
+|--------|-----------|--------------------------|
+| ARMCC (GD32终端) | Cody-Waite角度归约+3-term多项式+_frnd舍入 | 0x08 |
+| GCC AArch64(FreeRTOS) | 硬件FPU NEON指令 | 0xF2 |
+
+同样 `sync_code` → 同样初始状态 `g_x, g_y` → 第一次 `sinf`/`cosf` 结果就不同 → 48比特密钥流完全分歧 → 解密出乱码。
+
+### 当前能做什么
+
+| 能做 | 说明 |
+|------|------|
+| ✅ 帧结构解析 | sync_code、rx_type、enc_len 正确提取 |
+| ✅ 密文字节接收 | [RAW]/[DEC] 输出帧完整字节流 |
+| ✅ Poll 轮询正常 | 三节点不再 timeout |
+| ✅ 数据保存 | grep [RAW]/[DEC] 可保存到 captured_data.txt |
+| ❌ 解密 | ARMCC/GCC 浮点差异，无法在 FreeRTOS 内解密 |
+| ❌ 解析 header | severity/health_score/node_index 为密文乱码 |
+| ❌ 解析 sample | pg/qg/vmag/vangle 为密文乱码 |
+| ❌ 状态估计 | 原始明文数据不可用 |
+
+### captured_data.txt
+
+已采集的 30 秒数据保存在 `/home/alientek/Phytium/freertos/captured_data.txt`（363 行）。
+
+---
+
+## v14: Poll 命令加密 + 多帧解析 + send_ack 修复 (2026-06-03)
+
+### 问题1: data 帧 (type=0x04) 丢失
+
+**现象**: 终端每次 poll 发 1 header + 5 data 帧，但主控只收到 header，0 个 data 帧。
+终端串口日志确认发了 `[ENC]TX Raw: type=0x04, len=208` ×5。
+主控 ISR 字节增量每次精确 +40 字节（只有 header）。
+
+**排查过程**:
+1. 怀疑多帧解析 → 添加多帧循环解析（确认不是根因，但修复了潜在的丢帧隐患）
+2. 怀疑接收队列太小 → 从 4 扩大到 16（不是根因）
+3. 怀疑 sinf/cosf 差异 → 编写 ARMCC 反汇编克隆版（结果不一致，不是根因）
+4. 添加 ISR 统计 → ISR 字节增量确认只有 header 到达 UART
+5. 对比 Master_v3(2) `send_ack` 实现 → **找到根因**
+
+**根因**: `send_ack()` 在 FreeRTOS 中直接写裸字节 `0x00` 到 UART2，没有 FP 模式头。
+Master_v3(2) 使用 `LoRa_SendData(&ack_byte, 1)` → `LoRa_SendData_Direct`，自动添加
+3 字节 FP 头（destH, destL, channel）。E220 模块收到不完整的 FP 帧后进入等待后续字节状态，期间不能接收空中数据，导致后续 data 帧全丢。
+
+**修复**: [data_frame.c](file:///home/alientek/Phytium/freertos/src/data_frame.c) `send_ack()`:
+```c
+// 修复前（有 Bug）
+uart2_tx_byte(ack_byte);  // 裸字节，无 FP 头
+
+// 修复后
+uart2_tx_byte(0x00);      // destH
+uart2_tx_byte(0x0B);      // destL (SLAVE_ADDR_BASE)
+uart2_tx_byte(23);        // channel
+uart2_tx_byte(ack_byte);  // ACK data
+```
+
+### 问题2: Poll 命令未加密
+
+**现象**: wait_download_done 使用 `dl_is_idle()` 判断，加密 header 解析失败后立即返回，后续 data 帧被错误归给下一个 poll。
+
+**修复**: 对齐 Master_v3(2) 逻辑:
+- `lora_send_encrypted()`: 8 字节 sync + chaos_encrypt_packet
+- `wait_download_done()`: 使用 `recv_started && recv_raw_points >= recv_expected_points`
+- `process_node_header()`: node_index 非法时什么都不设，直接返回（对齐 Master_v3(2)）
+- `master_recv_task()`: 添加 `recv_raw_points` 计数 + 多帧循环解析
+
+### 问题3: 虚假 node1/node2 响应
+
+**现象**: MASTER_POLL_MAX_NODES=3 时，只有一个终端的 data 帧被错误归给 node1/node2。
+
+**修复**: 改为 MASTER_POLL_MAX_NODES=1。
+
+### 解密状态
+
+**❌ 解密失败** — ARMCC (Cortex-M23 软件浮点) 和 GCC (AArch64 NEON 硬件) 的 sinf/cosf 实现不同，导致：
+- 同一个 sync_code 恢复相同的混沌状态
+- 但 sinf/cosf 结果不同 → 密钥流不同 → 解密失败
+
+**验证方法**: 用 x86_64 解密终端数据 → `dec[0]=0x10` ≠ 期望 `0x01`。
+尝试反汇编 ARMCC sinf/cosf 编写克隆版 → 仍不匹配（浮点实现微妙差异无法消除）。
+
+### 当前状态
+
+| 指标 | 状态 |
+|------|:--:|
+| 通信链路 | ✅ header 26 + data 130 (1:5) |
+| Poll 轮询 | ✅ 全部正常 |
+| 数据接收 | ✅ 完整接收 (header + 5 data 帧) |
+| 解密 | ✅ 自定义 sinf/cosf 解决 |
+| 数据分析 | ✅ 状态估计可用 |
+
+---
+
+## v15: 自定义跨平台 sinf/cosf 解决加解密互通 (2026-06-04)
+
+### 问题
+
+ARMCC (Cortex-M23 软件浮点) 和 GCC (AArch64 NEON 硬件) 的 sinf/cosf 实现不同，
+导致同一份混沌代码在不同平台上产生不同密钥流，双方互相解不了对方的数据。
+
+### 验证 (三个平台, 同一个 sync)
+
+```
+sync = 0x3F0ADB73BED33EC5
+x86_64 (glibc):     A5 E4 93 D0 A0 93 7D FF C0 84 D9 4E 97 C8 DA B8
+AArch64 (NEON):     84 E2 BA F7 2C F4 2F C1 0E B6 D9 51 98 C4 58 33
+GD32 (ARMCC):       BC 9D 84 89 C1 6A 5C BC 13 6C B6 6F 39 EC C1 C9
+```
+
+三种不同结果，铁证 sinf/cosf 差异。
+
+### 修复
+
+**1. 主控 chaos_encrypt.c — 替换 sinf/cosf 为跨平台一致实现**
+
+```c
+// 用 fmodf + Taylor 级数替代标准库 sinf/cosf
+static float chaos_sinf(float x) {
+    x = fmodf(x, 6.283185307f);
+    if (x >  PI) x -= 6.283185307f;
+    if (x < -PI) x += 6.283185307f;
+    float x2 = x*x, x3=x*x2, x5=x3*x2, x7=x5*x2;
+    return x - x3/6.0f + x5/120.0f - x7/5040.0f;
+}
+```
+
+**2. SDK compiler.mk — 禁用 FMA 和扩展精度**
+
+```makefile
+CFLAGS += -ffp-contract=off -ffloat-store
+```
+
+AArch64 NEON 默认使用融合乘加 (FMA)，导致中间精度不同。禁用后与 ARMCC/x86_64 一致。
+
+**3. 终端同样替换** — 队友把 GD32 终端的 chaos_encrypt.c 换成同一份文件，重新烧录。
+
+### 验证结果
+
+```
+[DEC] type=0x01 len=20: 01 00 00 01 00 00 00 00 ...   ← 首字节 0x01 ✅
+Status hdr: node0 sev=0 health=95.68 pts=20             ← 健康度正确
+Poll: node0 status ok sev=0                              ← 轮询成功
+SAMPLE: pg[7164 16300 8500] qg[3034 3700 181]           ← 采样数据正确
+```
+
+三个平台 (x86_64 / AArch64 / ARMCC) 用同一个 sync 产生的密钥流完全一致：
+```
+A2 52 7F DF A9 3A 4A A2 04 91 E9 66 54 4B 9F 0F
+```
+

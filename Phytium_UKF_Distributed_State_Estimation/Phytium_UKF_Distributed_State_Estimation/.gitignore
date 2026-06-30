@@ -1,0 +1,29 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.out
+*.d
+build/
+
+# Temporary files
+*.log
+*.csv
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs directory
+logs/
+logs_*/

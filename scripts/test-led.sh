@@ -2,7 +2,7 @@
 # LED控制快速测试脚本 - 无需手动输入sudo密码
 # 使用方法: ./test-led.sh
 
-BOARD_IP="192.168.88.11"
+BOARD_IP="192.168.88.10"
 USER="user"
 PASS="user"
 

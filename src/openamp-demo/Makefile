@@ -96,7 +96,7 @@ deploy: master
 	@echo ""
 	@echo "🚀 开始部署到开发板..."
 	@echo ""
-	sshpass -p 'user' scp $(TARGET_MASTER) user@192.168.88.11:~/openamp-demo/
+	sshpass -p 'user' scp $(TARGET_MASTER) user@192.168.88.10:~/openamp-demo/
 	@echo "[DEPLOY] ✅ 主控程序已部署"
 	@echo ""
 	@echo "=========================================="

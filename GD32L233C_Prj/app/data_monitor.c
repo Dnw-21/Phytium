@@ -2,6 +2,7 @@
 #include <math.h>
 
 #include "data_monitor.h"
+#include "zdata_adaptive.h"
 #include "wave_monitor.h"
 #include "log.h"
 #include "FreeRTOS.h"
@@ -393,39 +394,18 @@ void trigger_fault(FaultType_t f, SeverityLevel_t s, uint32_t fault_time)
 /*============================================================================
  *    node_upload_by_timestamp: 从RAM环缓冲查找最近1周期上传
  *============================================================================*/
+/* >>> MARKER_20250604_VOLATILE_24FIELDS -- 搜这个确认 Keil 里是最新文件 <<< */
 void node_upload_by_timestamp(uint32_t poll_ts)
 {
-    if (g_node.cycle_count < 2 * SAMPLES_PER_CYCLE)
-        return;
-
-    uint16_t best_idx = NODE_BUFFER_SIZE;
-    uint16_t fallback_idx = NODE_BUFFER_SIZE;   // 最后一个有效索引
-
-    for (uint16_t i = 0; i < NODE_BUFFER_SIZE; i++) {
-        uint16_t pos = (g_node.write_index - 1 - i + NODE_BUFFER_SIZE) % NODE_BUFFER_SIZE;
-        uint32_t ts = g_node.buffer[pos].timestamp; //从后往前查找最近的时间戳
-        if (ts == 0) continue;
-        fallback_idx = pos;
-        if (ts <= poll_ts) {
-            best_idx = pos;
-            break;
-        }
-    }
-
-    if (best_idx == NODE_BUFFER_SIZE)
-        best_idx = fallback_idx;
-
-    if (best_idx == NODE_BUFFER_SIZE) {
-        g_last_poll_ts = poll_ts;
-        return;
-    }
-
-    SeverityLevel_t sev = (SeverityLevel_t)get_system_mode();
+    static uint8_t s_seq = 0;
+    uint16_t start = (uint16_t)s_seq * 20;
+    s_seq = (s_seq + 1) % 4;
+    (void)poll_ts;
 
     NodeUploadHeader_t d;
     memset(&d, 0, sizeof(d));
     d.data_type    = DATA_TYPE_NODE_HEAD;
-    d.severity     = sev;
+    d.severity     = (SeverityLevel_t)get_system_mode();
     d.fault_type   = FAULT_NONE;
     d.fault_pending = (g_pending_fault_count > 0) ? 1 : 0;
     d.node_index   = g_active_node;
@@ -434,23 +414,47 @@ void node_upload_by_timestamp(uint32_t poll_ts)
     d.total_points = NORMAL_UPLOAD_POINTS;
     send_normal_data(DATA_TYPE_NODE_HEAD, &d, sizeof(d));
 
-    static uint8_t  raw[208];
+    static volatile NodeSample_t s_volatile;  /* volatile 防止编译器优化掉写入 */
     uint16_t sent = 0;
-    uint16_t idx = best_idx;
     while (sent < NORMAL_UPLOAD_POINTS) {
-        uint16_t n = (NORMAL_UPLOAD_POINTS - sent) > 4 ? 4 : (NORMAL_UPLOAD_POINTS - sent);
-        for (uint16_t j = 0; j < n; j++) {
-            memcpy(&raw[j * sizeof(NodeSample_t)],
-                   &g_node.buffer[(idx - j + NODE_BUFFER_SIZE) % NODE_BUFFER_SIZE],
-                   sizeof(NodeSample_t));
-        }
-        send_waveform_packet(raw, n * sizeof(NodeSample_t), DATA_TYPE_NODE_RAW);
-        sent += n;
-        idx = (idx - n + NODE_BUFFER_SIZE) % NODE_BUFFER_SIZE;
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-    log_info("Poll upload: ts=%lu idx=%u", poll_ts, best_idx);
+        uint16_t idx = start + sent;
+        const ZDataPoint_t *z;
+        if (idx < ZDATA_NORMAL_POINTS)
+            z = &g_zdata_normal[idx];
+        else
+            z = &g_zdata_fault[idx - ZDATA_NORMAL_POINTS];
 
+        volatile int16_t *p = (volatile int16_t *)&s_volatile;
+        p[0]  = (int16_t)(z->pg1 * 10000.0f);
+        p[1]  = (int16_t)(z->pg2 * 10000.0f);
+        p[2]  = (int16_t)(z->pg3 * 10000.0f);
+        p[3]  = (int16_t)(z->qg1 * 10000.0f);
+        p[4]  = (int16_t)(z->qg2 * 10000.0f);
+        p[5]  = (int16_t)(z->qg3 * 10000.0f);
+        p[6]  = (int16_t)(z->vmag1 * 10000.0f);
+        p[7]  = (int16_t)(z->vmag2 * 10000.0f);
+        p[8]  = (int16_t)(z->vmag3 * 10000.0f);
+        p[9]  = (int16_t)(z->vmag4 * 10000.0f);
+        p[10] = (int16_t)(z->vmag5 * 10000.0f);
+        p[11] = (int16_t)(z->vmag6 * 10000.0f);
+        p[12] = (int16_t)(z->vmag7 * 10000.0f);
+        p[13] = (int16_t)(z->vmag8 * 10000.0f);
+        p[14] = (int16_t)(z->vmag9 * 10000.0f);
+        p[15] = (int16_t)(z->vangle1 * 10000.0f);
+        p[16] = (int16_t)(z->vangle2 * 10000.0f);
+        p[17] = (int16_t)(z->vangle3 * 10000.0f);
+        p[18] = (int16_t)(z->vangle4 * 10000.0f);
+        p[19] = (int16_t)(z->vangle5 * 10000.0f);
+        p[20] = (int16_t)(z->vangle6 * 10000.0f);
+        p[21] = (int16_t)(z->vangle7 * 10000.0f);
+        p[22] = (int16_t)(z->vangle8 * 10000.0f);
+        p[23] = (int16_t)(z->vangle9 * 10000.0f);
+        *(volatile uint32_t *)(p + 24) = idx;
+
+        send_waveform_packet((const uint8_t *)&s_volatile, sizeof(NodeSample_t), DATA_TYPE_NODE_RAW);
+        sent++;
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
     g_last_poll_ts = poll_ts;
 }
 

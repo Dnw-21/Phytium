@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- 飞腾派 CEK8903 开发板 (IP: 192.168.88.11)
+- 飞腾派 CEK8903 开发板 (IP: 192.168.88.10)
 - 开发机: Ubuntu/Debian (本机: /home/alientek)
 - 工具: `dtc`, `mkimage`, `dumpimage`, `ssh`, `scp`
 
@@ -16,7 +16,7 @@
 
 ```bash
 # 从开发板提取
-ssh user@192.168.88.11 "sudo dd if=/dev/mmcblk0 bs=1M skip=4 count=60" > current_fitImage
+ssh user@192.168.88.10 "sudo dd if=/dev/mmcblk0 bs=1M skip=4 count=60" > current_fitImage
 
 # 拆出内核和 dtb
 dumpimage -T flat_dt -p 0 -o kernel.gz current_fitImage
@@ -88,8 +88,8 @@ mkimage -f new_fit.its new_fitImage
 ### 1.4 刷入开发板
 
 ```bash
-scp new_fitImage user@192.168.88.11:~/fitImage
-ssh user@192.168.88.11 "sudo runtime_replace_bootloader.sh fitImage && sudo reboot"
+scp new_fitImage user@192.168.88.10:~/fitImage
+ssh user@192.168.88.10 "sudo runtime_replace_bootloader.sh fitImage && sudo reboot"
 ```
 
 ## 步骤 2: 编译 FreeRTOS 固件 (GD32主控移植版)
@@ -122,8 +122,8 @@ make clean && make all
 ## 步骤 3: 部署固件
 
 ```bash
-scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.11:/tmp/openamp_core0.elf
-ssh user@192.168.88.11 "sudo cp /tmp/openamp_core0.elf /lib/firmware/ && sudo chmod 644 /lib/firmware/openamp_core0.elf"
+scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.10:/tmp/openamp_core0.elf
+ssh user@192.168.88.10 "sudo cp /tmp/openamp_core0.elf /lib/firmware/ && sudo chmod 644 /lib/firmware/openamp_core0.elf"
 ```
 
 ## 步骤 4: 编译 Linux 侧应用
@@ -135,24 +135,24 @@ cd /home/alientek/Phytium/src/openamp-demo/linux-master
 make clean && make
 
 # 部署
-scp master_receiver user@192.168.88.11:~/
+scp master_receiver user@192.168.88.10:~/
 ```
 
 ## 步骤 5: 启动 OpenAMP
 
 ```bash
 # 加载模块
-ssh user@192.168.88.11 "sudo modprobe rpmsg_char rpmsg_ctrl"
+ssh user@192.168.88.10 "sudo modprobe rpmsg_char rpmsg_ctrl"
 
 # 启动远程处理器
-ssh user@192.168.88.11 "echo start | sudo tee /sys/class/remoteproc/remoteproc0/state"
+ssh user@192.168.88.10 "echo start | sudo tee /sys/class/remoteproc/remoteproc0/state"
 
 # 验证状态
-ssh user@192.168.88.11 "cat /sys/class/remoteproc/remoteproc0/state"
+ssh user@192.168.88.10 "cat /sys/class/remoteproc/remoteproc0/state"
 # 应输出: running
 
 # 验证 RPMsg 通道
-ssh user@192.168.88.11 "ls /sys/bus/rpmsg/devices/"
+ssh user@192.168.88.10 "ls /sys/bus/rpmsg/devices/"
 # 应看到: virtio0.rpmsg-openamp-demo-channel.-1.0
 ```
 
@@ -160,14 +160,14 @@ ssh user@192.168.88.11 "ls /sys/bus/rpmsg/devices/"
 
 ```bash
 # 绑定驱动
-ssh user@192.168.88.11 "
+ssh user@192.168.88.10 "
 sudo sh -c 'echo rpmsg_chrdev > /sys/bus/rpmsg/devices/virtio0.rpmsg-openamp-demo-channel.-1.0/driver_override'
 sudo sh -c 'echo virtio0.rpmsg-openamp-demo-channel.-1.0 > /sys/bus/rpmsg/drivers/rpmsg_chrdev/bind'
 sudo chmod 666 /dev/rpmsg0 /dev/rpmsg_ctrl0
 "
 
 # 运行 master_receiver 接收命令
-ssh user@192.168.88.11 "./master_receiver"
+ssh user@192.168.88.10 "./master_receiver"
 ```
 
 ### 预期输出
@@ -265,7 +265,7 @@ python dashboard_server.py
 如果不需要 Web 界面，可以用终端版的 `master_receiver`：
 
 ```bash
-ssh user@192.168.88.11 "./master_receiver"
+ssh user@192.168.88.10 "./master_receiver"
 ```
 
 输出示例：
@@ -285,7 +285,7 @@ ssh user@192.168.88.11 "./master_receiver"
 ### 9.1 测试架构
 
 ```
-开发主机 (x86_64)                 飞腾派 (192.168.88.11)
+开发主机 (x86_64)                 飞腾派 (192.168.88.10)
 ┌──────────────────┐    SSH      ┌──────────────────────────┐
 │ test_runner.sh   │──────────► │ /home/user/demo/tests/    │
 │ (总控脚本)       │             │ ├── test_rpmsg_link       │
@@ -308,7 +308,7 @@ make deploy
 
 这会自动：
 1. 用 `aarch64-none-linux-gnu-gcc` 交叉编译所有 `test_*.c` → `build/`
-2. 通过 `sshpass` + `scp` 部署到 `192.168.88.11:/home/user/demo/tests/`
+2. 通过 `sshpass` + `scp` 部署到 `192.168.88.10:/home/user/demo/tests/`
 3. 自动设置可执行权限
 
 ### 9.3 运行测试

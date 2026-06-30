@@ -171,6 +171,7 @@ def send_fault_alert(fault_info, ukf_status=None, bypass_rate_limit=False):
     color = color_map.get(severity, "red")
 
     bus = fault_info.get("bus", "--")
+    fault_location = fault_info.get("fault_location", "未知母线")
     phase = fault_info.get("phase", "三相短路")
     t = fault_info.get("time", 0)
 
@@ -200,12 +201,13 @@ def send_fault_alert(fault_info, ukf_status=None, bypass_rate_limit=False):
             "template": color
         },
         "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": f"## 🔴 检测到系统故障！\n**母线 {bus} · {phase}**"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"## 🔴 检测到系统故障！\n**{fault_location} · {phase}**"}},
             {"tag": "hr"},
             {
                 "tag": "div",
                 "fields": [
-                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**🔧 故障位置**\n母线 {bus}"}},
+                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**🔧 故障节点**\n{bus}"}},
+                    {"is_short": True, "text": {"tag": "lark_md", "content": f"**📍 故障位置**\n{fault_location}"}},
                     {"is_short": True, "text": {"tag": "lark_md", "content": f"**⚡ 故障类型**\n{phase}"}},
                     {"is_short": True, "text": {"tag": "lark_md", "content": f"**⏱ 故障时刻**\n仿真 T = {t:.3f}s"}},
                     {"is_short": True, "text": {"tag": "lark_md", "content": f"**🔴 严重程度**\n**{severity.upper()}**"}},

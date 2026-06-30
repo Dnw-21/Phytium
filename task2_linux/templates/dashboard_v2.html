@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task2 — 多节点 UKF 分核对比</title>
+<script src="/static/chart.min.js"></script>
+<style>
+:root {
+  --bg: #0f172a; --bg-card: #1e293b; --bg-elevated: #334155;
+  --border: rgba(255,255,255,0.08); --border-accent: rgba(59,130,246,0.3);
+  --text: #e2e8f0; --text-dim: #94a3b8; --text-muted: #64748b;
+  --accent: #3b82f6; --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
+  --chart-1: #3b82f6; --chart-2: #f59e0b; --chart-3: #8b5cf6; --chart-4: #22c55e;
+  --chart-5: #ef4444; --chart-6: #06b6d4; --chart-7: #f97316; --chart-8: #84cc16;
+  --chart-9: #ec4899; --chart-10: #6366f1;
+  --radius: 8px; --radius-lg: 12px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5;}
+.container{max-width:1500px;margin:0 auto;padding:16px;}
+
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding:12px 16px;background:var(--bg-card);border-radius:var(--radius-lg);border:1px solid var(--border);}
+.header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.header .badge{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;}
+.badge-running{background:rgba(34,197,94,0.15);color:var(--success);}
+.badge-idle{background:rgba(100,116,139,0.15);color:var(--text-muted);}
+.badge-fault{background:rgba(239,68,68,0.15);color:var(--danger);}
+
+/* Board Status Bar */
+.status-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+.status-item{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:4px;}
+.status-item .label{font-size:10px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;}
+.status-item .value{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;}
+.status-item .sub{font-size:10px;color:var(--text-dim);}
+
+/* Comparison Table - PRIMARY */
+.compare-section{margin-bottom:16px;}
+.section-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.section-title::before{content:'';display:block;width:3px;height:18px;border-radius:2px;background:var(--accent);}
+table{width:100%;border-collapse:collapse;background:var(--bg-card);border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border);}
+th{text-align:left;padding:10px 12px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;background:var(--bg-elevated);border-bottom:1px solid var(--border);}
+td{padding:10px 12px;font-size:13px;font-family:'JetBrains Mono',monospace;border-bottom:1px solid rgba(255,255,255,0.04);}
+tr:last-child td{border-bottom:none;}
+tr:hover{background:rgba(59,130,246,0.05);}
+tr.active-row{background:rgba(59,130,246,0.08);}
+td .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;}
+.dot-running{background:var(--success);box-shadow:0 0 6px rgba(34,197,94,0.4);animation:pulse 1.2s ease-in-out infinite;}
+.dot-idle{background:var(--text-muted);}
+.dot-fault{background:var(--danger);box-shadow:0 0 6px rgba(239,68,68,0.4);animation:pulse 0.8s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.node-link{color:var(--accent);cursor:pointer;font-weight:600;text-decoration:none;}
+.node-link:hover{text-decoration:underline;}
+
+/* Charts */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.chart-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px;height:300px;display:flex;flex-direction:column;position:relative;}
+.chart-card.fault-active{border-color:rgba(239,68,68,0.5);box-shadow:0 0 12px rgba(239,68,68,0.15);}
+.chart-card .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;min-height:24px;}
+.chart-card h3{font-size:12px;font-weight:600;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+.chart-card h3::before{content:'';display:block;width:3px;height:14px;border-radius:2px;background:var(--accent);}
+.chart-card .stat{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);}
+.chart-card .stat .v{color:var(--success);font-weight:600;}
+.chart-card .z-toggle{display:inline-flex;align-items:center;gap:4px;font-size:10px;cursor:pointer;color:var(--text-muted);user-select:none;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:rgba(255,255,255,0.02);}
+.chart-card .z-toggle:hover{color:var(--text);border-color:var(--border-accent);}
+.chart-card .z-toggle input{accent-color:var(--warning);cursor:pointer;margin:0;}
+.chart-wrap{flex:1;position:relative;min-height:0;}
+.chart-wrap canvas{width:100%!important;height:100%!important;}
+
+/* Overlay - 等待数据时的提示 */
+.chart-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(30,41,59,0.85);border-radius:var(--radius);z-index:5;backdrop-filter:blur(4px);transition:opacity 0.3s ease;}
+.chart-overlay .play-icon{width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--accent);margin-bottom:12px;cursor:pointer;transition:all 0.2s;}
+.chart-overlay .play-icon:hover{background:rgba(59,130,246,0.2);transform:scale(1.08);}
+.chart-overlay .text{font-size:13px;color:var(--text-dim);text-align:center;}
+.chart-overlay .text .sub{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;}
+
+/* Node Selector */
+.node-tabs{display:flex;gap:8px;margin-bottom:16px;}
+.node-tab{padding:8px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);transition:all 0.15s;}
+.node-tab:hover{border-color:var(--border-accent);color:var(--text);}
+.node-tab.active{background:rgba(59,130,246,0.15);border-color:var(--accent);color:var(--accent);}
+
+/* Controls Bar */
+.controls-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:16px;}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;transition:all 0.15s;outline:none;font-family:inherit;}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.btn-play{background:rgba(34,197,94,0.12);color:var(--success);border-color:rgba(34,197,94,0.3);}
+.btn-play:hover:not(:disabled){background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.5);}
+.btn-pause{background:rgba(245,158,11,0.12);color:var(--warning);border-color:rgba(245,158,11,0.3);}
+.btn-pause:hover:not(:disabled){background:rgba(245,158,11,0.2);}
+.btn-reset{background:rgba(239,68,68,0.1);color:var(--danger);border-color:rgba(239,68,68,0.25);}
+.btn-reset:hover:not(:disabled){background:rgba(239,68,68,0.18);border-color:rgba(239,68,68,0.4);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.speed-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.speed-group label{font-size:11px;color:var(--text-dim);}
+.speed-group input[type=range]{width:100px;accent-color:var(--accent);}
+.speed-group .speed-val{font-size:11px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace;min-width:50px;text-align:right;}
+
+/* Resources Section */
+.resources-section{margin-bottom:16px;}
+.resource-row{display:grid;gap:12px;margin-bottom:12px;}
+.resource-row.cores{grid-template-columns:repeat(4,1fr);}
+.resource-row.shm{grid-template-columns:repeat(3,1fr);}
+.resource-row.procs{grid-template-columns:repeat(3,1fr);}
+.resource-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;}
+.resource-card .label{font-size:10px;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center;}
+.resource-card .value{font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:4px;}
+.resource-card .sub{font-size:10px;color:var(--text-dim);margin-top:2px;font-family:'JetBrains Mono',monospace;}
+.water-bar{height:6px;background:rgba(255,255,255,0.05);border-radius:3px;margin-top:6px;overflow:hidden;}
+.water-fill{height:100%;background:linear-gradient(90deg, var(--success), var(--accent));transition:width 0.3s ease;}
+.role-tag{display:inline-block;font-size:9px;padding:2px 6px;border-radius:8px;background:rgba(59,130,246,0.15);color:var(--accent);font-weight:600;}
+.role-tag.freertos{background:rgba(245,158,11,0.18);color:var(--warning);}
+.role-tag.idle{background:rgba(100,116,139,0.15);color:var(--text-muted);}
+.role-tag.fault{background:rgba(239,68,68,0.18);color:var(--danger);}
+
+/* Footer */
+.footer{text-align:center;font-size:10px;color:var(--text-muted);padding:12px;border-top:1px solid var(--border);margin-top:8px;}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-thumb{background:var(--bg-elevated);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--text-muted);}
+
+@media(max-width:900px){.status-bar{grid-template-columns:repeat(2,1fr)}.charts-grid{grid-template-columns:1fr}.controls-bar{justify-content:flex-start;}}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1>⚡ Task2 · 多节点 UKF 分核对比</h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span style="font-size:11px;color:var(--text-muted);">CPU0:5bus (A55) · CPU1:9bus (A55) · CPU2:39bus (A76) · CPU3:FreeRTOS (remoteproc)</span>
+    <span id="statusBadge" class="badge badge-idle">等待数据</span>
+  </div>
+</div>
+
+<!-- Board Status -->
+<div class="status-bar">
+  <div class="status-item">
+    <span class="label">FreeRTOS (CPU3)</span>
+    <span class="value" id="frtosState" style="font-size:16px;">--</span>
+    <span class="sub">心跳: <span id="frtosHB">--</span> · 打印缓冲 WI: <span id="frtosWI">--</span></span>
+  </div>
+  <div class="status-item">
+    <span class="label">CPU 总利用率</span>
+    <span class="value" id="cpuTotal" style="color:var(--accent);">--%</span>
+    <span class="sub" id="cpuCores">--</span>
+  </div>
+  <div class="status-item">
+    <span class="label">内存</span>
+    <span class="value" id="memUsed" style="font-size:16px;">--</span>
+    <span class="sub" id="memPct">--</span>
+  </div>
+  <div class="status-item">
+    <span class="label">节点状态</span>
+    <span class="value" id="nodeCount" style="font-size:16px;color:var(--success);">--</span>
+    <span class="sub">运行中 / 总数</span>
+  </div>
+</div>
+
+<!-- Controls Bar -->
+<div class="controls-bar">
+  <button id="btnStart" class="btn btn-play" onclick="doStart()">▶ 启动仿真</button>
+  <button id="btnPause" class="btn btn-pause" onclick="doPause()" disabled>⏸ 暂停</button>
+  <button id="btnReset" class="btn btn-reset" onclick="doReset()">↻ 重置</button>
+  <div class="speed-group">
+    <label>速度</label>
+    <input type="range" id="speedSlider" min="0" max="4" value="1" oninput="updateSpeedLabel(this.value)">
+    <span class="speed-val" id="speedLabel">1×</span>
+  </div>
+</div>
+
+<!-- Comparison Table -->
+<div class="compare-section">
+  <div class="section-title">多节点对比表格</div>
+  <table>
+    <thead>
+      <tr>
+        <th>节点</th>
+        <th>发电机数</th>
+        <th>状态维</th>
+        <th>绑定核</th>
+        <th>帧数</th>
+        <th>RMSE</th>
+        <th>延迟(us)</th>
+        <th>FPS</th>
+        <th>CPU%</th>
+        <th>状态</th>
+      </tr>
+    </thead>
+    <tbody id="cmpBody">
+      <tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:20px;">等待 Pipeline 启动...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Resources Monitoring -->
+<div class="resources-section">
+  <div class="section-title">实时资源监控</div>
+
+  <!-- 4 核状态 -->
+  <div class="resource-row cores">
+    <div class="resource-card">
+      <div class="label"><span>CPU 0</span><span class="role-tag" id="core0-tag">5bus</span></div>
+      <div class="value" id="core0-freq">--</div>
+      <div class="sub" id="core0-sub">A55 · 最高 ? MHz</div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>CPU 1</span><span class="role-tag" id="core1-tag">9bus</span></div>
+      <div class="value" id="core1-freq">--</div>
+      <div class="sub" id="core1-sub">A55 · 最高 ? MHz</div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>CPU 2</span><span class="role-tag" id="core2-tag">39bus</span></div>
+      <div class="value" id="core2-freq">--</div>
+      <div class="sub" id="core2-sub">A76 · 最高 ? MHz</div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>CPU 3</span><span class="role-tag freertos" id="core3-tag">FreeRTOS</span></div>
+      <div class="value" id="core3-freq">--</div>
+      <div class="sub" id="core3-sub">A76 · remoteproc 独占</div>
+    </div>
+  </div>
+
+  <!-- 3 节点 SHM 水位 -->
+  <div class="resource-row shm">
+    <div class="resource-card">
+      <div class="label"><span>5bus SHM (CPU0)</span><span class="role-tag" id="shm5-tag">ring</span></div>
+      <div class="value" id="shm5-fill">--%</div>
+      <div class="sub" id="shm5-detail">wi:-- ri:-- 帧:--</div>
+      <div class="water-bar"><div class="water-fill" id="shm5-bar" style="width:0%"></div></div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>39bus SHM (CPU2)</span><span class="role-tag" id="shm39-tag">ring</span></div>
+      <div class="value" id="shm39-fill">--%</div>
+      <div class="sub" id="shm39-detail">wi:-- ri:-- 帧:--</div>
+      <div class="water-bar"><div class="water-fill" id="shm39-bar" style="width:0%"></div></div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>9bus SHM (CPU1)</span><span class="role-tag" id="shm9-tag">ring</span></div>
+      <div class="value" id="shm9-fill">--%</div>
+      <div class="sub" id="shm9-detail">wi:-- ri:-- 帧:--</div>
+      <div class="water-bar"><div class="water-fill" id="shm9-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- 3 个 UKF 进程资源 -->
+  <div class="resource-row procs">
+    <div class="resource-card">
+      <div class="label"><span>ukf_pipeline (5bus)</span><span class="role-tag" id="proc5-tag">CPU0</span></div>
+      <div class="value" id="proc5-cpu">--%</div>
+      <div class="sub" id="proc5-detail">PID:-- RSS:-- MB</div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>ukf_pipeline (39bus)</span><span class="role-tag" id="proc39-tag">CPU2</span></div>
+      <div class="value" id="proc39-cpu">--%</div>
+      <div class="sub" id="proc39-detail">PID:-- RSS:-- MB</div>
+    </div>
+    <div class="resource-card">
+      <div class="label"><span>ukf_pipeline (9bus)</span><span class="role-tag" id="proc9-tag">CPU1</span></div>
+      <div class="value" id="proc9-cpu">--%</div>
+      <div class="sub" id="proc9-detail">PID:-- RSS:-- MB</div>
+    </div>
+  </div>
+</div>
+
+<!-- Node Tabs -->
+<div class="node-tabs">
+  <div class="node-tab active" data-node="5bus" onclick="switchNode('5bus')">IEEE 5-Bus (2-gen)</div>
+  <div class="node-tab" data-node="39bus" onclick="switchNode('39bus')">IEEE 39-Bus (10-gen)</div>
+  <div class="node-tab" data-node="9bus" onclick="switchNode('9bus')">IEEE 9-Bus (3-gen)</div>
+</div>
+
+<!-- Charts -->
+<div class="charts-grid">
+  <div class="chart-card" id="cardDelta">
+    <div class="card-header">
+      <h3>转子角度 δ (rad) — <span id="chartDeltaTitle">5bus</span></h3>
+      <div class="stat">
+        <label class="z-toggle" title="叠加 Z 测量 (前 n_gen 维, 右轴)">
+          <input type="checkbox" id="zToggleDelta" checked onchange="onZToggleChange()">
+          <span>叠加 Z</span>
+        </label>
+        &nbsp;帧: <span class="v" id="statDeltaFrames">0</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chartDelta"></canvas>
+      <div class="chart-overlay" id="overlayDelta">
+        <div class="play-icon" onclick="doStart()">▶</div>
+        <div class="text">
+          <div id="overlayDeltaMsg">等待 UKF 启动...</div>
+          <div class="sub" id="overlayDeltaSub">点击上方 "▶ 启动仿真" 开始数据流</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="chart-card" id="cardOmega">
+    <div class="card-header">
+      <h3>转速 ω (rad/s) — <span id="chartOmegaTitle">5bus</span></h3>
+      <div class="stat">
+        <label class="z-toggle" title="叠加 Z 测量 (前 n_gen 维, 右轴)">
+          <input type="checkbox" id="zToggleOmega" checked onchange="onZToggleChange()">
+          <span>叠加 Z</span>
+        </label>
+        &nbsp;RMSE: <span class="v" id="statOmegaRmse">--</span>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chartOmega"></canvas>
+      <div class="chart-overlay" id="overlayOmega">
+        <div class="play-icon" onclick="doStart()">▶</div>
+        <div class="text">
+          <div id="overlayOmegaMsg">等待 UKF 启动...</div>
+          <div class="sub" id="overlayOmegaSub">点击上方 "▶ 启动仿真" 开始数据流</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">Task2 · FreeRTOS (CPU3, remoteproc) → RPMsg/SHM → C UKF (CPU0/CPU1/CPU2) → Dashboard · 多节点并行监控</div>
+
+</div>
+
+<script>
+/* ==================== Config ==================== */
+// 颜色数组 (从 CSS 变量取, 在 JS 中硬编码以便 Chart.js 使用)
+var CHART_COLORS = ['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#ef4444','#06b6d4','#f97316','#84cc16','#ec4899','#6366f1'];
+
+var activeNode = '5bus';
+var simRunning = false;
+var lastSimTime = -1;  // 用于检测 sim 是否已重跑
+
+// 节点参数 (发电机数、状态维、True/Est 颜色)
+var NODE_META = {
+    '5bus':  {ns:4,  n_gen:2,  label:'IEEE 5-Bus',  fault_window:null},
+    '39bus': {ns:20, n_gen:10, label:'IEEE 39-Bus', fault_window:null},
+    '9bus':  {ns:6,  n_gen:3,  label:'IEEE 9-Bus',  fault_window:null}
+};
+
+/* ==================== Chart Setup ==================== */
+function mkDS(label, color, dashed, axis) {
+    return {
+        label:label, data:[],
+        borderColor:color,
+        backgroundColor: dashed ? 'transparent' : color+'20',
+        borderWidth:dashed?1.2:2.2,
+        borderDash:dashed?[5,3]:[],
+        pointRadius:0, pointHoverRadius:4,
+        pointHoverBackgroundColor:color, pointHoverBorderColor:'#fff', pointHoverBorderWidth:2,
+        tension:0.15, fill:false,
+        yAxisID: axis || 'y',
+        // 虚线(Z)默认隐藏, 通过 toggle 开启
+        hidden: !!dashed
+    };
+}
+
+function getColors(n) {
+    var arr = ['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#ef4444','#06b6d4','#f97316','#84cc16','#ec4899','#6366f1'];
+    return arr.slice(0, n);
+}
+
+// Z 用更柔和的颜色 (淡化的同色调), 区别于实线
+function getZColors(n) {
+    var arr = ['#93c5fd','#fcd34d','#c4b5fd','#86efac','#fca5a5','#67e8f9','#fdba74','#bef264','#f9a8d4','#a5b4fc'];
+    return arr.slice(0, n);
+}
+
+// 故障区插件 (在指定时间区间内画红色背景)
+var faultPlugin = {
+    id: 'faultRegion',
+    beforeDraw: function(chart) {
+        var meta = NODE_META[activeNode];
+        if (!meta || !meta.fault_window) return;
+        var fw = meta.fault_window;
+        if (chart.canvas.id !== 'chartDelta' && chart.canvas.id !== 'chartOmega') return;
+        var xAxis = chart.scales.x, yAxis = chart.scales.y;
+        if (!xAxis || !yAxis) return;
+        var ctx = chart.ctx;
+        ctx.save();
+        var x1 = xAxis.getPixelForValue(fw.start);
+        var x2 = xAxis.getPixelForValue(fw.end);
+        if (x1 < xAxis.left || x2 > xAxis.right) {
+            x1 = Math.max(x1, xAxis.left);
+            x2 = Math.min(x2, xAxis.right);
+        }
+        if (x2 > x1) {
+            ctx.fillStyle = 'rgba(239,68,68,0.08)';
+            ctx.fillRect(x1, yAxis.top, x2-x1, yAxis.bottom-yAxis.top);
+            ctx.strokeStyle = 'rgba(239,68,68,0.5)';
+            ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+            ctx.beginPath(); ctx.moveTo(x1, yAxis.top); ctx.lineTo(x1, yAxis.bottom); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x2, yAxis.top); ctx.lineTo(x2, yAxis.bottom); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(239,68,68,0.9)';
+            ctx.font = 'bold 10px -apple-system, "PingFang SC", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('故障区间', x1+4, yAxis.top+12);
+        }
+        ctx.restore();
+    }
+};
+
+function mkChartOpts(yTitle) {
+    return {
+        responsive:true, maintainAspectRatio:false, animation:{duration:150},
+        interaction:{mode:'index', intersect:false},
+        layout:{padding:{top:4,right:8,bottom:2,left:2}},
+        scales:{
+            x:{
+                type:'linear',
+                title:{display:true, text:'仿真时间 t (s)', color:'#94a3b8', font:{size:10}},
+                grid:{color:'rgba(255,255,255,0.05)', drawBorder:false},
+                ticks:{
+                    color:'#94a3b8', font:{size:10}, padding:6, maxTicksLimit:8,
+                    callback:function(v) { return v.toFixed(2)+'s'; }
+                }
+            },
+            y:{
+                position:'left',
+                title:{display:true, text:yTitle, color:'#94a3b8', font:{size:10}},
+                grid:{color:'rgba(255,255,255,0.04)', drawBorder:false},
+                ticks:{color:'#94a3b8', font:{size:10}, padding:6, maxTicksLimit:6}
+            },
+            y1:{
+                position:'right',
+                title:{display:false, text:'Z (测量)', color:'#fbbf24', font:{size:9}},
+                grid:{display:false, drawBorder:false},
+                ticks:{color:'#fbbf24', font:{size:9}, padding:4, maxTicksLimit:4, callback:function(v){return v.toFixed(2);}},
+                display:false  // 默认隐藏右轴, 开启 Z 时再显示
+            }
+        },
+        plugins:{
+            legend:{
+                display:true, position:'top', align:'end',
+                labels:{
+                    color:'#cbd5e1', usePointStyle:true, pointStyleWidth:8, boxHeight:2,
+                    padding:10, font:{size:10},
+                    // 隐藏 fault_region 等系统插件标签
+                    filter:function(item, data) {
+                        return !item.text || (item.text.indexOf('故障') < 0);
+                    }
+                }
+            },
+            tooltip:{
+                backgroundColor:'rgba(15,23,42,0.95)', titleColor:'#e2e8f0', bodyColor:'#cbd5e1',
+                borderColor:'rgba(255,255,255,0.1)', borderWidth:1, padding:8, cornerRadius:6,
+                titleFont:{size:11, weight:'600'}, bodyFont:{size:10}
+            }
+        }
+    };
+}
+
+var chartDelta = new Chart(document.getElementById('chartDelta').getContext('2d'), {
+    type:'line', data:{datasets:[mkDS('δ₁', '#3b82f6', false), mkDS('δ₂', '#f59e0b', false)]},
+    options:mkChartOpts('角度 (rad)'),
+    plugins:[faultPlugin]
+});
+var chartOmega = new Chart(document.getElementById('chartOmega').getContext('2d'), {
+    type:'line', data:{datasets:[mkDS('ω₁', '#3b82f6', false), mkDS('ω₂', '#f59e0b', false)]},
+    options:mkChartOpts('转速 (rad/s)'),
+    plugins:[faultPlugin]
+});
+
+/* 全局缓存最近一次的 history 数据 (用于 Z toggle 切换时不丢失数据) */
+var lastHistory = null;
+
+function switchNode(name) {
+    if(activeNode === name) return;
+    activeNode = name;
+    document.querySelectorAll('.node-tab').forEach(function(t) { t.classList.toggle('active', t.dataset.node === name); });
+    document.getElementById('chartDeltaTitle').textContent = name;
+    document.getElementById('chartOmegaTitle').textContent = name;
+    rebuildCharts();
+    pollHistory();
+}
+
+function rebuildCharts() {
+    var meta = NODE_META[activeNode];
+    var nGen = meta.n_gen;
+    var colors = getColors(nGen);
+    var zColors = getZColors(nGen);
+    var dsD = [], dsO = [];
+    for (var i = 0; i < nGen; i++) {
+        // δ / ω 主曲线 (左轴)
+        dsD.push(mkDS('δ'+(i+1), colors[i], false, 'y'));
+        dsO.push(mkDS('ω'+(i+1), colors[i], false, 'y'));
+        // Z 测量虚线 (右轴, 默认隐藏, 由 toggle 控制)
+        dsD.push(mkDS('Z·P'+(i+1), zColors[i], true, 'y1'));
+        dsO.push(mkDS('Z·Q'+(i+1), zColors[i], true, 'y1'));
+    }
+    chartDelta.destroy();
+    chartOmega.destroy();
+    chartDelta = new Chart(document.getElementById('chartDelta').getContext('2d'), {
+        type:'line', data:{datasets:dsD},
+        options:mkChartOpts('角度 (rad)'),
+        plugins:[faultPlugin]
+    });
+    chartOmega = new Chart(document.getElementById('chartOmega').getContext('2d'), {
+        type:'line', data:{datasets:dsO},
+        options:mkChartOpts('转速 (rad/s)'),
+        plugins:[faultPlugin]
+    });
+    // 同步 toggle 状态到新 chart
+    applyZToggle();
+    showOverlay(true);
+}
+
+function showOverlay(show) {
+    var ovD = document.getElementById('overlayDelta');
+    var ovO = document.getElementById('overlayOmega');
+    if (show) {
+        ovD.style.display='flex';
+        ovO.style.display='flex';
+        waitingSince = Date.now();
+    } else {
+        ovD.style.display='none';
+        ovO.style.display='none';
+        waitingSince = 0;
+    }
+}
+
+var waitingSince = 0;
+var waitingTimer = null;
+
+function updateWaitingTimer() {
+    if (!waitingSince) return;
+    var secs = Math.floor((Date.now() - waitingSince) / 1000);
+    var msg, sub;
+    if (secs < 3) {
+        msg = '等待 UKF 启动...';
+        sub = '点击上方 "▶ 启动仿真" 开始数据流';
+    } else if (secs < 10) {
+        msg = '正在读取 SHM...';
+        sub = '已等待 ' + secs + ' 秒 · 请检查 FreeRTOS 状态';
+    } else if (secs < 30) {
+        msg = '数据流暂未到达';
+        sub = '已等待 ' + secs + ' 秒 · 可能是 sim 未启动或节点繁忙';
+    } else {
+        msg = '长时间无数据';
+        sub = '已等待 ' + secs + ' 秒 · 建议按 "↻ 重置" 重新初始化';
+    }
+    var m1 = document.getElementById('overlayDeltaMsg');
+    var s1 = document.getElementById('overlayDeltaSub');
+    var m2 = document.getElementById('overlayOmegaMsg');
+    var s2 = document.getElementById('overlayOmegaSub');
+    if (m1) m1.textContent = msg;
+    if (s1) s1.textContent = sub;
+    if (m2) m2.textContent = msg;
+    if (s2) s2.textContent = sub;
+}
+
+function updateChart(c, times, arrs) {
+    if (!times || times.length === 0) { showOverlay(true); return; }
+    for (var i = 0; i < arrs.length && i < c.data.datasets.length; i++) {
+        var arr = arrs[i] || [];
+        c.data.datasets[i].data = times.map(function(t, j) {
+            var v = j < arr.length ? arr[j] : null;
+            return (v === undefined || v === null || isNaN(v)) ? {x:t, y:null} : {x:t, y:v};
+        });
+    }
+    var last = times[times.length-1];
+    var first = times[0];
+    var span = last - first;
+    var window = Math.max(10, span * 1.1);
+    c.options.scales.x.min = Math.max(0, last - window);
+    c.options.scales.x.max = last + Math.max(0.5, window * 0.05);
+    c.update('none');
+    showOverlay(false);
+}
+
+function updateStat(n) {
+    if (n <= 0) { document.getElementById('statDeltaFrames').textContent = '0'; document.getElementById('statOmegaRmse').textContent = '--'; return; }
+    document.getElementById('statDeltaFrames').textContent = n.toLocaleString();
+    document.getElementById('statOmegaRmse').textContent = '--';
+}
+
+/* Z toggle 控制: 控制 Z 虚线 dataset 的 hidden 状态和右轴显示 */
+function applyZToggle() {
+    var zOn = function(id) { return document.getElementById(id).checked; };
+    var anyOn = zOn('zToggleDelta') || zOn('zToggleOmega');
+    // 应用到 delta chart
+    var deltaOn = zOn('zToggleDelta');
+    for (var i = 0; i < chartDelta.data.datasets.length; i++) {
+        var ds = chartDelta.data.datasets[i];
+        if (ds.yAxisID === 'y1') {
+            ds.hidden = !deltaOn;
+            // 同步显示 data
+            if (!deltaOn) ds.data = [];
+        }
+    }
+    chartDelta.options.scales.y1.display = deltaOn;
+    chartDelta.update('none');
+
+    var omegaOn = zOn('zToggleOmega');
+    for (var j = 0; j < chartOmega.data.datasets.length; j++) {
+        var ds2 = chartOmega.data.datasets[j];
+        if (ds2.yAxisID === 'y1') {
+            ds2.hidden = !omegaOn;
+            if (!omegaOn) ds2.data = [];
+        }
+    }
+    chartOmega.options.scales.y1.display = omegaOn;
+    chartOmega.update('none');
+    // 重新应用最近一次的 history (恢复 Z 数据)
+    if (lastHistory && anyOn) {
+        applyHistoryToCharts(lastHistory);
+    }
+}
+
+function onZToggleChange() {
+    applyZToggle();
+}
+
+function applyHistoryToCharts(h) {
+    var meta = NODE_META[activeNode];
+    var nGen = meta.n_gen;
+    var deltas = [], omegas = [], zDeltas = [], zOmegas = [];
+    for (var i = 0; i < nGen; i++) {
+        deltas.push(h['state_'+i] || []);
+        omegas.push(h['state_'+(nGen+i)] || []);
+    }
+    // Z 数据: 5bus Z[0..n_gen-1] = P_inj, Z[n_gen..2n_gen-1] = Q_inj
+    // 9bus  Z[0..2n_gen-1] = P_inj + Q_inj (顺序取决于 voltage_format)
+    // 39bus 类似
+    if (h.Z_dim && h.Z_dim > 0) {
+        for (var k = 0; k < nGen && k < h.Z_dim; k++) {
+            zDeltas.push(h['Z_'+k] || []);
+        }
+        for (var k2 = nGen; k2 < 2*nGen && k2 < h.Z_dim; k2++) {
+            zOmegas.push(h['Z_'+k2] || []);
+        }
+    }
+    // 应用到 chart datasets (索引: 主线 0..nGen-1, Z 虚线 nGen..2nGen-1)
+    applyChartData(chartDelta, h.time, deltas, zDeltas, nGen);
+    applyChartData(chartOmega, h.time, omegas, zOmegas, nGen);
+    updateStat(h.time.length);
+}
+
+function applyChartData(c, times, mainArrs, zArrs, nGen) {
+    if (!times || times.length === 0) { showOverlay(true); return; }
+    // 主曲线
+    for (var i = 0; i < nGen; i++) {
+        if (i < c.data.datasets.length) {
+            var arr = mainArrs[i] || [];
+            c.data.datasets[i].data = times.map(function(t, j) {
+                var v = j < arr.length ? arr[j] : null;
+                return (v === undefined || v === null || isNaN(v)) ? {x:t, y:null} : {x:t, y:v};
+            });
+        }
+    }
+    // Z 虚线 (nGen..2nGen-1)
+    var zOn = c === chartDelta ? document.getElementById('zToggleDelta').checked
+                                : document.getElementById('zToggleOmega').checked;
+    for (var k = 0; k < nGen; k++) {
+        var idx = nGen + k;
+        if (idx < c.data.datasets.length) {
+            var arr2 = zArrs[k] || [];
+            c.data.datasets[idx].data = times.map(function(t, j) {
+                var v = j < arr2.length ? arr2[j] : null;
+                return (v === undefined || v === null || isNaN(v)) ? {x:t, y:null} : {x:t, y:v};
+            });
+        }
+    }
+    var last = times[times.length-1];
+    var first = times[0];
+    var span = last - first;
+    var window = Math.max(10, span * 1.1);
+    c.options.scales.x.min = Math.max(0, last - window);
+    c.options.scales.x.max = last + Math.max(0.5, window * 0.05);
+    c.update('none');
+    showOverlay(false);
+}
+
+/* ==================== Control API ==================== */
+function api(path, opts) {
+    opts = opts || {};
+    var url = (path.indexOf('/api/') === 0) ? path : '/api' + path;
+    return fetch(url, Object.assign({method: opts.method || 'GET', headers:{'Content-Type':'application/json'}}, opts))
+        .then(function(r) { return r.json(); });
+}
+
+function doStart() {
+    setControlState('starting');
+    api('/control', {method:'POST', body:JSON.stringify({action:'start', nodes:['5bus','39bus','9bus']})})
+        .then(function(r) {
+            if (r && r.status === 'ok') {
+                setControlState('running');
+                showOverlay(false);
+            } else {
+                setControlState('idle');
+                alert('启动失败: ' + (r && r.message ? r.message : '未知错误'));
+            }
+        })
+        .catch(function(e) {
+            setControlState('idle');
+            alert('请求失败: ' + e);
+        });
+}
+
+function doPause() {
+    api('/control', {method:'POST', body:JSON.stringify({action:'pause'})})
+        .then(function(r) {
+            if (r && r.status === 'ok') {
+                setControlState('idle');
+            }
+        });
+}
+
+function doReset() {
+    if (!confirm('确定要重置所有节点吗? 当前数据会被清空。')) return;
+    api('/control', {method:'POST', body:JSON.stringify({action:'reset'})})
+        .then(function(r) {
+            // 清空所有 dataset (主线 + Z 虚线)
+            chartDelta.data.datasets.forEach(function(ds) { ds.data = []; });
+            chartOmega.data.datasets.forEach(function(ds) { ds.data = []; });
+            chartDelta.update('none'); chartOmega.update('none');
+            updateStat(0);
+            showOverlay(true);
+            lastHistory = null;
+            setControlState('idle');
+        });
+}
+
+/* 集中管理控制条按钮状态
+   state: 'idle' (可启动) | 'starting' (启动中) | 'running' (运行中)
+*/
+function setControlState(state) {
+    simRunning = (state === 'running');
+    var btnStart = document.getElementById('btnStart');
+    var btnPause = document.getElementById('btnPause');
+    var btnReset = document.getElementById('btnReset');
+    btnStart.disabled  = (state === 'starting' || state === 'running');
+    btnPause.disabled  = (state !== 'running');
+    btnReset.disabled  = (state === 'starting');
+}
+
+function updateSpeedLabel(v) {
+    var labels = ['最快','1×','0.5×','0.25×','0.1×'];
+    document.getElementById('speedLabel').textContent = labels[v] || v + '×';
+}
+
+document.getElementById('speedSlider').addEventListener('change', function(e) {
+    api('/control', {method:'POST', body:JSON.stringify({action:'speed', speed:parseInt(e.target.value)})})
+        .catch(function() {});
+});
+
+/* ==================== Poll: Status ==================== */
+function pollStatus() {
+    fetch('/api/status').then(function(r){ return r.json(); }).then(function(d) {
+        var badge = document.getElementById('statusBadge');
+        if (d.status === 'running')  { badge.className = 'badge badge-running'; badge.textContent = '运行中'; }
+        else if (d.status === 'fault') { badge.className = 'badge badge-fault'; badge.textContent = '故障'; }
+        else { badge.className = 'badge badge-idle'; badge.textContent = '等待数据'; }
+
+        document.getElementById('frtosState').textContent = d.frtos ? d.frtos.state : '--';
+        document.getElementById('frtosHB').textContent = d.frtos ? d.frtos.hb.toLocaleString() : '--';
+        document.getElementById('frtosWI').textContent = d.frtos ? d.frtos.wi.toLocaleString() : '--';
+
+        if (d.cpu) {
+            document.getElementById('cpuTotal').textContent = (d.cpu.total || 0) + '%';
+            var cores = d.cpu.cores || {};
+            var keys = Object.keys(cores).sort();
+            document.getElementById('cpuCores').textContent = keys.map(function(k){ return k.replace('cpu','C')+':'+(cores[k]||0)+'%'; }).join(' ');
+        }
+        if (d.mem) {
+            document.getElementById('memUsed').textContent = (d.mem.used_mb || 0) + ' / ' + (d.mem.total_mb || 0) + ' MB';
+            document.getElementById('memPct').textContent = '使用率 ' + (d.mem.pct || 0) + '%';
+        }
+
+        var active = 0, total = 0;
+        if (d.nodes) {
+            total = d.nodes.length;
+            for (var i = 0; i < d.nodes.length; i++) if (d.nodes[i].status === 'active' || d.nodes[i].status === 'running') active++;
+        }
+        document.getElementById('nodeCount').textContent = active + ' / ' + total;
+
+        // 同步按钮状态 (与 simRunning 一致即可)
+        var allRunning = (active === total && total > 0);
+        var btnStart = document.getElementById('btnStart');
+        // 只在状态不一致时切换, 避免覆盖 starting 状态
+        if (allRunning && !simRunning) {
+            setControlState('running');
+        } else if (!allRunning && simRunning) {
+            // sim 自然结束 (例如数据处理完), 切回 idle 让用户可以重启
+            setControlState('idle');
+        }
+        // starting 状态期间不动 (btnStart 处于 disabled)
+    });
+}
+
+/* ==================== Poll: Compare ==================== */
+function pollCompare() {
+    fetch('/api/compare').then(function(r){ return r.json(); }).then(function(data) {
+        var nodes = ['5bus','39bus','9bus'];
+        var nodeNames = {'5bus':'IEEE 5-Bus','39bus':'IEEE 39-Bus','9bus':'IEEE 9-Bus'};
+        var coreNames = {'5bus':'CPU0 (A55)','39bus':'CPU2 (A76)','9bus':'CPU1 (A55)'};
+
+        var html = '';
+        for (var i = 0; i < nodes.length; i++) {
+            var key = nodes[i];
+            var d = data[key] || {};
+            var status = d.status || 'idle';
+            var isRunning = status === 'running' || status === 'active';
+            var isFault = status === 'fault';
+            var dotCls = isFault ? 'dot-fault' : (isRunning ? 'dot-running' : 'dot-idle');
+            var statusText = isFault ? 'fault' : (isRunning ? 'running' : 'idle');
+            var statusColor = isFault ? 'var(--danger)' : (isRunning ? 'var(--success)' : 'var(--text-muted)');
+
+            html += '<tr class="' + (key === activeNode ? 'active-row' : '') + '">';
+            html += '<td><a class="node-link" onclick="switchNode(\''+key+'\')">'+nodeNames[key]+'</a></td>';
+            html += '<td>'+(d.n_gen || '-')+'</td>';
+            html += '<td>'+(d.ns || '-')+'</td>';
+            html += '<td style="color:var(--accent);font-weight:600;">'+(coreNames[key]||'-')+'</td>';
+            html += '<td>'+(d.frames ? d.frames.toLocaleString() : '0')+'</td>';
+            html += '<td>'+(d.rmse ? d.rmse.toFixed(5) : '--')+'</td>';
+            html += '<td>'+(d.latency_us ? d.latency_us.toFixed(0) : '--')+'</td>';
+            html += '<td>'+(d.fps ? d.fps.toFixed(1) : '--')+'</td>';
+            html += '<td>'+(d.cpu_pct ? d.cpu_pct.toFixed(1)+'%' : '--')+'</td>';
+            html += '<td><span class="dot '+dotCls+'"></span><span style="color:'+statusColor+';">'+statusText+'</span></td>';
+            html += '</tr>';
+        }
+        document.getElementById('cmpBody').innerHTML = html;
+    });
+}
+
+/* ==================== Poll: History ==================== */
+function pollHistory() {
+    fetch('/api/history?node=' + activeNode).then(function(r){ return r.json(); }).then(function(h) {
+        if (!h.time || h.time.length === 0) {
+            updateStat(0);
+            showOverlay(true);
+            lastHistory = null;
+            return;
+        }
+        // 检测 sim 重跑 (时间回退)
+        if (lastSimTime > 0 && h.time[h.time.length-1] < lastSimTime * 0.5) {
+            rebuildCharts();
+        }
+        lastSimTime = h.time[h.time.length-1];
+        lastHistory = h;
+        applyHistoryToCharts(h);
+    });
+}
+
+/* ==================== Poll: Resources ==================== */
+function pollResources() {
+    fetch('/api/resources').then(function(r){ return r.json(); }).then(function(d) {
+        if (d.cores) {
+            for (var c = 0; c < 4; c++) {
+                var core = d.cores['cpu'+c];
+                if (!core) continue;
+                document.getElementById('core'+c+'-freq').textContent = core.freq_mhz + ' MHz';
+                document.getElementById('core'+c+'-sub').textContent = core.type + ' · 最高 ' + core.max_mhz + ' MHz';
+            }
+        }
+        if (d.shm) {
+            var map = {'5bus':'5', '39bus':'39', '9bus':'9'};
+            Object.keys(map).forEach(function(node) {
+                var shm = d.shm[node], n = map[node];
+                if (!shm || shm.error) {
+                    document.getElementById('shm'+n+'-fill').textContent = '--';
+                    document.getElementById('shm'+n+'-detail').textContent = shm ? shm.error.substring(0,30) : '无数据';
+                    document.getElementById('shm'+n+'-bar').style.width = '0%';
+                    return;
+                }
+                document.getElementById('shm'+n+'-fill').textContent = shm.fill_pct + '%';
+                document.getElementById('shm'+n+'-detail').textContent = 'wi:'+shm.wi+' ri:'+shm.ri+' 帧:'+shm.frames_in_buf+' 计数:'+shm.count;
+                document.getElementById('shm'+n+'-bar').style.width = shm.fill_pct + '%';
+            });
+        }
+        if (d.processes) {
+            var map = {'5bus':'5', '39bus':'39', '9bus':'9'};
+            Object.keys(map).forEach(function(node) {
+                var proc = d.processes['ukf-'+node], n = map[node];
+                if (!proc || proc.error) {
+                    document.getElementById('proc'+n+'-cpu').textContent = '--';
+                    document.getElementById('proc'+n+'-detail').textContent = proc ? proc.error : '未运行';
+                    return;
+                }
+                document.getElementById('proc'+n+'-cpu').textContent = proc.pcpu.toFixed(1) + '%';
+                document.getElementById('proc'+n+'-detail').textContent = 'PID:'+proc.pid+' RSS:'+proc.rss_mb+'MB 内存:'+proc.pmem.toFixed(1)+'% 启动:'+proc.etime;
+            });
+        }
+    }).catch(function(){});
+}
+
+/* ==================== Init ==================== */
+rebuildCharts();
+showOverlay(true);
+pollStatus(); pollCompare(); pollHistory(); pollResources();
+setInterval(pollStatus, 1000);
+setInterval(pollCompare, 2000);
+setInterval(pollHistory, 1500);
+setInterval(pollResources, 2000);
+setInterval(updateWaitingTimer, 1000);  // 更新等待时长提示
+</script>
+</body>
+</html>

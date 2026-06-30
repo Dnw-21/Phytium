@@ -60,6 +60,6 @@ export AARCH64_CROSS_PATH="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-t
 cd /home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux
 make all -j$(nproc)
 # 部署:
-scp *.elf user@192.168.88.11:/tmp/openamp_core0.elf
+scp *.elf user@192.168.88.10:/tmp/openamp_core0.elf
 # 然后在开发板上: stop core → cp firmware → start core → bind rpmsg
 ```

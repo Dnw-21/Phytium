@@ -1,0 +1,31 @@
+#!/bin/bash
+# ~/.vnc/xstartup — 飞腾派 VNC 桌面启动脚本
+# 启动完整的 xfce4 桌面环境 + Firefox 浏览器
+
+# 启动 D-Bus session（桌面环境必需）
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
+    eval $(dbus-launch --sh-syntax --exit-with-session)
+    export DBUS_SESSION_BUS_ADDRESS
+fi
+
+# 启动 xfce4 桌面组件
+if command -v xfdesktop >/dev/null 2>&1; then
+    xfdesktop --display="$DISPLAY" &
+fi
+if command -v xfce4-panel >/dev/null 2>&1; then
+    xfce4-panel --display="$DISPLAY" &
+fi
+if command -v xfwm4 >/dev/null 2>&1; then
+    xfwm4 --display="$DISPLAY" &
+fi
+
+# 等待桌面就绪
+sleep 3
+
+# 启动 Firefox（窗口模式，约 1600x900，留出桌面空间）
+if command -v firefox-esr >/dev/null 2>&1; then
+    firefox-esr --new-window http://localhost:5000 &
+fi
+
+# 保持会话运行
+wait

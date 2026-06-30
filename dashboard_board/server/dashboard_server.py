@@ -79,18 +79,22 @@ def notify_fault(node_id, phase, time_sec, delta_est=None, omega_est=None):
         return
     # 生成节点可读标签
     node_labels = {'node_1': '终端节点 1', 'node_2': '终端节点 2', 'node_3': '终端节点 3'}
+    node_bus_map = {'node_1': 'Bus 8 Line 8-9', 'node_2': 'Bus 4 Line 4-5', 'node_3': 'Bus 3 Line 3-9'}
     # 支持多节点
     if ',' in node_id:
         ids = node_id.split(',')
         node_label = ', '.join(node_labels.get(n, n) for n in ids)
+        bus_info = ', '.join(node_bus_map.get(n, n) for n in ids)
     else:
         node_label = node_labels.get(node_id, node_id)
+        bus_info = node_bus_map.get(node_id, node_id)
     def _do():
         fault_info = {
             'bus': f'{node_label} (ID: {node_id})',
             'phase': phase,
             'time': time_sec,
             'severity': 'critical',
+            'fault_location': bus_info,
         }
         # 附加 UKF 估计值（仅单节点时有）
         if delta_est and omega_est:
@@ -179,6 +183,15 @@ class DashboardEngine:
         add_log('info', 'system', f'数据加载完成: {self.total_steps} 步, {self.params["total_time"]:.1f}s, {self.num_chunks} chunks')
 
     def _get_enabled_nodes(self):
+        # 三节点演示模式下始终返回全部三个节点，忽略配置里的 enabled 开关
+        if self._is_3node:
+            node_labels = {
+                'node_1': '终端节点 1',
+                'node_2': '终端节点 2',
+                'node_3': '终端节点 3',
+            }
+            return [{'id': nid, 'label': node_labels.get(nid, nid), 'enabled': True}
+                    for nid in self._node_ids]
         return [n for n in self.config['nodes'] if n.get('enabled', False)]
 
     def _precompute_chunks(self):
@@ -317,7 +330,8 @@ class DashboardEngine:
         nid = node_cfg['id']
         heartbeat_ok = heartbeat_source.is_alive(nid)
         status = 'ONLINE'
-        if not heartbeat_ok:
+        # 三节点演示模式下不依赖物理心跳，始终显示全部节点
+        if not heartbeat_ok and not self._is_3node:
             status = 'HIDDEN'
 
         # 三节点模式下从 step_data['nodes'][nid] 取该节点数据
@@ -445,7 +459,10 @@ class DashboardEngine:
         # 更新历史 + 故障检测（都在 lock 内，确保 get_fault_replays 能看到一致状态）
         with self.lock:
             if self._is_3node:
-                # 三节点模式：每个节点独立存储历史
+                # 三节点模式：轮播到哪个节点，就只给那个节点追加历史。
+                # 这样切换显示时当前曲线不会出现其他节点的“遗留数据”，
+                # 第一轮轮询结束后每个节点才积累出自己的历史。
+                active_history_node = active_node
                 for nid in self._node_ids:
                     nd = sd['nodes'].get(nid, {})
                     self.history.setdefault(nid, {
@@ -454,6 +471,8 @@ class DashboardEngine:
                         'delta_true': [[],[],[]], 'omega_true': [[],[],[]],
                         'fault_flags': [], 'phase': [],
                     })
+                    if nid != active_history_node:
+                        continue
                     h = self.history[nid]
                     t_ms = round(time_sec * 1000, 3)
                     bj_ms = t_ms + (self.start_beijing_ms or 0)
@@ -646,7 +665,9 @@ class DashboardEngine:
             sorted_snaps = sorted(self.fault_snapshots, key=lambda x: x.get('center_sec', 0))
             for s in sorted_snaps:
                 center = s.get('center_sec', 0)
-                if current_time < center - 0.5:
+                # 只有当前仿真时间已经到达该故障中心附近才显示回放，
+                # 避免第一个故障刚触发就把后续节点的回放也列出来。
+                if current_time + 0.001 < center:
                     continue
                 snap = dict(s)
                 # 直接使用原始数据（步数少，无需降采样）
@@ -656,11 +677,11 @@ class DashboardEngine:
                 # chart-ready 字段保持原样（不降采样，原始 ~13 点够用）
                 snap.pop('delta_true', None)
                 snap.pop('omega_true', None)
-                # 时间范围显示
+                # 时间范围显示（毫秒级精度）
                 if 'times_raw' in snap and len(snap['times_raw']) >= 2:
-                    snap['time_range'] = f"{snap['times_raw'][0]:.0f}s ~ {snap['times_raw'][-1]:.0f}s"
+                    snap['time_range'] = f"{snap['times_raw'][0]:.3f}s ~ {snap['times_raw'][-1]:.3f}s"
                 elif 'center_sec' in snap:
-                    snap['time_range'] = f"{snap['center_sec']:.0f}s ±1s"
+                    snap['time_range'] = f"{snap['center_sec']:.3f}s"
                 else:
                     snap['time_range'] = '--'
                 enriched.append(snap)

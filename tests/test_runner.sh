@@ -12,7 +12,7 @@ REPORT_DIR="${PROJECT_DIR}/docs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT_FILE="${REPORT_DIR}/test_report_${TIMESTAMP}.md"
 
-BOARD_IP="192.168.88.11"
+BOARD_IP="192.168.88.10"
 BOARD_USER="user"
 BOARD_PASS="user"
 TEST_DIR="/home/user/demo/tests"

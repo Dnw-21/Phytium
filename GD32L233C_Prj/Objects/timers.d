@@ -1,7 +1,14 @@
-./objects/timers.o: FreeRTOS\timers.c FreeRTOS\include\FreeRTOS.h \
+./objects/timers.o: FreeRTOS\timers.c \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdlib.h \
+  FreeRTOS\include\FreeRTOS.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stddef.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdint.h \
   FreeRTOS\config\FreeRTOSConfig.h \
   Firmware\CMSIS\GD\GD32L23x\Include\gd32l23x.h \
-  D:\Keil_v5\ARM\Packs\ARM\CMSIS\6.1.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_version.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_compiler.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_armclang.h \
   Firmware\CMSIS\GD\GD32L23x\Include\system_gd32l23x.h \
   gd32_sys\gd32l23x_libopt.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_adc.h \
@@ -37,4 +44,4 @@
   FreeRTOS\portable\GCC\ARM_CM23_NTZ\non_secure\portmacrocommon.h \
   FreeRTOS\include\mpu_wrappers.h FreeRTOS\include\task.h \
   FreeRTOS\include\list.h FreeRTOS\include\queue.h \
-  FreeRTOS\include\timers.h
+  FreeRTOS\include\task.h FreeRTOS\include\timers.h

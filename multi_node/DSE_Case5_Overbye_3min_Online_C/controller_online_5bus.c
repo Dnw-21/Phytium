@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     printf("# time,delta1,delta2,omega1,omega2,RMSE\n");
     fflush(stdout);
 
-    int timeout = 5000;
+    int timeout = 30000;
     while (*(volatile uint32_t *)(mem + 8) == 0 && timeout-- > 0) usleep(1000);
     if (timeout <= 0) {
         fprintf(stderr, "ERROR: simulation not started (timeout)\n");

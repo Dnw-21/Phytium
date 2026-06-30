@@ -62,10 +62,16 @@ static inline volatile uint8_t *shm_map(const char *node_name, size_t *out_size,
         return NULL;
     }
 
-    /* Wait for FreeRTOS to initialise SHM header (fsz != 0) */
-    int timeout = 10000; /* 10 seconds */
+    /* Wait for FreeRTOS to initialise SHM header (fsz != 0)
+     * Use memory barrier to avoid stale reads on device memory.
+     * IMPORTANT: Do NOT poll too aggressively - this can trigger
+     * rpmsg sysfs notifications that may cause kernel Oops.
+     */
+    int timeout = 30000; /* 30 seconds, matches controller timeout */
+    __sync_synchronize(); /* full memory barrier before first read */
     while (*(volatile uint32_t *)(mem + 12) == 0 && timeout-- > 0) {
         usleep(1000);
+        __sync_synchronize(); /* ensure fresh read each iteration */
     }
     if (timeout <= 0) {
         fprintf(stderr, "ERROR: SHM not initialised (timeout)\n");

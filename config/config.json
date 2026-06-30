@@ -1,6 +1,6 @@
 {
     "board": {
-        "ip": "192.168.88.11",
+        "ip": "192.168.88.10",
         "user": "user",
         "password": "user",
         "platform": "feiteng-pi",

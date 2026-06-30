@@ -459,7 +459,7 @@ int main(int argc, char **argv) {
     fflush(stdout);
 
     /* ---- Wait for simulation start ---- */
-    int timeout = 5000;
+    int timeout = 30000;
     while (*(volatile uint32_t *)(mem + 8) == 0 && timeout-- > 0) usleep(1000);
     if (timeout <= 0) {
         fprintf(stderr, "ERROR: simulation not started (timeout)\n");

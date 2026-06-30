@@ -1,290 +1,363 @@
 # FreeRTOS 从核任务流程详解
 
-> **更新**: 2026-05-28 | **源文件**: freertos/main.c, freertos/src/*.c, freertos/inc/master.h | **当前口径**: FreeRTOS 实际 CPU1（设备树写 CPU3），LoRa UART2 真实硬件链路
+> **更新**: 2026-06-24 | **源文件**: [freertos/main.c](../freertos/main.c), [freertos/src/*.c](../freertos/src/), [freertos/inc/*.h](../freertos/inc/) | **当前口径**: FreeRTOS 实际 CPU1（设备树写 CPU3），UART2 真实硬件链路，同时运行 Task 1 LoRa 主控与 Task 2 多节点仿真
+
+---
 
 ## 1. 任务总览
 
-FreeRTOS 主控侧实际运行在 **CPU1**（设备树/remoteproc 仍写 CPU3）上，运行 **4个任务**，通过 RPMsg 与 Linux 主核通信：
+FreeRTOS 主控侧实际运行在 **CPU1**（设备树/remoteproc 仍写 CPU3）上，当前创建 **9 个任务**：
 
 ```
 main() 启动流程:
-  ├── chaos_init()          混沌加密初始化
-  ├── master_init()         主控系统初始化 (节点管理, 共享内存Flash)
-  ├── master_task_create()  创建3个业务任务
-  │   ├── master_recv_task  (Prio=4, 512 words)
-  │   ├── master_judge_task (Prio=5, 256 words)
-  │   └── master_cmd_task   (Prio=3, 256 words)
-  ├── rpmsg_echo_task()     创建RPMsg通信任务
-  │   └── RpmsgEchoTask     (Prio=4, 8KB stack)
-  └── vTaskStartScheduler() 启动调度器
+  ├── 平台初始化
+  │   ├── MMU 映射
+  │   ├── OpenAMP / RPMsg / VirtIO 初始化
+  │   ├── UART2 (PL011) 初始化
+  │   ├── GPIO / IOMUX 初始化
+  │   └── LoRa 模块 AT 配置
+  │
+  ├── 创建任务
+  │   ├── rpm_task            (Prio=1, 8KB)
+  │   ├── aux_task            (Prio=2, 4KB)
+  │   ├── master_recv_task    (Prio=5, 512 words)
+  │   ├── master_process_task (Prio=4, 2KB)
+  │   ├── master_judge_task   (Prio=3, 512 words)
+  │   ├── master_poll_task    (Prio=2, 2KB)
+  │   ├── sim_node_task       (Prio=8, 16KB)
+  │   ├── sim_node_39bus_task (Prio=6, 32KB)
+  │   └── sim_node_9bus_task  (Prio=4, 16KB)
+  │
+  └── vTaskStartScheduler()   启动调度器
 ```
+
+> 优先级数字越小优先级越高。`rpm_task` 优先级最高，确保 RPMsg 消息及时处理；`sim_node_*` 优先级最低，避免挤压 LoRa 主控实时性。
+
+---
 
 ## 2. 任务详情
 
-### 2.1 RpmsgEchoTask — RPMsg 通信任务
+### 2.1 rpm_task — RPMsg 通信任务
 
 | 属性 | 值 |
 |------|-----|
-| **优先级** | 4 |
-| **栈大小** | 8KB (4096×2) |
-| **源文件** | [freertos/src/rpmsg-echo_os.c](file:///home/alientek/Phytium/freertos/src/rpmsg-echo_os.c) |
-| **创建位置** | [freertos/main.c](file:///home/alientek/Phytium/freertos/main.c) → `rpmsg_echo_task()` |
-| **功能** | OpenAMP/RPMsg通信核心，所有跨核数据的中转站 |
+| **优先级** | 1 |
+| **栈大小** | 8KB |
+| **源文件** | [freertos/main.c](../freertos/main.c) |
+| **功能** | OpenAMP/RPMsg 通信核心，管理通用端点 + 三个仿真端点 |
 
 **执行流程**:
+
 ```
-RpmsgEchoTask()
-  ├── device_init()
-  │   ├── platform_create_proc()        ← 创建remoteproc实例
-  │   ├── platform_setup_src_table()    ← 设置资源表
-  │   ├── platform_setup_share_mems()   ← 映射共享内存
-  │   └── platform_create_rpmsg_vdev()  ← 创建VirtIO RPMsg设备
-  ├── init_sensor_data()                ← 初始化10组传感器模拟数据
-  └── FRpmsgEchoApp()
-      ├── rpmsg_create_ept()            ← 创建RPMsg端点 "rpmsg-openamp-demo-channel"
-      └── while(1):
-          ├── platform_poll(priv)       ← 等待消息/处理vring
-          │   ├── 收到 DEVICE_MASTER_DATA (0x0020):
-          │   │   → master_recv_inject_data()  注入数据到master_recv管线
-          │   ├── 收到 DEVICE_SENSOR_DATA (0x0010):
-          │   │   → send_all_sensor_packets()  发送传感器批量数据
-          │   ├── 收到 DEVICE_CORE_CHECK (0x0003):
-          │   │   → 回显相同数据 (心跳)
-          │   └── 收到 DEVICE_CORE_SHUTDOWN (0x0002):
-          │       → shutdown_req = 1, 退出循环
-          └── rproc_get_stop_flag() 检查
+rpm_task()
+  ├── 等待 OpenAMP vring 激活
+  ├── rpmsg_create_ept(g_ept, "rpmsg-openamp-demo-channel")
+  ├── rpmsg_create_ept(sim_ept,   "rpmsg-sim-5bus")
+  ├── rpmsg_create_ept(sim9_ept,  "rpmsg-sim-9bus")
+  ├── rpmsg_create_ept(sim39_ept, "rpmsg-sim-39bus")
+  └── while(1):
+      ├── platform_poll_nonblocking(&rproc)  处理 vring 消息
+      ├── 周期性发送 CMD_HEARTBEAT
+      └── 必要时发送 CMD_LORA_RAW / CMD_NODE_STATUS
 ```
 
-**RPMsg端点消息处理** (`rpmsg_endpoint_cb`):
+**通用端点消息处理** (`rpmsg-openamp-demo-channel`):
 
-| 消息类型 | command值 | 方向 | 处理函数 |
-|----------|-----------|------|----------|
-| 主控数据注入 | 0x0020 | Linux→RTOS | `master_recv_inject_data()` |
-| 传感器请求 | 0x0010 | Linux→RTOS | `send_all_sensor_packets()` |
-| 心跳检查 | 0x0003 | 双向 | 直接回显 |
-| 关闭从核 | 0x0002 | Linux→RTOS | 设置 `shutdown_req=1` |
+| 消息类型 | command值 | 方向 | 说明 |
+|----------|-----------|------|------|
+| LoRa 原始帧透传 | `CMD_LORA_RAW 0x0023` | RTOS → Linux | **已准备但未接线**：`main.c` 已实现 `rpmsg_send_lora_raw()`，但尚未被业务任务调用 |
+| 节点状态 | `CMD_NODE_STATUS 0x0025` | RTOS → Linux | 节点在线/故障状态（预留） |
+| 心跳 | `CMD_HEARTBEAT 0x0030` | RTOS → Linux | 周期性心跳（每 ~10s） |
+| Echo 请求/响应 | `CMD_ECHO_REQ/RESP 0x0040/0x0041` | 双向 | 端点绑定与测试 |
 
-**关键优化**:
-- A2零拷贝: `g_zc_batch` 全局缓冲区，协议头+数据预分配，直接发送无memcpy
-- C2边缘检测: `edge_detect_anomaly()` 直接在零拷贝缓冲区上执行阈值检测
-- A3中断合并: 每50批才打印一次log
+**仿真端点消息处理**:
+
+| 通道名 | 控制命令 | 用途 |
+|--------|----------|------|
+| `rpmsg-sim-5bus` | `CMD_SIM_CTRL 0x51` | 5bus 仿真 START/STOP/RESET/SPEED |
+| `rpmsg-sim-9bus` | `0x0070` | 9bus 仿真控制（当前硬编码，建议统一到 `CMD_SIM_CTRL`） |
+| `rpmsg-sim-39bus` | `0x0060` | 39bus 仿真控制（当前硬编码，建议统一到 `CMD_SIM_CTRL`） |
+
+> 遗留文件 [freertos/src/rpmsg-echo_os.c](../freertos/src/rpmsg-echo_os.c) 当前未被 `main.c` 调用，且引用了未实现的 `master_recv_inject_data()` 等符号。
 
 ---
 
-### 2.2 master_recv_task — 数据接收任务
+### 2.2 aux_task — AUX 引脚监测任务
 
 | 属性 | 值 |
 |------|-----|
-| **优先级** | 4 |
+| **优先级** | 2 |
+| **栈大小** | 4KB |
+| **源文件** | [freertos/main.c](../freertos/main.c) |
+| **功能** | 每 100ms 读取 GPIO2_10（AUX）电平，变化时打印并递增 SHM 心跳计数器 `SHM_HB` |
+
+---
+
+### 2.3 master_recv_task — LoRa 数据接收任务
+
+| 属性 | 值 |
+|------|-----|
+| **优先级** | 5 |
 | **栈大小** | 512 words |
-| **源文件** | [freertos/src/master_recv.c](file:///home/alientek/Phytium/freertos/src/master_recv.c) |
-| **功能** | LoRa帧接收、帧解析、数据分流存储 |
+| **源文件** | [freertos/src/master_recv.c](../freertos/src/master_recv.c) |
+| **功能** | 从 UART2 环形缓冲区读取原始字节，解析 LoRa 帧，投递到接收队列 |
 
-**数据来源**:
+**执行流程**:
 
-LoRa 模块通过 **UART2** 连接到 FreeRTOS 主控侧。当前主控路线以真实 LoRa 硬件为准；历史仿真入口只作为回归测试或调试辅助，不再作为当前链路事实。
-
-1. **真实 LoRa UART2** (当前主控路线):
-   ```c
-   master_recv_lora_data(buf, max_len)
-     → master_lora_uart_recv(buf, max_len)  ← 从 UART2 RX 环形缓冲区取帧
-   ```
-   当前路线: UART2 轮询/接收 → 帧同步 → CRC8 校验 → 数据分流/透传。
-
-2. **历史数据模拟器** (回归测试):
-   ```c
-   master_recv_lora_data(buf, max_len)
-     → master_sim_lora_data(buf, max_len)   ← 状态机自动生成LoRa帧
-   ```
-   可用于无硬件回归，但不代表当前 LoRa 主控链路。
-
-3. **RPMsg注入** (备选, 用于调试):
-   ```c
-   master_recv_inject_data(data, len) // 通过RPMsg DEVICE_MASTER_DATA注入
-   ```
-
-**帧解析流程**:
 ```
 master_recv_task()
   └── while(1):
-      ├── master_recv_lora_data() 或 master_recv_inject_data()
-      ├── parse_frame()             帧同步头检测 (0xAA55 + CRC8)
-      └── 按数据类型分流:
-          ├── DATA_TYPE_STATUS (0x01):
-          │   ├── process_status_header()  解析故障头/状态头
-          │   └── process_node_raw()       存储节点采样数据
-          │       └── master_flash_save_node_data() → 共享内存状态区
-          ├── DATA_TYPE_WAVE (0x02):
-          │   ├── process_wave_header()    解析波形头
-          │   └── process_flash_wave()     存储波形数据
-          │       └── master_flash_save_wave_data() → 共享内存波形区
-          └── DATA_TYPE_FAULT_LIST (0x06):
-              └── process_fault_list()     解析故障列表
+      ├── 等待 UART 数据稳定
+      ├── lora_uart_mark_frame()     标记帧边界
+      ├── lora_uart_read_frame()     读取一帧原始字节
+      ├── frame_parse()              解析多帧
+      │   └── 提取 sync_code / rx_type / enc_len / enc_data
+      └── xQueueSend(g_recv_queue, RecvPacket_t)
 ```
 
-**帧格式**:
-```
-[0xAA][0x55][LEN][NODE_ID][TYPE][PAYLOAD...][CRC8][0x55][0xAA]
-```
+**数据来源**: UART2 中断接收，[freertos/src/lora_uart.c](../freertos/src/lora_uart.c) 管理 4096B 环形缓冲区。
 
 ---
 
-### 2.3 master_judge_task — 故障判决任务
+### 2.4 master_process_task — 数据解密与处理任务
 
 | 属性 | 值 |
 |------|-----|
-| **优先级** | 5 (最高) |
-| **栈大小** | 256 words |
-| **源文件** | [freertos/src/master_judge.c](file:///home/alientek/Phytium/freertos/src/master_judge.c) |
-| **执行周期** | 1000ms (MASTER_JUDGE_INTERVAL_MS) |
+| **优先级** | 4 |
+| **栈大小** | 2KB |
+| **源文件** | [freertos/src/master_recv.c](../freertos/src/master_recv.c) |
+| **功能** | 从队列取包、解密、按类型分流、保存到模拟 Flash、发送 ACK |
 
 **执行流程**:
+
+```
+master_process_task()
+  └── while(1):
+      ├── xQueueReceive(g_recv_queue, &pkt)
+      ├── chaos_decrypt_packet(pkt.enc_data, ...)   // 当前策略与文档存在矛盾
+      ├── 按 rx_type 分流:
+      │   ├── DATA_TYPE_NODE_HEAD  (0x01)  → 解析节点头
+      │   ├── DATA_TYPE_NODE_RAW   (0x04)  → 存储采样数据
+      │   └── DATA_TYPE_FAULT_HEAD (0x07)  → 解析故障头
+      ├── master_flash_save_node_data()  → 模拟 Flash 存储
+      └── 发送 ACK
+```
+
+> **注意**: 当前 `OPERATIONS.md` 称 FreeRTOS 侧不做解密（仅透传密文），但 `master_recv.c` 仍调用 `chaos_decrypt_packet()`，策略需统一。
+
+---
+
+### 2.5 master_judge_task — 节点在线判定任务
+
+| 属性 | 值 |
+|------|-----|
+| **优先级** | 3 |
+| **栈大小** | 512 words |
+| **源文件** | [freertos/src/master_judge.c](../freertos/src/master_judge.c) |
+| **执行周期** | 1000ms |
+
+**执行流程**:
+
 ```
 master_judge_task()
   └── while(1):
-      ├── 遍历所有10个节点
-      │   ├── 离线检测: elapsed > 15000ms → is_online=0
-      │   ├── 故障判定: severity >= WARNING && fault_type != NONE
-      │   └── 波形请求: 满足条件 → 构造 MasterInternalCmd
-      │       └── xQueueSend(g_master_cmd_queue, cmd)
+      ├── 遍历 MASTER_MAX_NODES (当前 3)
+      │   ├── elapsed > 15000ms → is_online=0
+      │   └── severity/fault_type 更新
       └── vTaskDelayUntil(1000ms)
 ```
 
-**判决规则**:
-| 条件 | 动作 |
-|------|------|
-| 超过15秒无数据 | 标记节点离线 |
-| severity >= WARNING 且有故障类型 | 生成波形请求命令 |
-
 ---
 
-### 2.4 master_cmd_task — 命令发送任务
+### 2.6 master_poll_task — 主控轮询任务
 
 | 属性 | 值 |
 |------|-----|
-| **优先级** | 3 (最低) |
-| **栈大小** | 256 words |
-| **源文件** | [freertos/src/master_cmd.c](file:///home/alientek/Phytium/freertos/src/master_cmd.c) |
+| **优先级** | 2 |
+| **栈大小** | 2KB |
+| **源文件** | [freertos/src/master_poll_task.c](../freertos/src/master_poll_task.c) |
+| **功能** | 周期性发送 `CMD_POLL_STATUS`，故障时请求 `CMD_REQUEST_FAULT_DATA` |
 
 **执行流程**:
+
 ```
-master_cmd_task()
+master_poll_task()
   └── while(1):
-      └── xQueueReceive(g_master_cmd_queue, cmd)  ← 阻塞等待命令
-          └── 按命令类型分发:
-              ├── MASTER_CMD_REQ_WAVE:
-              │   └── send_lora_cmd(CMD_REQUEST_WAVEFORM)
-              ├── MASTER_CMD_REQ_FAULT_LIST:
-              │   └── send_lora_cmd(CMD_REQUEST_FAULT_LIST)
-              ├── MASTER_CMD_CLEAR_FLASH:
-              │   └── send_lora_cmd(CMD_CLEAR_FLASH)
-              └── MASTER_CMD_WAVE_COLLECT:
-                  └── send_lora_cmd(CMD_START_WAVE_COLLECT)
+      ├── 向节点 0 发送 CMD_POLL_STATUS (约 5s 周期)
+      ├── 若 fault_pending 置位 → 发送 CMD_REQUEST_FAULT_DATA
+      ├── wait_download_done() 等待下载完成
+      └── vTaskDelayUntil()
 ```
 
-**send_lora_cmd() 命令发送路径**:
-```
-send_lora_cmd(node_id, cmd_code, params, param_len)
-  ├── chaos_encrypt_packet()                  ← 混沌加密
-  └── rpmsg_send_master_cmd()                 ← RPMsg DEVICE_MASTER_CMD (0x0021)
-      └── FreeRTOS → RPMsg → Linux → master_receiver
-          └── (后续待接入: Linux → LoRa模块 → 终端节点)
-```
+> 该任务替代了旧版 `master_cmd_task`（已不存在 `master_cmd.c`）。
 
-**支持的命令码**:
-| 命令 | 代码 | 说明 |
-|------|------|------|
-| CMD_REQUEST_WAVEFORM | 0x10 | 请求节点波形数据 |
-| CMD_REQUEST_FAULT_LIST | 0x11 | 请求故障列表 |
-| CMD_CLEAR_FLASH | 0x12 | 清除Flash存储 |
-| CMD_START_WAVE_COLLECT | 0x13 | 启动波形采集 |
+---
 
-## 3. 任务间通信机制
+### 2.7 sim_node_task — 5bus 仿真任务
+
+| 属性 | 值 |
+|------|-----|
+| **优先级** | 8 |
+| **栈大小** | 16KB |
+| **源文件** | [freertos/src/sim_node_task.c](../freertos/src/sim_node_task.c) |
+| **功能** | IEEE 5-Bus / 2-gen 电力系统 RK4 仿真，输出到 SHM 0xC8100000 |
+
+**参数**:
+
+| 参数 | 值 |
+|------|-----|
+| 状态维 ns | 4 |
+| 测量维 nm | 14 |
+| 步长 DT | 0.0005s |
+| 目标频率 | 2000Hz |
+| SHM 基地址 | 0xC8100000 |
+| SHM 大小 | 256KB |
+
+**执行流程**:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    任务间数据流                               │
-│                                                              │
-│  ┌──────────────────┐                                       │
-│  │ RpmsgEchoTask    │ ←── RPMsg 消息 ──→ Linux              │
-│  │ (Prio=4)         │                                       │
-│  └────────┬─────────┘                                       │
-│           │ master_recv_inject_data()                        │
-│           ▼                                                  │
-│  ┌──────────────────┐                                       │
-│  │ master_recv_task │ ← 帧解析, 更新节点状态                  │
-│  │ (Prio=4)         │                                       │
-│  └────────┬─────────┘                                       │
-│           │ 更新 g_nodes[].severity, fault_type               │
-│           ▼                                                  │
-│  ┌──────────────────┐     ┌──────────────────┐              │
-│  │ master_judge_task│────→│ g_master_cmd_queue│             │
-│  │ (Prio=5)         │Queue│ (FreeRTOS Queue)  │              │
-│  └──────────────────┘     └────────┬─────────┘              │
-│                                    │ xQueueReceive()         │
-│                                    ▼                         │
-│                           ┌──────────────────┐              │
-│                           │ master_cmd_task  │              │
-│                           │ (Prio=3)         │              │
-│                           └────────┬─────────┘              │
-│                                    │ rpmsg_send_master_cmd() │
-│                                    ▼                         │
-│                           ┌──────────────────┐              │
-│                           │ RpmsgEchoTask    │              │
-│                           │ (rpmg_send)      │              │
-│                           └────────┬─────────┘              │
-│                                    │ RPMsg → Linux           │
-└────────────────────────────────────┼─────────────────────────┘
-                                     ▼
-                                   Linux
-                             master_receiver
+sim_node_task()
+  ├── 创建 RPMsg endpoint "rpmsg-sim-5bus"
+  ├── 等待 Linux 绑定
+  ├── 等待 START 命令
+  └── while(step < NUM_STEPS):
+      ├── rk4_step() 更新状态
+      ├── h_measurement() 计算 Z[14]
+      ├── 缓冲 8 帧
+      ├── SHM 背压检查：满则等待
+      ├── 写入 SHM 0xC8100000
+      └── 每 8 帧批量发送 RPMsg（可选）
 ```
 
-## 4. 优先级设计原理
+---
 
-| 优先级 | 任务 | 设计原因 |
-|--------|------|---------|
-| **5 (最高)** | master_judge_task | 故障判决必须及时，优先级最高确保异常快速响应 |
-| **4** | RpmsgEchoTask + master_recv_task | 通信与接收同级，通过FreeRTOS时间片轮转调度 |
-| **3 (最低)** | master_cmd_task | 命令发送不紧急，在空闲时处理 |
+### 2.8 sim_node_9bus_task — 9bus 仿真任务
 
-**注意**: `RpmsgEchoTask` 和 `master_recv_task` 同为优先级4，FreeRTOS会以时间片轮转方式交替执行。
+| 属性 | 值 |
+|------|-----|
+| **优先级** | 4 |
+| **栈大小** | 16KB |
+| **源文件** | [freertos/src/sim_node_9bus.c](../freertos/src/sim_node_9bus.c) |
+| **功能** | IEEE 9-Bus / 3-gen 仿真，SHM 0xC81C0000 |
 
-## 5. 共享资源
+| 参数 | 值 |
+|------|-----|
+| 状态维 ns | 6 |
+| 测量维 nm | 24 |
+| 目标频率 | 2000Hz（上限） |
+| SHM 基地址 | 0xC81C0000 |
+| SHM 大小 | 128KB |
 
-### 5.1 FreeRTOS Queue
+---
 
-| 队列名 | 长度 | 元素类型 | 生产者 | 消费者 |
-|--------|------|---------|--------|--------|
-| `g_master_cmd_queue` | 5 | `MasterInternalCmd_t` | master_judge_task | master_cmd_task |
+### 2.9 sim_node_39bus_task — 39bus 仿真任务
 
-### 5.2 共享内存Flash模拟
+| 属性 | 值 |
+|------|-----|
+| **优先级** | 6 |
+| **栈大小** | 32KB |
+| **源文件** | [freertos/src/sim_node_39bus.c](../freertos/src/sim_node_39bus.c) |
+| **功能** | IEEE 39-Bus / 10-gen 仿真，SHM 0xC8140000 |
 
-| 区域 | 大小 | 用途 | 管理函数 |
-|------|------|------|----------|
-| `g_status_buf[10][6400]` | 64KB | 节点状态数据 | `master_flash_save/load/erase_node_data()` |
-| `g_wave_buf[10][6400]` | 64KB | 节点波形数据 | `master_flash_save/load/erase_wave_data()` |
+| 参数 | 值 |
+|------|-----|
+| 状态维 ns | 20 |
+| 测量维 nm | 98 |
+| 目标频率 | 受 UKF 消费能力限制，约 250~300Hz |
+| SHM 基地址 | 0xC8140000 |
+| SHM 大小 | 512KB |
 
-来源: [freertos/src/master_sys.c](file:///home/alientek/Phytium/freertos/src/master_sys.c)
+> 39bus 仿真在写入 SHM 前执行背压检查，自动匹配 Linux UKF 处理速度。
 
-### 5.3 全局变量
+---
 
-| 变量 | 定义位置 | 用途 |
-|------|---------|------|
-| `g_nodes[10]` | master_sys.c | 节点信息数组 (在线状态、故障类型等) |
-| `g_dl_buf` | master_sys.c | 下载缓冲区 (帧重组) |
-| `g_ept` | rpmsg-echo_os.c | RPMsg端点指针 |
-| `g_remoteproc_priv` | rpmsg-echo_os.c | remoteproc私有数据(用于platform_poll) |
-| `g_zc_batch` | rpmsg-echo_os.c | 零拷贝批量发送缓冲区 |
-| `shutdown_req` | rpmsg-echo_os.c | 关闭请求标志 |
+## 3. 任务间交互
 
-## 6. LoRa 真实硬件接收现状
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         FreeRTOS 任务交互                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  UART2 ISR ──→ lora_uart.c ringbuf ──→ master_recv_task         │
+│                                           ↓                      │
+│                                    g_recv_queue (16 slots)       │
+│                                           ↓                      │
+│                                    master_process_task           │
+│                                           ↓                      │
+│                                    master_sys.c (模拟 Flash)     │
+│                                           ↓                      │
+│                                    master_poll_task              │
+│                                           ↓                      │
+│                                    rpm_task ──→ RPMsg → Linux    │
+│                                                                  │
+│  sim_node_task    ──→ SHM 0xC8100000 ──→ Linux ukf_pipeline_5bus │
+│  sim_node_9bus_task ──→ SHM 0xC81C0000 ──→ Linux ukf_pipeline_9bus│
+│  sim_node_39bus_task ──→ SHM 0xC8140000 ──→ Linux ukf_pipeline_39bus_ft│
+│                                                                  │
+│  aux_task ──→ GPIO2_10 ──→ SHM_HB 心跳计数器                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| 函数 | 状态 | 说明 |
-|------|------|------|
-| `master_recv_lora_data()` | **统一入口** | 当前以真实 UART2/LoRa 硬件链路为主 |
-| `master_lora_uart_recv()` | **当前主线** | 从 UART2 RX 环形缓冲区取完整 LoRa 帧 |
-| `master_sim_lora_data()` | **历史/回归测试** | 无硬件时可生成测试帧，不再作为当前主控链路事实 |
-| `master_recv_inject_data()` | **可用** | 通过 RPMsg DEVICE_MASTER_DATA 注入模拟数据(调试用途) |
+---
 
-**结论**: 当前主控路线是真实 GD32 终端 → LoRa → UART2 → FreeRTOS 主控侧；Dashboard 仍使用 `state_new/` 模拟数据，尚未接入这条真实链路。
+## 4. 关键数据类型
+
+### 4.1 LoRa 数据类型
+
+```c
+// freertos/inc/data_frame.h
+typedef enum {
+    DATA_TYPE_NODE_HEAD  = 0x01,
+    DATA_TYPE_POWER      = 0x03,
+    DATA_TYPE_NODE_RAW   = 0x04,
+    DATA_TYPE_FAULT_HEAD = 0x07,
+} DataType_t;
+```
+
+> 旧版 `DATA_TYPE_FLASH_WAVE = 0x05` 与 `DATA_TYPE_WAVE = 0x02` 在当前代码中未定义/未使用。
+
+### 4.2 主控命令码
+
+```c
+// freertos/inc/master.h
+#define CMD_REQUEST_WAVEFORM     0x10
+#define CMD_CLEAR_FLASH          0x12
+#define CMD_POLL_STATUS          0x14
+#define CMD_REQUEST_FAULT_DATA   0x15
+```
+
+### 4.3 RPMsg 通用协议
+
+```c
+// freertos/inc/rpmsg_proto.h
+typedef struct __attribute__((packed)) {
+    u32 command;            // 4 B
+    u16 length;             // 2 B
+    u8  data[489];          // payload
+} RpmsgPkt;
+
+#define CMD_LORA_RAW    0x0023
+#define CMD_NODE_STATUS 0x0025
+#define CMD_HEARTBEAT   0x0030
+#define CMD_ECHO_REQ    0x0040
+#define CMD_ECHO_RESP   0x0041
+```
+
+---
+
+## 5. 遗留与待同步点
+
+| 项目 | 说明 |
+|------|------|
+| `rpmsg-echo_os.c` | 当前未接入 `main.c`，且存在未定义符号；需决定废弃或补全 |
+| `master_cmd_task` | 已不存在；功能迁移到 `master_poll_task` |
+| `RpmsgEchoTask` | 旧任务名；当前对应 `rpm_task` |
+| 加解密策略 | 代码与 `freertos/OPERATIONS.md` 口径不一致 |
+| Task 1 RPMsg 数据路径 | `rpmsg_send_lora_raw()` 已准备但未被调用，业务数据当前走 SHM 调试打印 |
+| 9/39bus 控制码 | 当前硬编码为 `0x0070`/`0x0060`，建议统一到 `CMD_SIM_CTRL 0x51` |
+| Linux 接收程序 | `src/openamp-demo/linux-master/master_receiver.c` 使用旧命名 `DEVICE_LORA_DATA`，建议统一 |
+
+---
+
+**版本**: v2.1 | **更新**: 2026-06-24 | **状态**: 已同步当前 9 任务架构与 RPMsg 协议状态

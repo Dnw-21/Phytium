@@ -1,13 +1,29 @@
 # 编译输出
 build/
 *.o
+*.d
 *.elf
 *.bin
 *.obj
+*.axf
+*.hex
+*.map
+*.lst
+*.htm
+*.dep
+*.crf
+Objects/
+Listings/
+RTE/
+__pycache__/
+*.pyc
 
 # IDE
 .vscode/
 .idea/
+*.uvguix.*
+*.uvmpw
+*.scvd
 
 # 日志
 logs/*.log
@@ -30,3 +46,34 @@ Thumbs.db
 # 密码和敏感信息（如果有）
 config/local_config.json
 .env
+
+# AI 工具生成目录与文件
+.recallloom
+.trae/
+.claude.md
+CLAUDE-PROJECT-TEMPLATE.md
+PROMPT-ENGINEERING.md
+
+# 嵌套 Git 仓库（作为子模块或独立仓库管理）
+fc_lib/VSIPL-FT_v1.13.0_2.28/vsipl-ft_testing/
+
+# 运行时输出（保留源码，忽略运行时生成文件）
+captured_one_cycle.txt
+terminal_one_cycle.txt
+ter_log.txt
+lora_measurements.txt
+data_dump
+ukf_comparison_output.csv
+ukf_estimation_output.csv
+ukf_lora_final.png
+ukf_lora_result.png
+ukf_quantized_all.png
+ukf_quantized_rmse.png
+node_data.txt
+system_params.mat
+
+# 实验测量数据（体积大，由脚本生成）
+measurements.txt
+true_states.csv
+ukf_cache.npz
+weather_cache.json

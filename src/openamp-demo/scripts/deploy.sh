@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BOARD_IP="192.168.88.11"
+BOARD_IP="192.168.88.10"
 BOARD_USER="user"
 BOARD_PASS="user"
 REMOTE_DIR="/home/user/openamp-demo"

@@ -5,8 +5,8 @@
 #  运行位置: 飞腾派开发板上 (/home/user/Phytium/ 目录下)
 #  用法:
 #    # 首次: 先手动把 Phytium/ 目录拷贝到飞腾派
-#    #   scp -r Phytium/scripts Phytium/demo user@192.168.88.11:~/Phytium/
-#    #   scp pe2204_*.elf user@192.168.88.11:~/fw/
+#    #   scp -r Phytium/scripts Phytium/demo user@192.168.88.10:~/Phytium/
+#    #   scp pe2204_*.elf user@192.168.88.10:~/fw/
 #    #
 #    cd ~/Phytium/scripts
 #    chmod +x deploy_and_start.sh

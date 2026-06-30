@@ -1,1 +1,2 @@
-./objects/zdata_adaptive.o: app\zdata_adaptive.c app\zdata_adaptive.h
+./objects/zdata_adaptive.o: app\zdata_adaptive.c app\zdata_adaptive.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdint.h

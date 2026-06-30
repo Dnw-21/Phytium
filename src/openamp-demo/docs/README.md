@@ -131,7 +131,7 @@ make deploy
 
 ```bash
 # SSH登录开发板
-ssh user@192.168.88.11
+ssh user@192.168.88.10
 
 # 启动从核（会加载openamp_core0.elf固件）
 echo start > /sys/class/remoteproc/remoteproc0/state

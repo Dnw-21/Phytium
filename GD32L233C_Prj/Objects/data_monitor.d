@@ -1,8 +1,17 @@
-./objects/data_monitor.o: app\data_monitor.c app\data_monitor.h \
+./objects/data_monitor.o: app\data_monitor.c \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\string.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\math.h \
+  app\data_monitor.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdint.h \
   app\data_frame.h app\zdata_adaptive.h app\wave_monitor.h \
-  FreeRTOS\include\FreeRTOS.h FreeRTOS\config\FreeRTOSConfig.h \
+  FreeRTOS\include\FreeRTOS.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stddef.h \
+  FreeRTOS\config\FreeRTOSConfig.h \
   Firmware\CMSIS\GD\GD32L23x\Include\gd32l23x.h \
-  D:\Keil_v5\ARM\Packs\ARM\CMSIS\6.1.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_version.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_compiler.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_armclang.h \
   Firmware\CMSIS\GD\GD32L23x\Include\system_gd32l23x.h \
   gd32_sys\gd32l23x_libopt.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_adc.h \
@@ -38,6 +47,8 @@
   FreeRTOS\portable\GCC\ARM_CM23_NTZ\non_secure\portmacrocommon.h \
   FreeRTOS\include\mpu_wrappers.h FreeRTOS\include\semphr.h \
   FreeRTOS\include\queue.h FreeRTOS\include\task.h \
-  FreeRTOS\include\list.h app\log.h app\task\tasks.h \
+  FreeRTOS\include\list.h app\log.h FreeRTOS\include\task.h \
+  app\task\tasks.h FreeRTOS\include\queue.h \
   FreeRTOS\include\event_groups.h FreeRTOS\include\timers.h \
-  app\health_assessment.h app\BSP\mwcc68_cfg.h
+  app\data_frame.h app\data_monitor.h app\health_assessment.h \
+  app\BSP\mwcc68_cfg.h

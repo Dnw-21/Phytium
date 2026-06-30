@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+logs/*.log
+logs/*.err
+server.pid
+*.log
+ukf_src/ukf_controller
+ukf_src/*.o
+data/ukf_estimation_output.csv
+data/ukf_comparison_output.csv
+# 真实配置文件含 webhook/密钥 — 推送 example 模板
+config.json
+config.local.json

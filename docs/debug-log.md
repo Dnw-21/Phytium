@@ -615,7 +615,7 @@ sleep 3
 
 ### 问题 26: SSH 断连导致 scp 静默失败
 
-**现象**: 在开发板串口终端看到波形数据，但 `scp user@192.168.88.11:/home/user/trace_wave.txt .` 执行后本地文件为空。
+**现象**: 在开发板串口终端看到波形数据，但 `scp user@192.168.88.10:/home/user/trace_wave.txt .` 执行后本地文件为空。
 
 **根因**: SSH 连接断开 (`No route to host`)，`scp` 静默失败导致创建了空的目标文件。
 
@@ -633,7 +633,7 @@ ip addr | grep 192.168
 **解决**: 等待网络恢复后重新 scp；或者直接在虚拟机端用 `sshpass` 一行命令完成抓取+传输：
 ```bash
 cd /home/alientek/Phytium/freertos
-sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 \
+sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.10 \
   "echo user | sudo -S timeout 60 /home/user/trace_reader 2>/dev/null" > trace_wave.txt
 python3 plot_wave.py trace_wave.txt
 ```

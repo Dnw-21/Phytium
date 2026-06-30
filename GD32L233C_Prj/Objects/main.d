@@ -1,6 +1,10 @@
 ./objects/main.o: app\main.c \
   Firmware\CMSIS\GD\GD32L23x\Include\gd32l23x.h \
-  D:\Keil_v5\ARM\Packs\ARM\CMSIS\6.1.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\core_cm23.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdint.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_version.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_compiler.h \
+  G:\SoftWare\Keil\Pack\ARM\CMSIS\5.8.0\CMSIS\Core\Include\cmsis_armclang.h \
   Firmware\CMSIS\GD\GD32L23x\Include\system_gd32l23x.h \
   gd32_sys\gd32l23x_libopt.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_adc.h \
@@ -30,16 +34,20 @@
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_slcd.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_lptimer.h \
   Firmware\GD32L23x_standard_peripheral\Include\gd32l23x_vref.h \
-  gd32_sys\systick.h app\main.h app\task\tasks.h \
-  FreeRTOS\include\FreeRTOS.h FreeRTOS\config\FreeRTOSConfig.h \
-  FreeRTOS\include\projdefs.h FreeRTOS\include\portable.h \
-  FreeRTOS\include\deprecated_definitions.h \
+  gd32_sys\systick.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stdio.h app\main.h \
+  app\task\tasks.h FreeRTOS\include\FreeRTOS.h \
+  G:\SoftWare\Keil\Keil_\ARM\ARMCLANG\Bin\..\include\stddef.h \
+  FreeRTOS\config\FreeRTOSConfig.h FreeRTOS\include\projdefs.h \
+  FreeRTOS\include\portable.h FreeRTOS\include\deprecated_definitions.h \
   FreeRTOS\portable\GCC\ARM_CM23_NTZ\non_secure\portmacro.h \
   FreeRTOS\portable\GCC\ARM_CM23_NTZ\non_secure\portmacrocommon.h \
   FreeRTOS\include\mpu_wrappers.h FreeRTOS\include\task.h \
   FreeRTOS\include\list.h FreeRTOS\include\queue.h \
-  FreeRTOS\include\event_groups.h FreeRTOS\include\timers.h \
-  FreeRTOS\include\semphr.h app\data_frame.h app\data_monitor.h \
-  app\zdata_adaptive.h Utilities\gd32l233r_eval.h app\BSP\mwcc68_app.h \
-  app\BSP\mwcc68_uart.h app\log.h app\health_assessment.h \
-  app\chaos_encrypt.h app\wave_monitor.h
+  FreeRTOS\include\task.h FreeRTOS\include\event_groups.h \
+  FreeRTOS\include\timers.h FreeRTOS\include\semphr.h \
+  FreeRTOS\include\queue.h app\data_frame.h app\data_monitor.h \
+  app\data_frame.h app\zdata_adaptive.h Utilities\gd32l233r_eval.h \
+  app\BSP\mwcc68_app.h app\BSP\mwcc68_uart.h app\log.h \
+  app\data_monitor.h app\health_assessment.h app\chaos_encrypt.h \
+  app\wave_monitor.h

@@ -1,0 +1,27 @@
+#define OS_LINUX	1
+#define ARCH_ARM64	1
+#define C_GCC	1
+#define __64BIT__	1
+#define HAVE_C11	1
+#define PTHREAD_CREATE_FUNC	pthread_create
+#define BUNDERSCORE	_
+#define NEEDBUNDERSCORE	1
+#define FT2000
+#define L1_CODE_SIZE 32768
+#define L1_CODE_LINESIZE 64
+#define L1_CODE_ASSOCIATIVE 8
+#define L1_DATA_SIZE 32768
+#define L1_DATA_LINESIZE 64
+#define L1_DATA_ASSOCIATIVE 8
+#define L2_SIZE 33554426-DL2_LINESIZE=64
+#define L2_ASSOCIATIVE 8
+#define DTB_DEFAULT_ENTRIES 64
+#define DTB_SIZE 4096
+#define HAVE_VFPV4
+#define HAVE_VFPV3
+#define HAVE_VFP
+#define HAVE_NEON
+#define ARMV8
+#define CORE_FT2000
+#define CHAR_CORENAME "FT2000"
+#define GEMM_MULTITHREAD_THRESHOLD	4

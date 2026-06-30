@@ -35,23 +35,20 @@ UKF_SRC_DIR = NODE_SRC['node_1']
 # FAULT_STEPS:  step 序号用于 dashboard is_fault 标志
 FS = 1000
 FAULT_TUNING = {
-    'node_1': {'t_SW': 0.010, 't_FC': 0.013},   # UKF 看到故障 = 0.010-0.013s
-    'node_2': {'t_SW': 0.015, 't_FC': 0.018},
-    'node_3': {'t_SW': 0.020, 't_FC': 0.023},
+    # 故障窗口与三节点轮播对齐：node_1 在 9-11s 活跃、node_2 在 12-14s、node_3 在 15-17s
+    'node_1': {'t_SW': 0.009, 't_FC': 0.012},   # UKF 看到故障 = 0.009-0.012s
+    'node_2': {'t_SW': 0.012, 't_FC': 0.015},
+    'node_3': {'t_SW': 0.015, 't_FC': 0.018},
 }
 FAULT_STEPS = {
-    'node_1': {'start': 10, 'end': 13},          # dashboard step 10-12
-    'node_2': {'start': 15, 'end': 18},
-    'node_3': {'start': 20, 'end': 23},
+    'node_1': {'start': 9, 'end': 12},          # dashboard step 9-11
+    'node_2': {'start': 12, 'end': 15},
+    'node_3': {'start': 15, 'end': 18},
 }
 
-# 每个节点故障时注入扰动的母线电压 (Vreal 列索引 6-14, Vimag 列索引 15-23)
-# 不同节点扰动不同母线，保证 UKF 估计分化
-FAULT_INJECT = {
-    'node_1': {'vreal_idx': 7,  'vimag_idx': 16, 'scale': 0.75},   # Bus 2 电压骤降 25%
-    'node_2': {'vreal_idx': 9,  'vimag_idx': 18, 'scale': 0.70},   # Bus 4 电压骤降 30%  
-    'node_3': {'vreal_idx': 13, 'vimag_idx': 22, 'scale': 0.65},   # Bus 8 电压骤降 35%
-}
+# 原始故障波形位于 step 60-69 (0.06-0.069s)，需要移动到目标时间
+# 移动方式：把故障段复制到目标位置，原位置恢复为正常值
+ORIG_FAULT_RANGE = {'start': 60, 'end': 70}  # 原始故障 step 范围 [60, 70)
 
 # ═══════════════════════════════════════════════════════════
 # 编译
@@ -193,15 +190,15 @@ def _build_fault_snapshots(steps):
         # 前后各扩展 5 步
         win_start = max(0, f_start - 5)
         win_end = min(len(steps) - 1, f_end + 5)
-        cen = (f_start + f_end) / 2  # 步数，1 step = 1 秒
+        cen = (f_start + f_end) / (2.0 * FS)  # 秒
 
         de = [[], [], []]
         oe = [[], [], []]
         times = []
         for i in range(win_start, win_end + 1):
             nd = steps[i]['nodes'][nid]
-            # 1 step = 1 仿真秒
-            times.append(float(i))
+            # 1 step = 1 ms @ 1000 Hz
+            times.append(float(i) / FS)
             for g in range(3):
                 de[g].append(float(nd['delta_est'][g]))
                 oe[g].append(float(nd['omega_est'][g]))
@@ -256,33 +253,50 @@ def main():
         print(f'    故障窗口: t_SW={fc["t_SW"]:.3f}s, t_FC={fc["t_FC"]:.3f}s '
               f'(step {fstep["start"]}-{fstep["end"]-1})')
 
-        # 2b. 复制 measurements.txt 并注入故障扰动
+        # 2b. 复制 measurements.txt 并移动原始故障波形到目标时间
         src_meas = os.path.join(src_dir, 'measurements.txt')
         dst_meas = os.path.join(work_dir, 'measurements.txt')
 
-        # 注入故障：在故障窗口内扰动特定母线电压
-        inject = FAULT_INJECT.get(node_id, None)
         with open(src_meas, 'r') as fin:
             lines = fin.readlines()
         header = lines[0]
         data_lines = lines[1:]
         num_lines = len(data_lines)
-        modified = 0
+
+        # 解析所有行
+        parsed = [line.strip().split(',') for line in data_lines]
+
+        # 提取原始故障波形 (step 60-69)
+        orig_start = ORIG_FAULT_RANGE['start']
+        orig_end = ORIG_FAULT_RANGE['end']
+        fault_waveform = parsed[orig_start:orig_end]
+
+        # 计算目标位置
+        target_start = fstep['start']
+        target_end = fstep['end']
+        fault_len = orig_end - orig_start
+
+        # 恢复原始故障位置为正常值（用故障前一步的值填充），但保留原时间戳
+        normal_vals = parsed[orig_start - 1] if orig_start > 0 else parsed[0]
+        for i in range(orig_start, orig_end):
+            orig_ts = parsed[i][0]
+            parsed[i] = list(normal_vals)
+            parsed[i][0] = orig_ts
+
+        # 在目标位置插入故障波形，但保留目标位置的原时间戳
+        for i in range(target_start, target_end):
+            if i < num_lines:
+                fw_idx = i - target_start
+                if fw_idx < len(fault_waveform):
+                    target_ts = parsed[i][0]
+                    parsed[i] = list(fault_waveform[fw_idx])
+                    parsed[i][0] = target_ts
+
         with open(dst_meas, 'w') as fout:
             fout.write(header)
-            for i, line in enumerate(data_lines):
-                t = i / FS  # time in seconds
-                if inject and fc['t_SW'] <= t < fc['t_FC']:
-                    parts = line.strip().split(',')
-                    # 扰动 Vreal 和 Vimag 的指定列（模拟故障电压跌落）
-                    parts[inject['vreal_idx']] = str(
-                        float(parts[inject['vreal_idx']]) * inject['scale'])
-                    parts[inject['vimag_idx']] = str(
-                        float(parts[inject['vimag_idx']]) * inject['scale'])
-                    line = ','.join(parts) + '\n'
-                    modified += 1
-                fout.write(line)
-        print(f'    measurements.txt: {num_lines} 行, 故障扰动 {modified} 行')
+            for parts in parsed:
+                fout.write(','.join(parts) + '\n')
+        print(f'    measurements.txt: {num_lines} 行, 故障从 step {orig_start}-{orig_end-1} 移动到 step {target_start}-{target_end-1}')
 
         # 2c. 运行 UKF
         output_csv = os.path.join(DATA_DIR, f'estimates_{node_id}.csv')
@@ -302,12 +316,12 @@ def main():
     steps = []
     for i in range(num_samples):
         frame = {
-            'time_sec': float(i),  # 1 step = 1 仿真秒
-            'step': i,
-            'fault_phase': 'normal',
-            'is_fault': False,
-            'nodes': {}
-        }
+                'time_sec': float(i) / FS,  # 1 step = 1 ms @ 1000 Hz
+                'step': i,
+                'fault_phase': 'normal',
+                'is_fault': False,
+                'nodes': {}
+            }
         for nid in ['node_1', 'node_2', 'node_3']:
             est = node_estimates[nid]
             if i < len(est):

@@ -28,7 +28,7 @@ int main(void)
 
     log_init(LOG_LEVEL_DEBUG);
 
-    printf("System initialized");
+    printf("System initialized_xxl------------");
 
     LoRa_Init();     // LoRa模块初始化
 
@@ -71,6 +71,7 @@ int main(void)
     xTaskCreate(warning_task, "warning", WARNING_STK_SIZE, NULL, WARNING_TASK_PRIO, NULL);
     xTaskCreate(danger_task, "danger", DANGER_STK_SIZE, NULL, DANGER_TASK_PRIO, NULL);
     
+		//log_print("xxl_test_init");
     vTaskStartScheduler();
 
     while(1) {

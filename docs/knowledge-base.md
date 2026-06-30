@@ -231,7 +231,7 @@ modprobe -r rpmsg_char rpmsg_ctrl
 │       │ SSH (sshpass)                                    │
 │       ▼                                                  │
 │  ┌─────────────────────────────────────────────────┐    │
-│  │  Phytium Pi 开发板 (192.168.88.11)               │    │
+│  │  Phytium Pi 开发板 (192.168.88.10)               │    │
 │  │                                                   │    │
 │  │  /home/user/demo/tests/                           │    │
 │  │  ├── test_rpmsg_link    →  /dev/rpmsg0 (RPMsg)   │    │

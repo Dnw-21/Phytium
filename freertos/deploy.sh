@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# FreeRTOS OpenAMP 固件部署脚本 (v10 Final, 2026-05-21)
+# FreeRTOS OpenAMP 固件部署脚本 (v12-S3, 2026-06-03)
 #
 #  用法: cd /home/alientek/Phytium/freertos && bash deploy.sh
 #
 #  功能:
 #    1. 编译 FreeRTOS 固件 (调用SDK make)
-#    2. 传输到开发板 192.168.88.11
+#    2. 传输到开发板 192.168.88.10
 #    3. 安全启动 — 仅在 remoteproc offline 时 start, running 时跳过重启
 #       (避免 echo stop 触发 OP-TEE 重新初始化远程核 → RCU stall)
 #    4. 运行 trace_reader 验证数据解析
@@ -21,7 +21,7 @@ set -e
 
 SDK_DIR="/home/alientek/Phytium_syscode/phytium-free-rtos-sdk-master/example/system/amp/openamp_for_linux"
 TOOLCHAIN="/home/alientek/Phytium_syscode/GCC编译器/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf"
-BOARD_IP="192.168.88.11"
+BOARD_IP="192.168.88.10"
 ELF_FILE="pe2204_aarch64_phytiumpi_openamp_for_linux.elf"
 FW_TARGET="/lib/firmware/openamp_core0.elf"
 
@@ -76,6 +76,17 @@ fi
 echo ""
 echo "==== 6/7 验证数据解析 (trace_reader 45s) ===="
 ${SSH} "${SUDO} timeout 45 /home/user/trace_reader 2>/dev/null" 2>/dev/null | head -80
+
+echo ""
+echo "==== 数据保存 ===="
+echo "  trace_reader 实时查看:"
+echo "    ssh user@192.168.88.10 'echo user|sudo -S /home/user/trace_reader'"
+echo "  保存 [RAW] 原始帧到文件:"
+echo "    ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null | grep '\[RAW\]' > /home/alientek/Phytium/received_raw.txt"
+echo "  保存 [DEC] 解析数据到文件:"
+echo "    ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null | grep '\[DEC\]' > /home/alientek/Phytium/received_dec.txt"
+echo "  保存全部输出:"
+echo "    ssh user@192.168.88.10 'echo user|sudo -S timeout 60 /home/user/trace_reader' 2>/dev/null > /home/alientek/Phytium/received_all.txt"
 
 echo ""
 echo "==== 部署完毕 ===="

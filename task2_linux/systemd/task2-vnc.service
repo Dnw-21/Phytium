@@ -1,0 +1,18 @@
+[Unit]
+Description=Task2 UKF Dashboard VNC Display
+After=task2-dashboard.service
+Requires=task2-dashboard.service
+
+[Service]
+Type=simple
+User=alientek
+Group=alientek
+Environment="HOME=/home/alientek"
+ExecStartPre=/bin/sleep 3
+ExecStart=/home/alientek/Phytium/task2_linux/scripts/start_vnc_task2.sh
+ExecStop=/usr/bin/vncserver -kill :3
+Restart=no
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

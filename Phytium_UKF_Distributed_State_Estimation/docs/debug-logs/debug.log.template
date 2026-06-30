@@ -1,0 +1,28 @@
+# IoT Monitoring System Debug Log
+# Generated: 2026-05-03
+# Board: FeitengPi (192.168.88.11)
+
+[2026-05-03 10:00:00] [INFO] System startup
+[2026-05-03 10:00:01] [DEBUG] Loading config from config.json
+[2026-05-03 10:00:02] [INFO] Board IP: 192.168.88.11
+[2026-05-03 10:00:03] [INFO] Initializing LED subsystem...
+
+=== Example log entries ===
+
+# LED control
+[YYYY-MM-DD HH:MM:SS] [INFO] LED led-blue initialized (fd=3)
+[YYYY-MM-DD HH:MM:SS] [DEBUG] Writing '1' to /sys/class/leds/led-blue/brightness
+[YYYY-MM-DD HH:MM:SS] [INFO] LED set to ON
+
+# Sensor data
+[YYYY-MM-DD HH:MM:SS] [INFO] ADC sample: ch0=2.35V, ch1=0.82A
+[YYYY-MM-DD HH:MM:SS] [WARN] Voltage approaching threshold: 218V (limit: 220V)
+
+# LoRa communication
+[YYYY-MM-DD HH:MM:SS] [INFO] LoRa frame sent: [WARNING] node_id=0x01, data_len=32
+[YYYY-MM-DD HH:MM:SS] [DEBUG] Waiting for ACK... timeout=1000ms
+[YYYY-MM-DD HH:MM:SS] [INFO] ACK received from master
+
+# Error handling
+[YYYY-MM-DD HH:MM:SS] [ERROR] Failed to open sensor device: No such file
+[YYYY-MM-DD HH:MM:SS] [ERROR] Sensor read timeout after 5000ms

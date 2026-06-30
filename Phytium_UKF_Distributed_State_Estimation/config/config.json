@@ -1,0 +1,44 @@
+{
+    "board": {
+        "ip": "192.168.88.11",
+        "user": "user",
+        "password": "user",
+        "platform": "feiteng-pi",
+        "arch": "aarch64"
+    },
+    "led": {
+        "available_leds": ["sysled"],
+        "default_led": "sysled",
+        "sysfs_path": "/sys/class/leds/",
+        "requires_sudo": true,
+        "max_brightness": 255
+    },
+    "lora": {
+        "enabled": false,
+        "device": "/dev/ttyUSB0",
+        "baud_rate": 9600,
+        "frequency": 433000000
+    },
+    "sensors": {
+        "voltage_channel": 0,
+        "current_channel": 1,
+        "sample_rate_hz": 1000,
+        "alert_thresholds": {
+            "warning_v": 220,
+            "danger_v": 250,
+            "warning_a": 10,
+            "danger_a": 15
+        }
+    },
+    "logging": {
+        "level": "DEBUG",
+        "file": "docs/debug-logs/debug.log",
+        "max_size_mb": 100,
+        "backup_count": 5
+    },
+    "communication": {
+        "normal_interval_min": 5,
+        "warning_interval_sec": 1,
+        "danger_interval_ms": 100
+    }
+}

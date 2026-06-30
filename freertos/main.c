@@ -23,8 +23,8 @@
  *   make config_pe2204_phytiumpi_aarch64 && make clean && make all -j$(nproc)
  *
  * ─── 部署 ───
- *   scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.11:/tmp/
- *   ssh user@192.168.88.11
+ *   scp pe2204_aarch64_phytiumpi_openamp_for_linux.elf user@192.168.88.10:/tmp/
+ *   ssh user@192.168.88.10
  *   sudo cp /tmp/pe2204_aarch64_phytiumpi_openamp_for_linux.elf /lib/firmware/openamp_core0.elf
  *   sudo reboot
  *   # 等上线后: sudo /home/user/trace_reader
@@ -67,6 +67,9 @@
 #include "master.h"
 #include "tasks.h"
 #include "lora_uart.h"
+#include "sim_node_task.h"
+#include "sim_node_39bus.h"
+#include "sim_node_9bus.h"
 
 #define IP_BASE     0x32B30000UL
 #define U2_BASE     0x2800E000UL
@@ -84,10 +87,10 @@
 #define GDD(b)  (*(volatile u32 *)((b) + 0x04))
 #define GEX(b)  (*(volatile u32 *)((b) + 0x08))
 
-#define IP_C49    194
-#define IP_A37    101
-#define IP_A47    123
-#define IP_A49    125
+#define IP_C49    0x00E0U     /* GPIO3_1 → MD0 */
+#define IP_A37    0x00C4U     /* GPIO2_10 → AUX */
+#define IP_A47    0x00D8U     /* UART2 TX */
+#define IP_A49    0x00DCU     /* UART2 RX */
 
 #define AUX_PIN   10
 #define MD0_PIN   1
@@ -97,11 +100,10 @@
 #define AUX_STK    2048
 #define RPM_STK    8192
 
-static void ipset(int idx, u32 func)
+static void ipset(u32 off, u32 fn)
 {
-    u32 off = (u32)(idx * 4);
     volatile u32 *r = (volatile u32 *)(IP_BASE + off);
-    *r = (*r & ~0x7U) | (func & 0x7U);
+    *r = (*r & ~0x7U) | (fn & 0x7U);
 }
 
 static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
@@ -174,8 +176,8 @@ struct remoteproc_priv dp = {
 };
 
 /* OpenAMP 运行时状态 */
-static struct remoteproc     rproc;       /* remoteproc 实例 */
-static struct rpmsg_device  *rpdev = NULL; /* RPMsg 设备 */
+struct remoteproc           g_rproc;       /* remoteproc 实例 (任务二也使用) */
+struct rpmsg_device         *g_rpdev = NULL; /* RPMsg 设备 (任务一+二共享) */
 static struct rpmsg_endpoint *g_ept = NULL; /* 全局 endpoint (rpm_task 设置) */
 static volatile u32 g_rpmsg_tx_cnt = 0;     /* RPMsg 发送计数 */
 static volatile u32 g_rpmsg_tx_err = 0;     /* RPMsg 发送失败计数 */
@@ -295,13 +297,13 @@ static void rpm_task(void *pv)
 
     shm_puts("RPM: start poll\r\n");
     for (int i = 0; i < 200; i++) {
-        platform_poll_nonblocking(&rproc);
+        platform_poll_nonblocking(&g_rproc);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     shm_puts("RPM: poll done\r\n");
 
-    shm_spf("RPM: rpdev=%p\r\n", (void *)rpdev);
-    int ret = rpmsg_create_ept(&le, rpdev,
+    shm_spf("RPM: g_rpdev=%p\r\n", (void *)g_rpdev);
+    int ret = rpmsg_create_ept(&le, g_rpdev,
                                RPMSG_SERVICE_NAME, 0,
                                RPMSG_ADDR_ANY,
                                rpmsg_endpoint_cb,
@@ -316,7 +318,7 @@ static void rpm_task(void *pv)
 
     while (1) {
         shm_hb_inc();
-        int poll_ret = platform_poll_nonblocking(&rproc);
+        int poll_ret = platform_poll_nonblocking(&g_rproc);
         {
             static u32 rpm_hb = 0;
             rpm_hb++;
@@ -380,8 +382,8 @@ int main(void)
     init_system();
 
     /* ═══ 第2步: MMU映射所有物理地址 ═══ */
-    FMmuMap(0xC8000000UL, 0xC8000000UL, 0x100000UL,
-            MT_DEVICE_NGNRNE | MT_P_RW_U_RW | MT_NS);   /* 非缓存 — 每写必须到DDR */
+    FMmuMap(0xC8000000UL, 0xC8000000UL, 0x200000UL,
+            MT_DEVICE_NGNRNE | MT_P_RW_U_RW | MT_NS);   /* 2MB — SHM数据用高位1MB */
     FMmuMap(U2_BASE, U2_BASE, 0x1000U,
             MT_DEVICE_NGNRNE | MT_P_RW_U_RW | MT_NS);
     FMmuMap(IP_BASE, IP_BASE, 0x1000U,
@@ -400,13 +402,13 @@ int main(void)
     shm_puts("=== Step4: UART2 GICv3 interrupt + ring buffer ===\r\n");
 
     /* ═══ 第5步: RPMsg + 外设 + 任务 ═══ */
-    if (!platform_create_proc(&rproc, &dp, &kd))
+    if (!platform_create_proc(&g_rproc, &dp, &kd))
         shm_puts("FATAL: proc\r\n");
     else {
-        rproc.rsc_table = &resources;
-        platform_setup_src_table(&rproc, rproc.rsc_table);
-        platform_setup_share_mems(&rproc);
-        rpdev = platform_create_rpmsg_vdev(&rproc, 0,
+        g_rproc.rsc_table = &resources;
+        platform_setup_src_table(&g_rproc, g_rproc.rsc_table);
+        platform_setup_share_mems(&g_rproc);
+        g_rpdev = platform_create_rpmsg_vdev(&g_rproc, 0,
                                            VIRTIO_DEV_DEVICE, NULL, NULL);
         shm_puts("RPMsg done\r\n");
     }
@@ -516,6 +518,7 @@ int main(void)
     }
 
     /* ═══ D12: 创建任务 ═══ */
+    chaos_init(0x12345678);
     master_init();
     g_recv_queue = xQueueCreate(RECV_QUEUE_LENGTH, sizeof(RecvPacket_t));
     xTaskCreate(rpm_task,  "RPM",  RPM_STK,  NULL, RPM_PRIO,  NULL);
@@ -524,6 +527,9 @@ int main(void)
     xTaskCreate(master_process_task, "Proc", MASTER_PROCESS_STK_SIZE, NULL, MASTER_PROCESS_TASK_PRIO, NULL);
     xTaskCreate(master_judge_task, "Judge", MASTER_JUDGE_STK_SIZE, NULL, MASTER_JUDGE_TASK_PRIO, NULL);
     xTaskCreate(master_poll_task, "Poll", MASTER_POLL_STK_SIZE, NULL, MASTER_POLL_TASK_PRIO, NULL);
+    xTaskCreate(sim_node_task, "SIM", SIM_TASK_STACK, NULL, SIM_TASK_PRIO, NULL);
+    xTaskCreate(sim_node_39bus_task, "SIM39", SIM39_TASK_STACK, NULL, SIM39_TASK_PRIO, NULL);
+    xTaskCreate(sim_node_9bus_task, "SIM9", SIM9_TASK_STACK, NULL, SIM9_TASK_PRIO, NULL);
     shm_puts("D7\r\n");
 
     /* ═══ D12: 启动调度器 ═══ */

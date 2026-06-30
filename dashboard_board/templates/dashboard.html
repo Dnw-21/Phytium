@@ -1080,7 +1080,7 @@ body {
           <div class="card-icon warning" id="faultIcon">⚠</div>
         </div>
         <div class="card-value" id="faultValue">未检测到</div>
-        <div class="card-detail">母线 8-9 三相短路</div>
+        <div class="card-detail" id="faultDetail">母线三相短路</div>
       </div>
       <div class="bento-card">
         <div class="card-header">
@@ -1158,7 +1158,7 @@ body {
           <div class="node-avatar g2" style="width:28px;height:28px;font-size:12px;">G2</div>
           <div class="node-avatar g3" style="width:28px;height:28px;font-size:12px;">G3</div>
         </div>
-        <span style="font-size:13px;font-weight:600;">三节点对比 · <span id="activeNodeLabel">终端节点 1</span> 高亮</span>
+        <span style="font-size:13px;font-weight:600;">三节点对比 · <span id="activeNodeLabel">终端节点 1</span></span>
         <span style="margin-left:auto; font-size:11px; color:var(--text-muted);" id="chunkLabel">Chunk 0 (0-19ms)</span>
       </div>
       <div class="chart-card overview-chart">
@@ -1389,7 +1389,8 @@ function mkChartOpts(yTitle) {
             var H = String(d.getHours()).padStart(2, '0');
             var M = String(d.getMinutes()).padStart(2, '0');
             var S = String(d.getSeconds()).padStart(2, '0');
-            return H + ':' + M + ':' + S;
+            var ms = String(d.getMilliseconds()).padStart(3, '0');
+            return M + ':' + S + '.' + ms;
           }
         }
       },
@@ -1435,17 +1436,20 @@ function mkDS3(label, color) {
 function mkSmallChartOpts(yTitle) {
   return {
     responsive: true, maintainAspectRatio: false,
-    animation: { duration: 100 },
+    animation: false,
     interaction: { mode: 'index', intersect: false },
     scales: {
       x: {
         type: 'linear',
+        title: { display: true, text: '北京时间', color: '#9ca3af', font: { size: 9 } },
         grid: { color: 'rgba(0,0,0,0.06)', drawBorder: false },
         ticks: { color: '#9ca3af', font: { size: 9 }, padding: 2, maxTicksLimit: 5,
           callback: function(v) {
             var d = new Date(v);
-            return String(d.getSeconds()).padStart(2,'0') + '.' +
-                   String(d.getMilliseconds()).padStart(3,'0');
+            var M = String(d.getMinutes()).padStart(2,'0');
+            var S = String(d.getSeconds()).padStart(2,'0');
+            var ms = String(d.getMilliseconds()).padStart(3,'0');
+            return M + ':' + S + '.' + ms;
           }
         }
       },
@@ -1504,6 +1508,27 @@ function mkDS3Multi(label, color) {
   });
 });
 
+function recreateCharts() {
+  // 重置时彻底销毁并重建图表，避免旧实例残留
+  ['d1','d2','d3','w1','w2','w3'].forEach(function(k) {
+    var canvasId = 'c1' + k;
+    var ch = allCharts[canvasId];
+    if (ch) { ch.destroy(); delete allCharts[canvasId]; }
+    var el = document.getElementById(canvasId);
+    if (!el) return;
+    var isOmega = k[0] === 'w';
+    var datasets = [];
+    for (var ni = 0; ni < 3; ni++) {
+      datasets.push(mkDS3Multi(k + ' N' + (ni+1), NODE_COLORS[ni]));
+    }
+    allCharts[canvasId] = new Chart(el.getContext('2d'), {
+      type: 'line',
+      data: { datasets: datasets },
+      options: mkSmallChartOpts(isOmega ? 'rad/s' : 'rad'),
+    });
+  });
+}
+
 // ==================== Data Loading (Polling) ====================
 function api(path, method, body) {
   // 自动补 /api 前缀（如果调用方没写）
@@ -1533,8 +1558,10 @@ function updateStatusPillText(text) {
 }
 
 function fetchResults() {
+  var reqTs = Date.now();
   api('/status').then(function(data) {
     if (!data) return;
+    if (reqTs < lastResetTs) return; // 忽略重置前发出的旧响应
     var elapsed = data.elapsed_sec || 0;
     document.getElementById('elapsedTime').textContent = elapsed.toFixed(2);
     document.getElementById('elapsedValue').textContent = elapsed.toFixed(2) + 's';
@@ -1542,6 +1569,7 @@ function fetchResults() {
     updateStatusPill(data);
     // 更新活跃节点标签 + chunk 标签
     var activeNode = data.active_node || 'node_1';
+    currentActiveNode = activeNode;
     var nodeLabelMap = {'node_1': '终端节点 1', 'node_2': '终端节点 2', 'node_3': '终端节点 3'};
     var al = document.getElementById('activeNodeLabel');
     if (al) al.textContent = nodeLabelMap[activeNode] || activeNode;
@@ -1560,22 +1588,33 @@ function fetchResults() {
       var nd = (data.nodes && data.nodes.length >= ni) ? data.nodes[ni-1] : null;
       var nFault = nd ? (nd.fault && nd.fault.is_fault || false) : false;
       var nPhase = nd ? (nd.fault && nd.fault.phase || 'normal') : 'normal';
-      setChartsFaultHighlight('' + ni, nFault);
+      setChartsFaultHighlight('node_' + ni, nFault);
       if (nFault || nPhase === 'fault') {
         anyFault = true;
         faultLabels.push(nodeNames['node_' + ni] + '故障');
       }
     }
-    // 实时更新故障面板
+    // 实时更新故障面板（显示具体母线）
     var faultEl = document.getElementById('faultValue');
     var faultIcon = document.getElementById('faultIcon');
-    var faultDetailEl = document.querySelector('#faultValue + .card-detail');
+    var faultDetailEl = document.getElementById('faultDetail');
+    var nodeBusMap = {'node_1': 'Bus 8', 'node_2': 'Bus 4', 'node_3': 'Bus 3'};
+    var nodeLineMap = {'node_1': 'Line 8-9', 'node_2': 'Line 4-5', 'node_3': 'Line 3-9'};
     if (anyFault) {
       faultEl.textContent = '⚡ ' + faultLabels.join(' + ');
       faultEl.style.color = 'var(--danger)';
       faultIcon.className = 'card-icon danger';
       faultIcon.innerHTML = '⚡';
-      if (faultDetailEl) faultDetailEl.textContent = faultLabels.join(' + ') + ' · 母线三相短路';
+      var busDetails = [];
+      for (var ni = 1; ni <= 3; ni++) {
+        var nd = (data.nodes && data.nodes.length >= ni) ? data.nodes[ni-1] : null;
+        var nFault = nd ? (nd.fault && nd.fault.is_fault || false) : false;
+        if (nFault) {
+          var nid = 'node_' + ni;
+          busDetails.push(nodeBusMap[nid] + ' ' + nodeLineMap[nid]);
+        }
+      }
+      if (faultDetailEl) faultDetailEl.textContent = busDetails.join(' + ') + ' 三相短路';
     } else {
       faultEl.textContent = '正常';
       faultEl.style.color = 'var(--success)';
@@ -1638,23 +1677,36 @@ function fetchResults() {
 }
 
 function getHistory(activeNode) {
-  // 只更新当前活跃节点的数据，其他节点保持静止
+  // 只显示活跃节点的数据，X轴用该节点自己的北京时间
   activeNode = activeNode || 'node_1';
-  var activeIdx = NODE_NAMES.indexOf(activeNode);
-  if (activeIdx < 0) activeIdx = 0;
-
+  var reqTs = Date.now();
   return api('/history_all').then(function(allH) {
     if (!allH) return;
+    if (reqTs < lastResetTs) return; // 忽略重置前发出的旧响应
     var h = allH[activeNode];
     if (!h || !h.time || h.time.length === 0) return;
 
-    // 使用北京时间戳 (ms) 作为 X 轴
+    // 使用该节点自己的北京时间
     var t = (h.beijing_time_ms && h.beijing_time_ms.length > 0)
       ? h.beijing_time_ms.map(function(v) { return v; })
       : h.time.map(function(v) { return v; });
     var curLast = t[t.length-1];
 
-    // 检测 reset（step_idx 回绕到 0）——全部清空
+    // 切换节点时彻底清空图表，避免残留其他节点数据
+    if (prevActiveNode && prevActiveNode !== activeNode) {
+      Object.values(allCharts).forEach(function(c) {
+        c.data.datasets.forEach(function(ds) { ds.data = []; });
+        if (c.options.scales.x) {
+          c.options.scales.x.min = undefined;
+          c.options.scales.x.max = undefined;
+        }
+        c.update('none');
+      });
+      prevLastTime = -1;
+    }
+    prevActiveNode = activeNode;
+
+    // step_idx 回绕检测
     if (prevLastTime > 0 && curLast < prevLastTime * 0.5) {
       Object.values(allCharts).forEach(function(c) {
         c.data.datasets.forEach(function(ds) { ds.data = []; });
@@ -1667,31 +1719,26 @@ function getHistory(activeNode) {
     var windowSize = 20;
     var startIdx = Math.max(0, t.length - windowSize);
     var tWin = t.slice(startIdx);
-
     var xMin = tWin[0] - 200;
     var xMax = tWin[tWin.length - 1] + 200;
 
-    // 只更新活跃节点的 dataset
-    ['d1','d2','d3'].forEach(function(k, gi) {
+    // 只更新活跃节点的 dataset，其他清空
+    var activeIdx = NODE_NAMES.indexOf(activeNode);
+    ['d1','d2','d3','w1','w2','w3'].forEach(function(k) {
       var ch = allCharts['c1' + k];
       if (!ch) return;
-      var arr = h.delta_est[gi] || [];
-      var arrWin = arr.slice(startIdx);
-      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
-        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
-      });
-      ch.options.scales.x.min = xMin;
-      ch.options.scales.x.max = xMax;
-      ch.update('none');
-    });
-    ['w1','w2','w3'].forEach(function(k, gi) {
-      var ch = allCharts['c1' + k];
-      if (!ch) return;
-      var arr = h.omega_est[gi] || [];
-      var arrWin = arr.slice(startIdx);
-      ch.data.datasets[activeIdx].data = tWin.map(function(tv, idx) {
-        return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
-      });
+      for (var i = 0; i < 3; i++) {
+        if (i === activeIdx) {
+          var isOmega = k[0] === 'w';
+          var arr = isOmega ? (h.omega_est[parseInt(k[1])-1] || []) : (h.delta_est[parseInt(k[1])-1] || []);
+          var arrWin = arr.slice(startIdx);
+          ch.data.datasets[i].data = tWin.map(function(tv, idx) {
+            return { x: tv, y: idx < arrWin.length ? arrWin[idx] : null };
+          });
+        } else {
+          ch.data.datasets[i].data = [];
+        }
+      }
       ch.options.scales.x.min = xMin;
       ch.options.scales.x.max = xMax;
       ch.update('none');
@@ -1986,9 +2033,9 @@ function highlightActiveNode(activeNode) {
         ds.borderColor = NODE_COLORS[i];
         ds.backgroundColor = NODE_COLORS[i] + '30';
       } else {
-        ds.borderWidth = 1;
-        ds.borderColor = NODE_COLORS[i] + '60';
-        ds.backgroundColor = NODE_COLORS[i] + '10';
+        ds.borderWidth = 1.5;
+        ds.borderColor = NODE_COLORS[i] + 'B3';
+        ds.backgroundColor = NODE_COLORS[i] + '30';
       }
     }
     ch.update('none');
@@ -2050,7 +2097,7 @@ function doPause() {
       if (r.status === 'ok') {
         stopPolling();
         if (!histInterval) {
-          histInterval = setInterval(getHistory, 1000);
+          histInterval = setInterval(function() { getHistory(currentActiveNode); }, 1000);
         }
         document.getElementById('btnPause').textContent = '▶ 继续';
         document.getElementById('btnPause').disabled = false;
@@ -2102,11 +2149,9 @@ function doReset() {
     document.getElementById('btnPause').disabled = true;
     document.getElementById('btnPause').textContent = '⏸ 暂停';
     // 图表覆盖层 — removed (no overlay elements in new layout)
-    // 图表数据清空
-    Object.values(allCharts).forEach(function(c) {
-      c.data.datasets.forEach(function(ds) { ds.data = []; });
-      c.update('none');
-    });
+    // 图表彻底销毁重建，并丢弃任何正在路上的旧 API 响应
+    lastResetTs = Date.now();
+    recreateCharts();
     // 历史数据
     var hb = document.getElementById('historyBody');
     if (hb) hb.innerHTML = '';
@@ -2123,6 +2168,8 @@ function doReset() {
     // 内部状态
     running = false;
     prevLastTime = -1;
+    prevActiveNode = null;
+    currentActiveNode = 'node_1';
     faultRegions = [];
     // 切回主监控页面
     switchTab('monitor');
@@ -2136,13 +2183,15 @@ function doSetSpeed(val) {
 var pollInterval = null;
 var histInterval = null;
 var prevLastTime = -1;
+var prevActiveNode = null;
+var currentActiveNode = 'node_1';
+var lastResetTs = 0;
 
 function startPolling() {
   stopPolling();
   var pollMs = 1000;
-  var histMs = 1000;
   pollInterval = setInterval(fetchResults, pollMs);
-  histInterval = setInterval(getHistory, histMs);
+  // 运行中由 fetchResults 内部调用 getHistory(active_node)，这里不再重复轮询
   var pill = document.getElementById('statusPill');
   pill.className = 'status-pill status-running';
   document.getElementById('statusText').textContent = '运行中';

@@ -41,33 +41,33 @@ test_stress: $(SRC)/test_stress.c
 	@echo "[BUILD] test_stress"
 
 deploy: all
-	@echo "[DEPLOY] 部署到 192.168.88.11..."
-	sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 'mkdir -p /home/user/demo/tests' 2>/dev/null || true
-	sshpass -p 'user' scp -o StrictHostKeyChecking=no $(BUILD)/* user@192.168.88.11:/home/user/demo/tests/
-	sshpass -p 'user' scp -o StrictHostKeyChecking=no test_runner.sh user@192.168.88.11:/home/user/demo/run_tests.sh
-	sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.11 'chmod +x /home/user/demo/run_tests.sh'
+	@echo "[DEPLOY] 部署到 192.168.88.10..."
+	sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.10 'mkdir -p /home/user/demo/tests' 2>/dev/null || true
+	sshpass -p 'user' scp -o StrictHostKeyChecking=no $(BUILD)/* user@192.168.88.10:/home/user/demo/tests/
+	sshpass -p 'user' scp -o StrictHostKeyChecking=no test_runner.sh user@192.168.88.10:/home/user/demo/run_tests.sh
+	sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@192.168.88.10 'chmod +x /home/user/demo/run_tests.sh'
 	@echo "[DEPLOY] 完成"
 
 run-panel:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 '/home/user/demo/tests/test_panel'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 '/home/user/demo/tests/test_panel'
 
 run-all:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 '/home/user/demo/run_tests.sh --all'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 '/home/user/demo/run_tests.sh --all'
 
 run-link:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 '/home/user/demo/tests/test_rpmsg_link 20'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 '/home/user/demo/tests/test_rpmsg_link 20'
 
 run-fault:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 'timeout 30 /home/user/demo/tests/test_fault_inject'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 'timeout 30 /home/user/demo/tests/test_fault_inject'
 
 run-cmd:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 'timeout 15 /home/user/demo/tests/test_command'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 'timeout 15 /home/user/demo/tests/test_command'
 
 run-encrypt:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 '/home/user/demo/tests/test_encrypt'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 '/home/user/demo/tests/test_encrypt'
 
 run-stress:
-	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.11 'timeout 30 /home/user/demo/tests/test_stress 10'
+	sshpass -p 'user' ssh -t -o StrictHostKeyChecking=no user@192.168.88.10 'timeout 30 /home/user/demo/tests/test_stress 10'
 
 clean:
 	rm -rf $(BUILD)
