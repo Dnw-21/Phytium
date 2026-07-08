@@ -25,8 +25,8 @@ BOARD_IP="192.168.88.10"
 ELF_FILE="pe2204_aarch64_phytiumpi_openamp_for_linux.elf"
 FW_TARGET="/lib/firmware/openamp_core0.elf"
 
-SSH="sshpass -p 'user' ssh -o StrictHostKeyChecking=no user@${BOARD_IP}"
-SCP="sshpass -p 'user' scp -o StrictHostKeyChecking=no"
+SSH="sshpass -p user ssh -o StrictHostKeyChecking=no user@${BOARD_IP}"
+SCP="sshpass -p user scp -o StrictHostKeyChecking=no"
 SUDO="echo 'user' | sudo -S"
 
 DEV_DIR="/home/alientek/Phytium/freertos"

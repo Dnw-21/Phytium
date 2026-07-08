@@ -8,7 +8,7 @@ void master_judge_task(void *pvParameters)
 
     (void)pvParameters;
 
-    log_info("Judge task started");
+    shm_puts("Judge task started\r\n");
 
     /* 检查每个节点状态, 判断是否超时 */
     while (1) {
@@ -22,7 +22,7 @@ void master_judge_task(void *pvParameters)
 
             if (elapsed > MASTER_NODE_TIMEOUT_MS && n->is_online) {
                 n->is_online = 0;
-                log_warn("Node%d offline (%dms)", i, elapsed);
+                shm_spf("Node%d offline (%dms)\r\n", i, elapsed);
                 continue;
             }
 

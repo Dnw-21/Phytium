@@ -2,6 +2,7 @@
 #define __LORA_FRAME_H
 
 #include <stdint.h>
+#include "chaos_encrypt.h"
 
 #define FRAME_START_0           0xAA
 #define FRAME_START_1           0x55
@@ -15,15 +16,14 @@ typedef struct {
 } LoRaSrc_t;
 
 typedef enum {
-    DATA_TYPE_NODE_HEAD  = 0x01,
-    DATA_TYPE_POWER      = 0x03,
-    DATA_TYPE_NODE_RAW   = 0x04,
-    DATA_TYPE_FAULT_HEAD = 0x07,
+    DATA_TYPE_NODE_HEAD  = 0x01,   // 正常节点状态头 (NodeUploadHeader_t)
+    DATA_TYPE_NODE_RAW   = 0x02,   // 节点原始数据包 (NodeSample_t)
+    DATA_TYPE_FAULT_HEAD = 0x03,   // 故障快照头 (NodeUploadHeader_t)
 } DataType_t;
 
 typedef struct {
     uint8_t  rx_type;
-    uint64_t sync_code;
+    uint8_t  sync_code[CHAOS_SYNC_SIZE];
     uint16_t enc_len;
     uint8_t *enc_start;
     uint16_t consumed;     /* 这个帧消耗了多少字节 (用于多帧连续解析) */

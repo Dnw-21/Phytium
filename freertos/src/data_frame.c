@@ -1,5 +1,6 @@
 #include "data_frame.h"
 #include "FreeRTOS.h"
+#include "chaos_encrypt.h"
 #include "task.h"
 #include <string.h>
 
@@ -34,12 +35,9 @@ void frame_parse(const uint8_t *raw_pkt, uint16_t raw_len, FrameParseResult_t *r
                 raw_pkt[tail_pos] == 0x55 && raw_pkt[tail_pos + 1] == 0xAA) {
                 const uint8_t *frame = &raw_pkt[i];
                 result->rx_type   = frame[8];
-                result->sync_code = ((uint64_t)frame[9]  << 56) | ((uint64_t)frame[10] << 48)
-                                  | ((uint64_t)frame[11] << 40) | ((uint64_t)frame[12] << 32)
-                                  | ((uint64_t)frame[13] << 24) | ((uint64_t)frame[14] << 16)
-                                  | ((uint64_t)frame[15] << 8)  |  (uint64_t)frame[16];
-                result->enc_len   = frame_data_len - 13;
-                result->enc_start = (uint8_t *)&frame[17];
+                memcpy(result->sync_code, &frame[9], CHAOS_SYNC_SIZE);
+                result->enc_len   = frame_data_len - 21;
+                result->enc_start = (uint8_t *)&frame[25];
                 result->consumed  = (uint16_t)(tail_pos + 2);  /* 帧头 AA 到帧尾 AA */
                 frame_found = 1;
                 break;
@@ -48,13 +46,10 @@ void frame_parse(const uint8_t *raw_pkt, uint16_t raw_len, FrameParseResult_t *r
     }
 
     if (!frame_found) {
-        result->sync_code = ((uint64_t)raw_pkt[0] << 56) | ((uint64_t)raw_pkt[1] << 48)
-                          | ((uint64_t)raw_pkt[2] << 40) | ((uint64_t)raw_pkt[3] << 32)
-                          | ((uint64_t)raw_pkt[4] << 24) | ((uint64_t)raw_pkt[5] << 16)
-                          | ((uint64_t)raw_pkt[6] << 8)  |  (uint64_t)raw_pkt[7];
-        result->rx_type   = raw_pkt[8];
-        result->enc_len   = raw_len - 9;
-        result->enc_start = (uint8_t *)&raw_pkt[9];
+        memcpy(result->sync_code, raw_pkt, CHAOS_SYNC_SIZE);
+        result->rx_type   = raw_pkt[16];
+        result->enc_len   = raw_len - 17;
+        result->enc_start = (uint8_t *)&raw_pkt[17];
         result->consumed  = raw_len;  /* 没找到帧，消耗全部 */
     }
 }

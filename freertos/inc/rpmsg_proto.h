@@ -5,12 +5,12 @@
 
 #define RPMSG_MAX_PAYLOAD  489
 
-#define CMD_LORA_RAW       0x0023U
-#define CMD_LORA_PARSED    0x0024U
-#define CMD_NODE_STATUS    0x0025U
-#define CMD_HEARTBEAT      0x0030U
-#define CMD_ECHO_REQ       0x0040U
-#define CMD_ECHO_RESP      0x0041U
+#define CMD_LORA_RAW       0x0023U  // LoRa 原始数据
+#define CMD_LORA_PARSED    0x0024U  // LoRa 解析数据
+#define CMD_NODE_STATUS    0x0025U  // 节点状态
+#define CMD_HEARTBEAT      0x0030U  // 心跳
+#define CMD_ECHO_REQ       0x0040U  // 回显请求
+#define CMD_ECHO_RESP      0x0041U  // 回显响应
 
 typedef struct __attribute__((packed)) {
     u32 command;

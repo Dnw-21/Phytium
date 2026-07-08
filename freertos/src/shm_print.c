@@ -27,6 +27,7 @@ void shm_print_init(void)
     shm_mutex = xSemaphoreCreateMutex();
 }
 
+/*带互斥保护的共享内存字符串写入*/
 void shm_puts(const char *s)
 {
     if (shm_mutex && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {

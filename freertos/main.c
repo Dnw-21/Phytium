@@ -100,12 +100,14 @@
 #define AUX_STK    2048
 #define RPM_STK    8192
 
+/* 设置 GPIO 寄存器值 */
 static void ipset(u32 off, u32 fn)
 {
     volatile u32 *r = (volatile u32 *)(IP_BASE + off);
     *r = (*r & ~0x7U) | (fn & 0x7U);
 }
 
+/* 发送 LoRa 原始数据 */
 static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
 
 static volatile u32 g_real_frame_cnt = 0;
@@ -182,6 +184,7 @@ static struct rpmsg_endpoint *g_ept = NULL; /* 全局 endpoint (rpm_task 设置)
 static volatile u32 g_rpmsg_tx_cnt = 0;     /* RPMsg 发送计数 */
 static volatile u32 g_rpmsg_tx_err = 0;     /* RPMsg 发送失败计数 */
 
+/* RPMsg 接收回调函数 */
 static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
                               size_t len, u32 src, void *priv)
 {
@@ -189,7 +192,7 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
     (void)src;
     ept->dest_addr = src;
 
-    if (len < RPMSG_PKT_HDR_SIZE) return RPMSG_SUCCESS;
+    if (len < RPMSG_PKT_HDR_SIZE) return RPMSG_SUCCESS; //TODO: 处理错误包？标志错误
 
     RpmsgPkt pkt;
     memset(&pkt, 0, sizeof(pkt));
@@ -204,7 +207,7 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
         resp.length  = pkt.length;
         if (pkt.length > RPMSG_MAX_PAYLOAD) pkt.length = RPMSG_MAX_PAYLOAD;
         memcpy(resp.data, pkt.data, pkt.length);
-        int ret = rpmsg_send(ept, &resp, RPMSG_PKT_HDR_SIZE + resp.length);
+        int ret = rpmsg_send(ept, &resp, RPMSG_PKT_HDR_SIZE + resp.length); // rpmsg组件发送消息
         if (ret < 0) g_rpmsg_tx_err++;
         else g_rpmsg_tx_cnt++;
         break;
@@ -222,6 +225,7 @@ static void rpmsg_ept_unbind_cb(struct rpmsg_endpoint *ept)
     shm_puts("RPMsg: remote unbind\r\n");
 }
 
+/* rpmsg发送 LoRa 原始数据 */
 static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len)
 {
     if (!g_ept) return -1;
@@ -297,7 +301,7 @@ static void rpm_task(void *pv)
 
     shm_puts("RPM: start poll\r\n");
     for (int i = 0; i < 200; i++) {
-        platform_poll_nonblocking(&g_rproc);
+        platform_poll_nonblocking(&g_rproc);    //非阻塞轮询远端处理器g_rproc的握手状态
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     shm_puts("RPM: poll done\r\n");
@@ -305,9 +309,9 @@ static void rpm_task(void *pv)
     shm_spf("RPM: g_rpdev=%p\r\n", (void *)g_rpdev);
     int ret = rpmsg_create_ept(&le, g_rpdev,
                                RPMSG_SERVICE_NAME, 0,
-                               RPMSG_ADDR_ANY,
-                               rpmsg_endpoint_cb,
-                               rpmsg_ept_unbind_cb);
+                               RPMSG_ADDR_ANY, //dst：接收任意对端地址消息
+                               rpmsg_endpoint_cb, //数据接收回调
+                               rpmsg_ept_unbind_cb); //链路断开解绑回调
     shm_spf("RPM: ept ret=%d\r\n", ret);
     if (ret) {
         shm_spf("RPM: ept FAIL (%d)\r\n", ret);
@@ -405,11 +409,11 @@ int main(void)
     if (!platform_create_proc(&g_rproc, &dp, &kd))
         shm_puts("FATAL: proc\r\n");
     else {
-        g_rproc.rsc_table = &resources;
-        platform_setup_src_table(&g_rproc, g_rproc.rsc_table);
-        platform_setup_share_mems(&g_rproc);
+        g_rproc.rsc_table = &resources; //外设资源表
+        platform_setup_src_table(&g_rproc, g_rproc.rsc_table);  //设置外设资源表
+        platform_setup_share_mems(&g_rproc);     //设置共享内存
         g_rpdev = platform_create_rpmsg_vdev(&g_rproc, 0,
-                                           VIRTIO_DEV_DEVICE, NULL, NULL);
+                                           VIRTIO_DEV_DEVICE, NULL, NULL);  //创建RPMsg virtio设备
         shm_puts("RPMsg done\r\n");
     }
     shm_puts("D2 v3\r\n");

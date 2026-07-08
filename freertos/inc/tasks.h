@@ -14,7 +14,7 @@
 #define RECV_QUEUE_LENGTH   16   /* 终端一次poll回6帧(1header+5data), 需足够槽位 */
 
 typedef struct {
-    uint64_t sync_code;
+    uint8_t  sync_code[CHAOS_SYNC_SIZE];
     uint8_t  rx_type;
     uint16_t enc_len;
     uint8_t  enc_data[256];

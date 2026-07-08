@@ -15,9 +15,9 @@
 #define MASTER_NODE_TIMEOUT_MS      15000
 #define MASTER_JUDGE_INTERVAL_MS    1000
 
-#define MASTER_POLL_CYCLE_MS        5023   /* 5023mod80=63, 每轮偏移63≠0/20/40/60 */
+#define MASTER_POLL_CYCLE_MS        5000
 #define MASTER_POLL_CYCLE_FAST_MS   3000
-#define MASTER_POLL_MAX_NODES       1        /* 当前只有1个终端上电，改成1 */
+#define MASTER_POLL_MAX_NODES       3
 
 #define MASTER_FLASH_PER_NODE       0x5000
 

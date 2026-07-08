@@ -14,34 +14,20 @@ static uint8_t g_enc_buf[MAX_ENCRYPT_DATA_LEN];
 static uint8_t g_lora_pkt[256];
 
 /**
- * @brief 加密并发送 LoRa 命令 — 对齐 Master_v3(2) lora_send_encrypted()
- * @note  使用 chaos_encrypt_packet() 加密 payload, 8字节 sync 大端写入帧头
+ * @brief 加密并发送 LoRa 命令 — 对齐 Master_v3
  */
 static void lora_send_encrypted(const uint8_t *data, uint16_t len, uint8_t data_type,
                                  uint16_t addr, uint8_t channel)
 {
-    uint64_t sync = 0;
-    uint16_t enc_len = chaos_encrypt_packet(data, len, g_enc_buf, &sync);
+    uint8_t  sync[CHAOS_SYNC_SIZE];
+    uint16_t enc_len = chaos_encrypt_packet(data, len, g_enc_buf, sync);
 
-    /* 8字节 sync 大端写入 g_lora_pkt[0..7] */
-    g_lora_pkt[0] = (sync >> 56) & 0xFF;
-    g_lora_pkt[1] = (sync >> 48) & 0xFF;
-    g_lora_pkt[2] = (sync >> 40) & 0xFF;
-    g_lora_pkt[3] = (sync >> 32) & 0xFF;
-    g_lora_pkt[4] = (sync >> 24) & 0xFF;
-    g_lora_pkt[5] = (sync >> 16) & 0xFF;
-    g_lora_pkt[6] = (sync >> 8) & 0xFF;
-    g_lora_pkt[7] = sync & 0xFF;
-    memcpy(&g_lora_pkt[8], g_enc_buf, enc_len);
+    memcpy(g_lora_pkt, sync, CHAOS_SYNC_SIZE);
+    memcpy(&g_lora_pkt[CHAOS_SYNC_SIZE], g_enc_buf, enc_len);
 
     LoRaSrc_t dest = { .addr = addr, .channel = channel };
-    send_node_data_with_ack(g_lora_pkt, enc_len + 8, data_type, &dest, 3,
+    send_node_data_with_ack(g_lora_pkt, enc_len + CHAOS_SYNC_SIZE, data_type, &dest, 3,
                             xTaskGetTickCount() * portTICK_PERIOD_MS);
-}
-
-static bool dl_is_idle(MasterDownloadBuf_t *dl)
-{
-    return dl->active == 0 && dl->flash_save_pending == 0;
 }
 
 static bool wait_download_done(MasterDownloadBuf_t *dl, uint32_t timeout_ms)
@@ -49,7 +35,6 @@ static bool wait_download_done(MasterDownloadBuf_t *dl, uint32_t timeout_ms)
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
 
     while (xTaskGetTickCount() < deadline) {
-        /* Master_v3(2) L38-45: recv_started && recv_raw_points >= recv_expected_points */
         if (dl->recv_started && dl->recv_raw_points >= dl->recv_expected_points)
             return true;
         vTaskDelay(5);
@@ -82,55 +67,57 @@ void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *params, uin
                         SLAVE_ADDR_BASE + node_id, LORA_CHN);
 }
 
+/**
+ * @brief 主控轮询任务
+ *
+ * Tier1: 逐节点下发 CMD_POLL_STATUS, 接收1周期状态数据(20点), 写入Flash
+ * Tier2: 对 fault_pending=1 的节点下发 CMD_REQUEST_FAULT_DATA, 接收2周期故障数据(40点)
+ */
 void master_poll_task(void *pvParameters)
 {
     MasterDownloadBuf_t *dl = master_get_download_buf();
 
     (void)pvParameters;
 
-    shm_puts("Poll task started (fast x4)\r\n");
+    shm_puts("Poll task started\r\n");
 
     vTaskDelay(pdMS_TO_TICKS(3000));
 
     while (1) {
         TickType_t cycle_start = xTaskGetTickCount();
 
-        uint32_t poll_ts = 0xFFFFFFFF;
-        uint8_t  poll_params[4];
-        poll_params[0] = (poll_ts >> 24) & 0xFF;
-        poll_params[1] = (poll_ts >> 16) & 0xFF;
-        poll_params[2] = (poll_ts >> 8) & 0xFF;
-        poll_params[3] = poll_ts & 0xFF;
+        for (uint8_t i = 0; i < MASTER_POLL_MAX_NODES; i++) {
+            MasterNodeInfo_t *n = master_get_node_info(i);
 
-        send_lora_cmd(0, CMD_POLL_STATUS, poll_params, 4);
-        if (wait_download_done(dl, TIER1_TIMEOUT_MS)) {
-            shm_spf("Poll: ok sev=%d\r\n", master_get_node_info(0)->severity);
-        } else {
-            shm_spf("Poll: timeout\r\n");
-        }
-        while (dl->active || dl->flash_save_pending)
-            vTaskDelay(5);
-
-        /* 检查是否有待上传故障 */
-        {
-            MasterNodeInfo_t *n = master_get_node_info(0);
-            if (n && n->fault_pending) {
-                uint8_t params[1] = { 0 };
-                send_lora_cmd(0, CMD_REQUEST_FAULT_DATA, params, 1);
+            if (n->fault_pending) {
+                /* 存在故障快照: 上传故障数据，不上传正常节点数据 */
+                uint8_t params[1] = { i };
+                send_lora_cmd(i, CMD_REQUEST_FAULT_DATA, params, 1);
                 if (!wait_download_done(dl, TIER2_TIMEOUT_MS)) {
-                    shm_spf("Tier2: fault timeout\r\n");
-                } else {
-                    while (dl->active || dl->flash_save_pending)
-                        vTaskDelay(5);
-                    n->fault_pending = 0;
-                    shm_spf("Tier2: fault upload done\r\n");
+                    shm_spf("Poll: node%d fault timeout\r\n", i);
+                    continue;
                 }
+
+                while (dl->active || dl->flash_save_pending)
+                    vTaskDelay(5);
+
+                n->fault_pending = 0;
+                shm_spf("Poll: node%d fault upload done\r\n", i);
+            } else {
+                /* 无故障快照: 上传正常节点数据 */
+                send_lora_cmd(i, CMD_POLL_STATUS, NULL, 0);
+                if (!wait_download_done(dl, TIER1_TIMEOUT_MS)) {
+                    shm_spf("Poll: node%d timeout\r\n", i);
+                    continue;
+                }
+
+                shm_spf("Poll: node%d status ok sev=%d\r\n", i, n->severity);
             }
         }
 
+        /* 保证轮询周期时间稳定 */
         TickType_t elapsed = xTaskGetTickCount() - cycle_start;
-        uint32_t cycle_ms = MASTER_POLL_CYCLE_MS;
-        TickType_t cycle_ticks = pdMS_TO_TICKS(cycle_ms);
+        TickType_t cycle_ticks = pdMS_TO_TICKS(MASTER_POLL_CYCLE_MS);
         if (elapsed < cycle_ticks) {
             vTaskDelay(cycle_ticks - elapsed);
         }

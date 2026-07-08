@@ -20,11 +20,7 @@ static void process_node_header(const uint8_t *payload, uint16_t len,
     memcpy(&hdr, payload, sizeof(hdr));
     uint8_t node_id = hdr.node_index;
 
-    /* Master_v3(2) L19: node_index 非法 → 不设任何 flag，直接返回 */
-    if (node_id >= MASTER_MAX_NODES) {
-        shm_spf("[WARN] Node%d hdr invalid (encrypted?), skip parse\r\n", node_id);
-        return;
-    }
+    if (node_id >= MASTER_MAX_NODES) return;
 
     dl->active = 1;
     dl->node_id = node_id;
@@ -110,14 +106,13 @@ void master_recv_task(void *pvParameters)
     MasterDownloadBuf_t *dl = master_get_download_buf();
     (void)pvParameters;
 
-    shm_puts("Recv task started (dbg v2)\r\n");
+    shm_puts("Recv task started\r\n");
 
     while (1) {
         static uint32_t loop_count = 0;
         loop_count++;
 
         if (lora_uart_get_rx_count() == 0) {
-            /* 每1000次循环打印心跳，确认recv_task还活着 */
             if ((loop_count % 1000) == 0) {
                 shm_spf("[RECV-hb] loop=%u isr=%u bytes=%u ring=%u\r\n",
                         (unsigned)loop_count,
@@ -148,7 +143,7 @@ void master_recv_task(void *pvParameters)
         lora_uart_mark_frame();
         recv_len = lora_uart_read_frame(lora_buf, sizeof(lora_buf));
 
-        if (recv_len < 9) {
+        if (recv_len < 13) {
             shm_spf("[RECV] short frame %uB:", recv_len);
             for (uint16_t i = 0; i < recv_len; i++)
                 shm_spf(" %02X", lora_buf[i]);
@@ -173,20 +168,11 @@ void master_recv_task(void *pvParameters)
             }
 
             static RecvPacket_t pkt;
-            pkt.sync_code = frame_result.sync_code;
+            memcpy(pkt.sync_code, frame_result.sync_code, CHAOS_SYNC_SIZE);
             pkt.rx_type   = frame_result.rx_type;
             pkt.enc_len   = frame_result.enc_len;
 
-            shm_spf("[RECV] sync=%016llX type=0x%02X len=%d isr=%u bytes=%u\r\n",
-                    pkt.sync_code, pkt.rx_type, pkt.enc_len,
-                    lora_uart_get_isr_count(), lora_uart_get_byte_total());
-
-            shm_spf("[RAW] %uB:", frame_result.consumed);
-            for (uint16_t i = 0; i < frame_result.consumed && i < 64; i++)
-                shm_spf(" %02X", p[i]);
-            shm_puts("\r\n");
-
-            if (pkt.enc_len > sizeof(pkt.enc_data)) pkt.enc_len = sizeof(pkt.enc_data);
+            if (pkt.enc_len > 220) pkt.enc_len = 220;
             if (pkt.enc_len > 0) {
                 memcpy(pkt.enc_data, frame_result.enc_start, pkt.enc_len);
             }
@@ -218,13 +204,15 @@ void master_process_task(void *pvParameters)
 
     shm_puts("Process task started\r\n");
 
+    static const uint8_t sync_zero[CHAOS_SYNC_SIZE] = {0};
     while (1) {
-        static RecvPacket_t pkt;
+        RecvPacket_t pkt;
         if (xQueueReceive(g_recv_queue, &pkt, portMAX_DELAY) != pdPASS) {
             continue;
         }
 
-        if (pkt.sync_code != 0 && pkt.enc_len > 0 && pkt.enc_len <= 220) {
+        if (memcmp(pkt.sync_code, sync_zero, CHAOS_SYNC_SIZE) != 0
+            && pkt.enc_len > 0 && pkt.enc_len <= 220) {
             payload_len = chaos_decrypt_packet(pkt.enc_data, pkt.enc_len, data, pkt.sync_code);
             payload = data;
         } else {
@@ -232,14 +220,12 @@ void master_process_task(void *pvParameters)
             payload = pkt.enc_data;
         }
 
-        shm_spf("[DEC] sync=%016llX type=0x%02X len=%d:",
-                pkt.sync_code, pkt.rx_type, payload_len);
+        shm_spf("[DEC] type=0x%02X len=%d:", pkt.rx_type, payload_len);
         for (uint16_t i = 0; i < payload_len && i < 64; i++)
             shm_spf(" %02X", payload[i]);
         shm_puts("\r\n");
 
-        /* Master_v3(2): recv_started 由 process_node_header 设置，这里不设 */
-
+        /* node_id 由头帧中提取，raw帧沿用当前dl->node_id */
         uint8_t node_id;
         if (dl->active && pkt.rx_type == DATA_TYPE_NODE_RAW) {
             node_id = dl->node_id;
@@ -268,10 +254,6 @@ void master_process_task(void *pvParameters)
             process_node_header(payload, payload_len, dl, node);
             break;
 
-        case DATA_TYPE_POWER:
-            shm_spf("Power data: len=%d (reserved)\r\n", payload_len);
-            break;
-
         case DATA_TYPE_NODE_RAW:
             process_node_raw(payload, payload_len, dl, node);
             break;
@@ -280,7 +262,7 @@ void master_process_task(void *pvParameters)
             break;
         }
 
-        send_ack(0);
+        send_ack(0, node_id);
 
         if (dl->flash_save_pending) {
             master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
