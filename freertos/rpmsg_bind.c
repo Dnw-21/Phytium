@@ -27,6 +27,10 @@ typedef struct {
 #define RPMSG_PKT_HDR_SIZE  6
 #define CMD_ECHO_REQ        0x0040
 
+#ifndef RPMSG_ADDR_ANY
+#define RPMSG_ADDR_ANY       0xFFFFFFFF
+#endif
+
 int main(void)
 {
     int ctrl_fd, ept_fd;

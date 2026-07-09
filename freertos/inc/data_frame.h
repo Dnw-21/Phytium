@@ -81,6 +81,6 @@ uint8_t calc_frame_crc8(const uint8_t *data, uint16_t len);
 void frame_parse(const uint8_t *raw_pkt, uint16_t raw_len, FrameParseResult_t *result);
 void send_node_data_with_ack(uint8_t *data, uint16_t len, uint8_t data_type,
                              LoRaSrc_t *dest, uint8_t retries, uint32_t timestamp);
-uint8_t send_ack(uint8_t status);
+uint8_t send_ack(uint8_t status, uint8_t node_id);
 
 #endif

@@ -207,6 +207,7 @@ static int rpmsg_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
         resp.length  = pkt.length;
         if (pkt.length > RPMSG_MAX_PAYLOAD) pkt.length = RPMSG_MAX_PAYLOAD;
         memcpy(resp.data, pkt.data, pkt.length);
+        shm_spf("Enter CMD_ECHO_REQ\r\n");
         int ret = rpmsg_send(ept, &resp, RPMSG_PKT_HDR_SIZE + resp.length); // rpmsg组件发送消息
         if (ret < 0) g_rpmsg_tx_err++;
         else g_rpmsg_tx_cnt++;
@@ -531,9 +532,9 @@ int main(void)
     xTaskCreate(master_process_task, "Proc", MASTER_PROCESS_STK_SIZE, NULL, MASTER_PROCESS_TASK_PRIO, NULL);
     xTaskCreate(master_judge_task, "Judge", MASTER_JUDGE_STK_SIZE, NULL, MASTER_JUDGE_TASK_PRIO, NULL);
     xTaskCreate(master_poll_task, "Poll", MASTER_POLL_STK_SIZE, NULL, MASTER_POLL_TASK_PRIO, NULL);
-    xTaskCreate(sim_node_task, "SIM", SIM_TASK_STACK, NULL, SIM_TASK_PRIO, NULL);
-    xTaskCreate(sim_node_39bus_task, "SIM39", SIM39_TASK_STACK, NULL, SIM39_TASK_PRIO, NULL);
-    xTaskCreate(sim_node_9bus_task, "SIM9", SIM9_TASK_STACK, NULL, SIM9_TASK_PRIO, NULL);
+    // xTaskCreate(sim_node_task, "SIM", SIM_TASK_STACK, NULL, SIM_TASK_PRIO, NULL);
+    // xTaskCreate(sim_node_39bus_task, "SIM39", SIM39_TASK_STACK, NULL, SIM39_TASK_PRIO, NULL);
+    // xTaskCreate(sim_node_9bus_task, "SIM9", SIM9_TASK_STACK, NULL, SIM9_TASK_PRIO, NULL);
     shm_puts("D7\r\n");
 
     /* ═══ D12: 启动调度器 ═══ */
