@@ -16,6 +16,7 @@
 
 #define CMD_LORA_RAW       0x0023U
 #define CMD_LORA_PARSED    0x0024U
+#define CMD_NODE_STATUS    0x0025U
 #define CMD_HEARTBEAT      0x0030U
 #define CMD_ECHO_REQ       0x0040U
 #define CMD_ECHO_RESP      0x0041U

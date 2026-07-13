@@ -108,7 +108,9 @@ static void ipset(u32 off, u32 fn)
 }
 
 /* 发送 LoRa 原始数据 */
-static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
+int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len);
+/* 发送节点状态头到 Linux (CMD_NODE_STATUS) */
+int rpmsg_send_node_info(const void *data, u16 len);
 
 static volatile u32 g_real_frame_cnt = 0;
 
@@ -227,7 +229,7 @@ static void rpmsg_ept_unbind_cb(struct rpmsg_endpoint *ept)
 }
 
 /* rpmsg发送 LoRa 原始数据 */
-static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len)
+int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len)
 {
     if (!g_ept) return -1;
 
@@ -251,6 +253,23 @@ static int rpmsg_send_lora_raw(const u8 *frame, u32 frame_len)
         offset += chunk;
     }
     return (int)frame_len;
+}
+
+/* rpmsg发送节点状态头到 Linux (CMD_NODE_STATUS) */
+int rpmsg_send_node_info(const void *data, u16 len)
+{
+    if (!g_ept) return -1;
+
+    RpmsgPkt pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.command = CMD_NODE_STATUS;
+    pkt.length  = len;
+    memcpy(pkt.data, data, len);
+
+    int ret = rpmsg_send(g_ept, &pkt, RPMSG_PKT_HDR_SIZE + len);
+    if (ret < 0) g_rpmsg_tx_err++;
+    else g_rpmsg_tx_cnt++;
+    return ret;
 }
 
 

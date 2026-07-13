@@ -7,6 +7,10 @@
 #include "shm_print.h"
 #include <string.h>
 
+/* RPMsg 发送函数 (main.c) */
+extern int rpmsg_send_lora_raw(const uint8_t *frame, uint32_t frame_len);
+extern int rpmsg_send_node_info(const void *data, uint16_t len);
+
 /* ===================================================================
  *  process_node_header — 对齐 Master_v3(2) master_recv.c L11-49
  *  关键: node_index 非法时什么都不设，直接 return
@@ -52,6 +56,9 @@ static void process_node_header(const uint8_t *payload, uint16_t len,
                   (int)hdr.health_score, (int)((hdr.health_score - (int)hdr.health_score) * 100),
                   hdr.total_points);
     }
+
+    /* 通过 RPMsg 发送节点头信息到 Linux */
+    rpmsg_send_node_info(&hdr, sizeof(hdr));
 }
 
 static void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloadBuf_t *dl,
@@ -91,6 +98,10 @@ static void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloa
     if (dl->received_points >= dl->expected_points) {
         dl->active = 0;
         dl->flash_save_pending = 1;
+
+        /* 通过 RPMsg 发送完整原始数据到 Linux */
+        rpmsg_send_lora_raw((const uint8_t *)dl->node_buffer,
+                            dl->received_points * sizeof(NodeSample_t));
     }
 }
 
