@@ -29,6 +29,8 @@ typedef struct {
     uint8_t  data[RPMSG_MAX_PAYLOAD];
 } RpmsgPkt;
 
+#pragma pack(pop)
+
 /* 与 FreeRTOS data_frame.h 保持同步 */
 typedef struct {
     uint8_t  data_type;
@@ -54,8 +56,6 @@ typedef struct {
     int16_t vangle7;     int16_t vangle8;     int16_t vangle9;
     uint32_t timestamp;         /* RTOS ms (内部故障检测/轮询用) */
 } NodeSample_t;
-
-#pragma pack(pop)
 
 #define RPMSG_PKT_HDR_SIZE  6
 
@@ -160,10 +160,10 @@ static void print_node_status(const uint8_t *data, uint16_t len)
         return;
     }
     const NodeUploadHeader_t *hdr = (const NodeUploadHeader_t *)data;
-    printf("  [NodeStatus] node%d type=0x%02X sev=%u pending=%u\n",
-           hdr->node_index, hdr->data_type, hdr->severity,  hdr->fault_pending);
-    printf("  ts=%u rate=%u pts=%u bat=%u%% health=%.2f\n",
-           hdr->timestamp, hdr->sample_rate, hdr->total_points,
+    printf("  [NodeStatus] node%d type=0x%02X sev=%u\n",
+           hdr->node_index, hdr->data_type, hdr->severity);
+    printf(" rate=%u pts=%u bat=%u%% health=%.2f\n",
+           hdr->sample_rate, hdr->total_points,
            hdr->battery_pct, hdr->health_score);
 }
 
