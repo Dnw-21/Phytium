@@ -39,8 +39,21 @@ typedef struct {
     uint32_t timestamp;
     uint16_t sample_rate;
     uint16_t total_points;
+    uint8_t  battery_pct;
     float    health_score;
 } NodeUploadHeader_t;
+
+typedef struct {
+    int16_t pg1;         int16_t pg2;         int16_t pg3;
+    int16_t qg1;         int16_t qg2;         int16_t qg3;
+    int16_t vmag1;       int16_t vmag2;       int16_t vmag3;
+    int16_t vmag4;       int16_t vmag5;       int16_t vmag6;
+    int16_t vmag7;       int16_t vmag8;       int16_t vmag9;
+    int16_t vangle1;     int16_t vangle2;     int16_t vangle3;
+    int16_t vangle4;     int16_t vangle5;     int16_t vangle6;
+    int16_t vangle7;     int16_t vangle8;     int16_t vangle9;
+    uint32_t timestamp;         /* RTOS ms (内部故障检测/轮询用) */
+} NodeSample_t;
 
 #pragma pack(pop)
 
@@ -128,25 +141,15 @@ static const char *cmd_name(uint32_t cmd)
 
 static void print_lora_raw(const uint8_t *data, uint16_t len)
 {
-    printf("  [LoRa frame %uB] ", len);
-    if (len >= 2 && data[0] == 0xAA && data[1] == 0x55) {
-        uint16_t data_len = ((uint16_t)data[2] << 8) | data[3];
-        uint8_t  frm_type = (len >= 9) ? data[8] : 0;
-        printf("AA55 dlen=%u type=0x%02X", data_len, frm_type);
-        if (len >= 13) {
-            uint32_t sync = ((uint32_t)data[9] << 24) | ((uint32_t)data[10] << 16)
-                          | ((uint32_t)data[11] << 8) | data[12];
-            printf(" sync=0x%08X", sync);
-        }
-    }
-    printf("\n");
+    printf("  [LoRa frame %uB]: ", len);
 
-    int show = (len < 48) ? len : 48;
+    int show = (len < 52) ? len : 52;
     printf("  hex: ");
     for (int i = 0; i < show; i++)
         printf("%02X ", data[i]);
     if (len > show) printf("...");
     printf("\n");
+    
 }
 
 static void print_node_status(const uint8_t *data, uint16_t len)
@@ -158,7 +161,32 @@ static void print_node_status(const uint8_t *data, uint16_t len)
     }
     const NodeUploadHeader_t *hdr = (const NodeUploadHeader_t *)data;
     printf("  [NodeStatus] node%d type=0x%02X sev=%u pending=%u\n",
-           hdr->node_index, hdr->data_type, hdr->severity, hdr->fault_pending);
+           hdr->node_index, hdr->data_type, hdr->severity,  hdr->fault_pending);
+    printf("  ts=%u rate=%u pts=%u bat=%u%% health=%.2f\n",
+           hdr->timestamp, hdr->sample_rate, hdr->total_points,
+           hdr->battery_pct, hdr->health_score);
+}
+
+/* 打印 NodeSample_t 的 pg/qg/vmag/vangle (×24 int16_t)，除以 10000.0f */
+#define FRTOS_SAMPLE_SZ     52   /* sizeof(NodeSample_t) on FreeRTOS (packed, 无utc) */
+#define SAMPLE_I16_COUNT    24   /* pg×3 + qg×3 + vmag×9 + vangle×9 */
+
+static void print_node_samples(const uint8_t *data, uint16_t len)
+{
+    uint16_t num_samples = len / FRTOS_SAMPLE_SZ;
+    printf("  [LoraSamples] %u samples (%uB)\n", num_samples, len);
+
+    if (num_samples == 0) return;
+
+    /* 只打印第一个采样点 */
+    const int16_t *vals = (const int16_t *)data;
+    uint32_t ts = *(const uint32_t *)(data + 48);
+
+    printf("  #0 ts=%u: ", ts);
+    for (int i = 0; i < SAMPLE_I16_COUNT; i++) {
+        printf("%.4f ", (float)vals[i] / 10000.0f);
+    }
+    printf("\n");
 }
 
 int main(int argc, char *argv[])
@@ -276,6 +304,7 @@ int main(int argc, char *argv[])
         switch (pkt.command) {
         case CMD_LORA_RAW:
             print_lora_raw(pkt.data, pkt.length);
+            print_node_samples(pkt.data, pkt.length);
             break;
         case CMD_NODE_STATUS:
             print_node_status(pkt.data, pkt.length);

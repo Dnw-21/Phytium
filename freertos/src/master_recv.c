@@ -48,16 +48,17 @@ static void process_node_header(const uint8_t *payload, uint16_t len,
 
     if (hdr.fault_type != FAULT_NONE) {
         node->fault_count++;
-        shm_spf("Fault hdr: node%d t=%d type=%d sev=%d pts=%d\r\n",
+        shm_spf("FaultStatus hdr: node%d t=%d type=%d sev=%d pts=%d\r\n",
                  node_id, hdr.timestamp, hdr.fault_type, hdr.severity, hdr.total_points);
     } else {
-        shm_spf("Status hdr: node%d sev=%d health=%d.%02d pts=%d\r\n",
+        shm_spf("NormalStatus hdr: node%d sev=%d health=%d.%02d pts=%d\r\n",
                   node_id, hdr.severity,
                   (int)hdr.health_score, (int)((hdr.health_score - (int)hdr.health_score) * 100),
                   hdr.total_points);
     }
 
-    /* 通过 RPMsg 发送节点头信息到 Linux */
+    /* 通过 RPMsg 发送节点头信息到 Linux (NodeUploadHeader_t, 18B packed) */
+    shm_spf("RPMsg tx: NodeStatus hdr node%d %uB\r\n", node_id, sizeof(hdr));
     rpmsg_send_node_info(&hdr, sizeof(hdr));
 }
 
@@ -78,28 +79,15 @@ static void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloa
     memcpy(&dl->node_buffer[dl->received_points], payload,
            samples_in_pkt * sizeof(NodeSample_t));
 
-    if (dl->received_points == 0) {
-        NodeSample_t *s = (NodeSample_t *)payload;
-        shm_spf("SAMPLE: pg[%d %d %d] qg[%d %d %d]\r\n",
-               s->pg1, s->pg2, s->pg3,
-               s->qg1, s->qg2, s->qg3);
-        shm_spf("        vmag[%d %d %d %d %d %d %d %d %d]\r\n",
-               s->vmag1, s->vmag2, s->vmag3,
-               s->vmag4, s->vmag5, s->vmag6,
-               s->vmag7, s->vmag8, s->vmag9);
-        shm_spf("        ang[%d %d %d %d %d %d %d %d %d]\r\n",
-               s->vangle1, s->vangle2, s->vangle3,
-               s->vangle4, s->vangle5, s->vangle6,
-               s->vangle7, s->vangle8, s->vangle9);
-    }
-
     dl->received_points += samples_in_pkt;
 
     if (dl->received_points >= dl->expected_points) {
         dl->active = 0;
         dl->flash_save_pending = 1;
 
-        /* 通过 RPMsg 发送完整原始数据到 Linux */
+        /* 通过 RPMsg 发送完整原始数据到 Linux (NodeSample_t * points, 40B/sample) */
+        shm_spf("RPMsg tx: LoraRaw node%d %uB (%u samples)\r\n",
+                dl->node_id, dl->received_points * sizeof(NodeSample_t), dl->received_points);
         rpmsg_send_lora_raw((const uint8_t *)dl->node_buffer,
                             dl->received_points * sizeof(NodeSample_t));
     }
@@ -276,7 +264,7 @@ void master_process_task(void *pvParameters)
         send_ack(0, node_id);
 
         if (dl->flash_save_pending) {
-            master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
+            // master_flash_save_node_data(dl->node_id, dl->node_buffer, dl->received_points);
             shm_spf("Node%d: status saved (%d pts)\r\n", dl->node_id, dl->received_points);
             dl->flash_save_pending = 0;
         }

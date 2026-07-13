@@ -65,6 +65,7 @@ typedef struct {
     uint32_t timestamp;
     uint16_t sample_rate;
     uint16_t total_points;
+    uint8_t  battery_pct;
     float    health_score;
 } NodeUploadHeader_t;
 

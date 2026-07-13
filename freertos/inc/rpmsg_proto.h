@@ -3,7 +3,7 @@
 
 #include "ftypes.h"
 
-#define RPMSG_MAX_PAYLOAD  489
+#define RPMSG_MAX_PAYLOAD  468
 
 #define CMD_LORA_RAW       0x0023U  // LoRa 原始数据
 #define CMD_LORA_PARSED    0x0024U  // LoRa 解析数据
