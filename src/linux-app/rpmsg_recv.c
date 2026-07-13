@@ -22,11 +22,26 @@
 #define CMD_ECHO_RESP      0x0041U
 
 #pragma pack(push, 1)
+
 typedef struct {
     uint32_t command;
     uint16_t length;
     uint8_t  data[RPMSG_MAX_PAYLOAD];
 } RpmsgPkt;
+
+/* 与 FreeRTOS data_frame.h 保持同步 */
+typedef struct {
+    uint8_t  data_type;
+    uint8_t  severity;
+    uint8_t  fault_type;
+    uint8_t  fault_pending;
+    uint8_t  node_index;
+    uint32_t timestamp;
+    uint16_t sample_rate;
+    uint16_t total_points;
+    float    health_score;
+} NodeUploadHeader_t;
+
 #pragma pack(pop)
 
 #define RPMSG_PKT_HDR_SIZE  6
@@ -103,6 +118,7 @@ static const char *cmd_name(uint32_t cmd)
     switch (cmd) {
     case CMD_LORA_RAW:    return "LORA_RAW";
     case CMD_LORA_PARSED: return "LORA_PARSED";
+    case CMD_NODE_STATUS: return "NODE_STATUS";
     case CMD_HEARTBEAT:   return "HEARTBEAT";
     case CMD_ECHO_REQ:    return "ECHO_REQ";
     case CMD_ECHO_RESP:   return "ECHO_RESP";
@@ -131,6 +147,18 @@ static void print_lora_raw(const uint8_t *data, uint16_t len)
         printf("%02X ", data[i]);
     if (len > show) printf("...");
     printf("\n");
+}
+
+static void print_node_status(const uint8_t *data, uint16_t len)
+{
+    if (len < (uint16_t)sizeof(NodeUploadHeader_t)) {
+        printf("  [NodeStatus] len=%u < expected=%zu (truncated?)\n",
+               len, sizeof(NodeUploadHeader_t));
+        return;
+    }
+    const NodeUploadHeader_t *hdr = (const NodeUploadHeader_t *)data;
+    printf("  [NodeStatus] node%d type=0x%02X sev=%u pending=%u\n",
+           hdr->node_index, hdr->data_type, hdr->severity, hdr->fault_pending);
 }
 
 int main(int argc, char *argv[])
@@ -248,6 +276,9 @@ int main(int argc, char *argv[])
         switch (pkt.command) {
         case CMD_LORA_RAW:
             print_lora_raw(pkt.data, pkt.length);
+            break;
+        case CMD_NODE_STATUS:
+            print_node_status(pkt.data, pkt.length);
             break;
         case CMD_ECHO_RESP:
             printf("  Echo response: %uB\n", pkt.length);
