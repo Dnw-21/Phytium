@@ -168,12 +168,11 @@ static void print_node_status(const uint8_t *data, uint16_t len)
 }
 
 /* 打印 NodeSample_t 的 pg/qg/vmag/vangle (×24 int16_t)，除以 10000.0f */
-#define FRTOS_SAMPLE_SZ     52   /* sizeof(NodeSample_t) on FreeRTOS (packed, 无utc) */
 #define SAMPLE_I16_COUNT    24   /* pg×3 + qg×3 + vmag×9 + vangle×9 */
 
 static void print_node_samples(const uint8_t *data, uint16_t len)
 {
-    uint16_t num_samples = len / FRTOS_SAMPLE_SZ;
+    uint16_t num_samples = len / sizeof(NodeSample_t);
     printf("  [LoraSamples] %u samples (%uB)\n", num_samples, len);
 
     if (num_samples == 0) return;
@@ -184,7 +183,8 @@ static void print_node_samples(const uint8_t *data, uint16_t len)
 
     printf("  #0 ts=%u: ", ts);
     for (int i = 0; i < SAMPLE_I16_COUNT; i++) {
-        printf("%.4f ", (float)vals[i] / 10000.0f);
+        if(i==4) printf("%.4f ", (float)vals[i] / 5000.0f);
+        else printf("%.4f ", (float)vals[i] / 10000.0f);
     }
     printf("\n");
 }
