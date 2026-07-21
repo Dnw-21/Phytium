@@ -29,24 +29,24 @@
 #define AUX_PIN             10
 
 /* PL011 寄存器偏移 */
-#define UART_DR            0x000
-#define UART_FR            0x018
-#define UART_IBRD          0x024
-#define UART_FBRD          0x028
-#define UART_LCR_H         0x02C
-#define UART_CR            0x030
-#define UART_IFLS          0x034
-#define UART_IMSC          0x038
-#define UART_RIS           0x03C
-#define UART_MIS           0x040
-#define UART_ICR           0x044
+#define UART_DR            0x000    // 数据寄存器
+#define UART_FR            0x018    // 状态寄存器
+#define UART_IBRD          0x024    // 波特率寄存器低字节
+#define UART_FBRD          0x028    // 波特率寄存器高字节
+#define UART_LCR_H         0x02C    // 高字节寄存器 LCR_H
+#define UART_CR            0x030    // 控制寄存器
+#define UART_IFLS          0x034    // 中断标志寄存器
+#define UART_IMSC          0x038    // 中断使能寄存器
+#define UART_RIS           0x03C    // 中断请求寄存器
+#define UART_MIS           0x040    // 中断挂起寄存器
+#define UART_ICR           0x044    // 中断清除寄存器
 
 /* FR 标志位 */
-#define UART_FR_TXFE       0x80
-#define UART_FR_RXFF       0x40
-#define UART_FR_TXFF       0x20
-#define UART_FR_RXFE       0x10
-#define UART_FR_BUSY       0x08
+#define UART_FR_TXFE       0x80  // 发送缓冲区空
+#define UART_FR_RXFF       0x40  // 接收缓冲区满
+#define UART_FR_TXFF       0x20  // 发送缓冲区满
+#define UART_FR_RXFE       0x10  // 接收缓冲区空
+#define UART_FR_BUSY       0x08  // 发送缓冲区非空
 
 /* LCR_H */
 #define UART_LCRH_FEN      0x10
@@ -64,10 +64,10 @@
 #define UART_MIS_RTMIS     0x40
 
 /* IRQ */
-#define FUART2_IRQ_NUM     117
+#define FUART2_IRQ_NUM     117      // UART2 中断号
 
-#define UART_REG_RD(off)   (*(volatile unsigned int *)((UART2_BASE) + (off)))
-#define UART_REG_WR(off, v) (*(volatile unsigned int *)((UART2_BASE) + (off)) = (v))
+#define UART_REG_RD(off)   (*(volatile unsigned int *)((UART2_BASE) + (off)))   //读取寄存器
+#define UART_REG_WR(off, v) (*(volatile unsigned int *)((UART2_BASE) + (off)) = (v))   //写入寄存器
 
 /* ==========================================================================
  *  RX 环形缓冲区
@@ -75,14 +75,18 @@
 #define RX_RING_SIZE        4096
 
 static unsigned char rx_ring[RX_RING_SIZE];
-static volatile unsigned int  rx_head = 0;
-static volatile unsigned int  rx_tail = 0;
-static volatile unsigned int  rx_isr_count = 0;
-static volatile unsigned int  rx_byte_total = 0;
+static volatile unsigned int  rx_head = 0;  //写指针（入队位置）
+static volatile unsigned int  rx_tail = 0;  //读指针（出队位置）
+static volatile unsigned int  rx_isr_count = 0;  // 接收中断次数
+static volatile unsigned int  rx_byte_total = 0;  // 接收总字节数
 
 unsigned int lora_uart_get_isr_count(void) { return rx_isr_count; }
 unsigned int lora_uart_get_byte_total(void) { return rx_byte_total; }
 
+/**
+ * @brief 接收环形缓冲区入队
+ * @param byte 要入队的字节
+ */
 static void ring_put(unsigned char byte)
 {
     unsigned int next = (rx_head + 1) % RX_RING_SIZE;
@@ -92,6 +96,11 @@ static void ring_put(unsigned char byte)
     }
 }
 
+/**
+ * @brief 接收环形缓冲区出队
+ * @param byte 要出队的字节
+ * @return 0 成功, -1 失败
+ */
 static int ring_get(unsigned char *byte)
 {
     if (rx_tail == rx_head) return -1;
@@ -111,8 +120,8 @@ static unsigned int ring_avail(void)
 #define LORA_FRAME_QUEUE    8
 
 static volatile uint16_t frame_mark[LORA_FRAME_QUEUE];
-static volatile uint8_t  frame_head_mark;
-static volatile uint8_t  frame_tail_mark;
+static volatile uint8_t  frame_head_mark;   // 帧头标记队列头
+static volatile uint8_t  frame_tail_mark;   // 帧尾标记队列尾
 
 /* ==========================================================================
  *  UART2 接收中断 ISR (不调用 FreeRTOS API)
@@ -125,29 +134,29 @@ static void lora_uart_isr(s32 vector, void *param)
 
     rx_isr_count++;
 
-    mis = UART_REG_RD(UART_MIS);
+    mis = UART_REG_RD(UART_MIS);     // 读取中断标志位
 
-    if (mis & UART_MIS_RXMIS) {
-        while (!(UART_REG_RD(UART_FR) & UART_FR_RXFE)) {
-            uint8_t byte = (uint8_t)(UART_REG_RD(UART_DR) & 0xFF);
-            ring_put(byte);
+    if (mis & UART_MIS_RXMIS) {     // 接收中断标志位
+        while (!(UART_REG_RD(UART_FR) & UART_FR_RXFE)) {     // 等待接收数据为空
+            uint8_t byte = (uint8_t)(UART_REG_RD(UART_DR) & 0xFF);     // 读取接收数据
+            ring_put(byte);     // 入队
             rx_byte_total++;
         }
     }
 
-    if (mis & UART_MIS_RTMIS) {
-        while (!(UART_REG_RD(UART_FR) & UART_FR_RXFE)) {
-            uint8_t byte = (uint8_t)(UART_REG_RD(UART_DR) & 0xFF);
-            ring_put(byte);
+    if (mis & UART_MIS_RTMIS) {     // 发送中断标志位
+        while (!(UART_REG_RD(UART_FR) & UART_FR_RXFE)) {      // 等待发送数据为空
+            uint8_t byte = (uint8_t)(UART_REG_RD(UART_DR) & 0xFF);     // 读取发送数据
+            ring_put(byte);     // 入队
             rx_byte_total++;
         }
     }
 
-    UART_REG_WR(UART_ICR, mis);
+    UART_REG_WR(UART_ICR, mis);     // 清除中断标志位
 }
 
 /* ==========================================================================
- *  GPIO 初始化
+ *  GPIO 初始化，配置为输出模式，输出低电平，使能透明模式
  * ========================================================================== */
 static void md0_init(void)
 {
@@ -168,6 +177,7 @@ static void md0_init(void)
     __asm__ volatile("DSB SY" ::: "memory");
 }
 
+// 初始化 AUX 引脚，配置为输入模式
 static void aux_init(void)
 {
     volatile unsigned int *gpio2_ddr = (volatile unsigned int *)(GPIO2_BASE + GPIO_DDR_OFFSET);
@@ -197,7 +207,7 @@ int lora_uart_init(void)
     /* 1. 禁用 UART2 */
     UART_REG_WR(UART_CR, 0);
 
-    /* 2. 波特率: 115200 @ 100MHz */
+    /* 2. 波特率: 115200 @ 100MHz ，波特率 = 100M / (16 × (IBRD + FBRD/64))*/
     UART_REG_WR(UART_IBRD, 54);
     UART_REG_WR(UART_FBRD, 16);
 
@@ -232,14 +242,14 @@ int lora_uart_init(void)
     UART_REG_WR(UART_ICR, 0xFFFFFFFF);
 
     /* 10. 注册 ISR 到 GICv3 */
-    InterruptInstall(FUART2_IRQ_NUM, lora_uart_isr, NULL, "UART2-LoRa");
-    InterruptSetPriority(FUART2_IRQ_NUM, IRQ_PRIORITY_VALUE_8);
-    {
+    InterruptInstall(FUART2_IRQ_NUM, lora_uart_isr, NULL, "UART2-LoRa");    // 注册 UART2 中断号
+    InterruptSetPriority(FUART2_IRQ_NUM, IRQ_PRIORITY_VALUE_8);    // 设置中断优先级
+    {   // 将中断绑定到cpu上
         u32 cpu_id;
         GetCpuId(&cpu_id);
         InterruptSetTargetCpus(FUART2_IRQ_NUM, cpu_id);
     }
-    InterruptUmask(FUART2_IRQ_NUM);
+    InterruptUmask(FUART2_IRQ_NUM);     //取消屏蔽中断，使能中断处理
 
     return 0;
 }
@@ -279,6 +289,9 @@ void lora_uart_clear_buffer(void)
     frame_tail_mark = 0;
 }
 
+/* ==========================================================================
+ *  标记当前接收数据为一帧
+ * ========================================================================== */
 void lora_uart_mark_frame(void)
 {
     uint8_t next = (frame_head_mark + 1) % LORA_FRAME_QUEUE;
@@ -298,12 +311,18 @@ uint16_t lora_uart_read_bytes(uint8_t *buf, uint16_t max_len)
     return count;
 }
 
+/**
+ * @brief 读取一帧数据
+ * @param buf 目标缓冲区
+ * @param max_len 最大读取长度
+ * @return 实际读取长度
+ * */
 uint16_t lora_uart_read_frame(uint8_t *buf, uint16_t max_len)
 {
     if (frame_head_mark == frame_tail_mark) return 0;
 
-    uint16_t end   = frame_mark[frame_tail_mark];
-    uint16_t start = rx_tail;
+    uint16_t end   = frame_mark[frame_tail_mark];    // 帧尾标记队列头
+    uint16_t start = rx_tail;                        // 读指针（出队位置）
 
     frame_tail_mark = (frame_tail_mark + 1) % LORA_FRAME_QUEUE;
 

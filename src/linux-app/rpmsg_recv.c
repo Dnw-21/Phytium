@@ -139,19 +139,6 @@ static const char *cmd_name(uint32_t cmd)
     }
 }
 
-static void print_lora_raw(const uint8_t *data, uint16_t len)
-{
-    printf("  [LoRa frame %uB]: ", len);
-
-    int show = (len < 52) ? len : 52;
-    printf("  hex: ");
-    for (int i = 0; i < show; i++)
-        printf("%02X ", data[i]);
-    if (len > show) printf("...");
-    printf("\n");
-    
-}
-
 static void print_node_status(const uint8_t *data, uint16_t len)
 {
     if (len < (uint16_t)sizeof(NodeUploadHeader_t)) {
@@ -303,7 +290,6 @@ int main(int argc, char *argv[])
 
         switch (pkt.command) {
         case CMD_LORA_RAW:
-            print_lora_raw(pkt.data, pkt.length);
             print_node_samples(pkt.data, pkt.length);
             break;
         case CMD_NODE_STATUS:

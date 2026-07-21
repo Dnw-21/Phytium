@@ -76,12 +76,12 @@
 #define GPIO2_BASE  0x28035000UL
 #define GPIO3_BASE  0x28036000UL
 
-#define U2_DR       (*(volatile u32 *)(U2_BASE + 0x00))
-#define U2_FR       (*(volatile u32 *)(U2_BASE + 0x18))
-#define U2_IBRD     (*(volatile u32 *)(U2_BASE + 0x24))
-#define U2_FBRD     (*(volatile u32 *)(U2_BASE + 0x28))
-#define U2_LCR_H    (*(volatile u32 *)(U2_BASE + 0x2C))
-#define U2_CR       (*(volatile u32 *)(U2_BASE + 0x30))
+#define U2_DR       (*(volatile u32 *)(U2_BASE + 0x00))  // 数据寄存器
+#define U2_FR       (*(volatile u32 *)(U2_BASE + 0x18))  // 状态寄存器
+#define U2_IBRD     (*(volatile u32 *)(U2_BASE + 0x24))  // 波特率寄存器低字节
+#define U2_FBRD     (*(volatile u32 *)(U2_BASE + 0x28))  // 波特率寄存器高字节
+#define U2_LCR_H    (*(volatile u32 *)(U2_BASE + 0x2C))  // 高字节寄存器 LCR_H
+#define U2_CR       (*(volatile u32 *)(U2_BASE + 0x30))  // 控制寄存器
 
 #define GDR(b)  (*(volatile u32 *)((b) + 0x00))
 #define GDD(b)  (*(volatile u32 *)((b) + 0x04))
@@ -439,7 +439,7 @@ int main(void)
     shm_puts("D2 v3\r\n");
     shm_puts("D3\r\n");
 
-    /* ═══ C8: IOMUX 引脚复用 ═══ */
+    /* ═══ C8: IOMUX 引脚复用 ，将物理引脚映射到对应外设功能═══ */
     ipset(IP_C49, 6);   /* C49  → FUNC6=GPIO  (GPIO3_1 / MD0) */
     ipset(IP_A37, 6);   /* A37  → FUNC6=GPIO  (GPIO2_10 / AUX) */
     ipset(IP_A47, 0);   /* A47  → FUNC0=UART  (UART2 TX) */
@@ -466,12 +466,12 @@ int main(void)
 
     /* ═══ D11: LoRa 模块 AT 配置 (调度器启动前完成, 匹配 GD32 LoRa_Init) ═══ */
     {
-        /* 忙等延时: 调度器未启动, 不能使用 vTaskDelay */
+        /* 忙等延时: 调度器未启动, 不能使用 vTaskDelay，采用通用定时器实现延时 */
         #define BUSY_DELAY_MS(ms) do { \
-            u64 _freq = GenericTimerFrequecy(); \
-            u64 _start = GenericTimerRead(GENERIC_TIMER_ID0); \
-            u64 _target = _start + (_freq * (ms) / 1000); \
-            while (GenericTimerRead(GENERIC_TIMER_ID0) < _target); \
+            u64 _freq = GenericTimerFrequecy(); \    // 100MHz
+            u64 _start = GenericTimerRead(GENERIC_TIMER_ID0); \    // 读取定时器0当前值
+            u64 _target = _start + (_freq * (ms) / 1000); \    // 计算目标时间
+            while (GenericTimerRead(GENERIC_TIMER_ID0) < _target); \    // 等待目标时间
         } while(0)
 
         shm_puts("AT init start (pre-scheduler)\r\n");
