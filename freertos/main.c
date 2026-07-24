@@ -284,13 +284,13 @@ static void aux_task(void *pv)
     u32 last = 99;  /* 上次电平 (99=初始未知) */
     u32 tick = 0;   /* 心跳计数器 */
 
-    shm_puts("A1\r\n");
+    // shm_puts("A1\r\n");
 
     for (;;) {
         u32 v = (GEX(FGPIO2_BASE_ADDR) >> AUX_PIN) & 1U;
 
         if (v != last) {
-            shm_spf("A %u->%u\r\n", last, v);
+            // shm_spf("A %u->%u\r\n", last, v);
             last = v;
         }
 
@@ -364,10 +364,10 @@ static void rpm_task(void *pv)
                 }
             }
             if ((rpm_hb % 2500) == 0) {
-                shm_spf("[RPM-hb] ept=%p dest=0x%lX tx=%u err=%u poll=%d\r\n",
-                    (void *)g_ept,
-                    g_ept ? (unsigned long)g_ept->dest_addr : 0,
-                    g_rpmsg_tx_cnt, g_rpmsg_tx_err, poll_ret);
+                // shm_spf("[RPM-hb] ept=%p dest=0x%lX tx=%u err=%u poll=%d\r\n",
+                //     (void *)g_ept,
+                //     g_ept ? (unsigned long)g_ept->dest_addr : 0,
+                //     g_rpmsg_tx_cnt, g_rpmsg_tx_err, poll_ret);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -468,10 +468,10 @@ int main(void)
     {
         /* 忙等延时: 调度器未启动, 不能使用 vTaskDelay，采用通用定时器实现延时 */
         #define BUSY_DELAY_MS(ms) do { \
-            u64 _freq = GenericTimerFrequecy(); \    // 100MHz
-            u64 _start = GenericTimerRead(GENERIC_TIMER_ID0); \    // 读取定时器0当前值
-            u64 _target = _start + (_freq * (ms) / 1000); \    // 计算目标时间
-            while (GenericTimerRead(GENERIC_TIMER_ID0) < _target); \    // 等待目标时间
+            u64 _freq = GenericTimerFrequecy(); \    
+            u64 _start = GenericTimerRead(GENERIC_TIMER_ID0); \    
+            u64 _target = _start + (_freq * (ms) / 1000); \    
+            while (GenericTimerRead(GENERIC_TIMER_ID0) < _target); \    
         } while(0)
 
         shm_puts("AT init start (pre-scheduler)\r\n");

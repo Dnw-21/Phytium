@@ -3,7 +3,7 @@
 #include <string.h>
 
 static MasterNodeInfo_t    g_nodes[MASTER_MAX_NODES];
-static MasterDownloadBuf_t g_dl_buf;
+static MasterDownloadBuf_t g_dl_buf[MASTER_MAX_NODES];
 static uint32_t            g_sys_tick;
 
 static uint8_t g_status_buf[MASTER_MAX_NODES][MASTER_FLASH_PER_NODE];
@@ -41,15 +41,16 @@ void master_flash_erase_node(uint8_t node_id)
     g_nodes[node_id].has_status_data = 0;
 }
 
-MasterDownloadBuf_t *master_get_download_buf(void)
+MasterDownloadBuf_t *master_get_download_buf(uint8_t node_id)
 {
-    return &g_dl_buf;
+    if (node_id >= MASTER_MAX_NODES) return &g_dl_buf[0];
+    return &g_dl_buf[node_id];
 }
 
 void master_init(void)
 {
     memset(g_nodes, 0, sizeof(g_nodes));
-    memset(&g_dl_buf, 0, sizeof(g_dl_buf));
+    memset(g_dl_buf, 0, sizeof(g_dl_buf));
     memset(g_status_buf, 0, sizeof(g_status_buf));
     g_sys_tick = 0;
 

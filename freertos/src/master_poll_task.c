@@ -49,7 +49,7 @@ void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *params, uin
 {
     uint8_t payload[32];
 
-    MasterDownloadBuf_t *dl = master_get_download_buf();
+    MasterDownloadBuf_t *dl = master_get_download_buf(node_id);
     dl->recv_started = 0;
     dl->recv_raw_points = 0;
 
@@ -75,8 +75,6 @@ void send_lora_cmd(uint8_t node_id, uint8_t cmd_code, const uint8_t *params, uin
  */
 void master_poll_task(void *pvParameters)
 {
-    MasterDownloadBuf_t *dl = master_get_download_buf();
-
     (void)pvParameters;
 
     shm_puts("Poll task started\r\n");
@@ -87,32 +85,74 @@ void master_poll_task(void *pvParameters)
         TickType_t cycle_start = xTaskGetTickCount();
 
         for (uint8_t i = 0; i < MASTER_POLL_MAX_NODES; i++) {
-            MasterNodeInfo_t *n = master_get_node_info(i);
+            MasterNodeInfo_t     *n  = master_get_node_info(i);
+            MasterDownloadBuf_t  *dl = master_get_download_buf(i);
 
             if (n->fault_pending) {
+                TickType_t t_start = xTaskGetTickCount();
                 /* 存在故障快照: 上传故障数据，不上传正常节点数据 */
                 uint8_t params[1] = { i };
                 send_lora_cmd(i, CMD_REQUEST_FAULT_DATA, params, 1);
+                shm_spf("[Poll]: node%d → addr=0x%04X ch=%d cmd=REQUEST_FAULT_DATA\r\n",
+                        i, SLAVE_ADDR_BASE + i, LORA_CHN);
                 if (!wait_download_done(dl, TIER2_TIMEOUT_MS)) {
-                    shm_spf("Poll: node%d fault timeout\r\n", i);
-                    continue;
+                    /* 超时: 判断是否收到过任何数据 */
+                    if (dl->recv_raw_points == 0) {
+                        dl->active = 0;  /* 清理预置的活跃标记 */
+                        shm_spf("[Poll]: node%d fault no response, skip\r\n", i);
+                        continue;
+                    }
+                    shm_spf("[Poll]: node%d fault partial, waiting...\r\n", i);
                 }
-
-                while (dl->active || dl->flash_save_pending)
-                    vTaskDelay(5);
-
+                /* 等数据处理完成再继续（最长 5s，超时强制清理） */
+                {
+                    TickType_t proc_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+                    while ((dl->active || dl->flash_save_pending)
+                           && xTaskGetTickCount() < proc_deadline) {
+                        vTaskDelay(5);
+                    }
+                    if (dl->active || dl->flash_save_pending) {
+                        shm_spf("[Poll]: node%d fault process timeout, force clear\r\n", i);
+                        dl->active = 0;
+                        dl->flash_save_pending = 0;
+                    }
+                }
                 n->fault_pending = 0;
-                shm_spf("Poll: node%d fault upload done\r\n", i);
+                uint32_t elapsed_ms = (xTaskGetTickCount() - t_start) * portTICK_PERIOD_MS;
+                shm_spf("[Poll]: node%d fault upload done (%ums)\r\n", i, elapsed_ms);
             } else {
+                TickType_t t_start = xTaskGetTickCount();
                 /* 无故障快照: 上传正常节点数据 */
                 send_lora_cmd(i, CMD_POLL_STATUS, NULL, 0);
+                shm_spf("[Poll]: node%d → addr=0x%04X ch=%d cmd=CMD_POLL_STATUS\r\n",
+                        i, SLAVE_ADDR_BASE + i, LORA_CHN);
                 if (!wait_download_done(dl, TIER1_TIMEOUT_MS)) {
-                    shm_spf("Poll: node%d timeout\r\n", i);
-                    continue;
+                    /* 超时: 判断是否收到过任何数据 */
+                    if (dl->recv_raw_points == 0) {
+                        dl->active = 0;  /* 清理预置的活跃标记 */
+                        shm_spf("[Poll]: node%d no response, skip\r\n", i);
+                        continue;
+                    }
+                    shm_spf("[Poll]: node%d partial, waiting...\r\n", i);
                 }
-
-                shm_spf("Poll: node%d status ok sev=%d\r\n", i, n->severity);
+                /* 等数据处理完成再继续（最长 5s，超时强制清理） */
+                {
+                    TickType_t proc_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+                    while ((dl->active || dl->flash_save_pending)
+                           && xTaskGetTickCount() < proc_deadline) {
+                        vTaskDelay(5);
+                    }
+                    if (dl->active || dl->flash_save_pending) {
+                        shm_spf("[Poll]: node%d process timeout, force clear\r\n", i);
+                        dl->active = 0;
+                        dl->flash_save_pending = 0;
+                    }
+                }
+                uint32_t elapsed_ms = (xTaskGetTickCount() - t_start) * portTICK_PERIOD_MS;
+                shm_spf("[Poll]: node%d status ok sev=%d (%ums)\r\n", i, n->severity, elapsed_ms);
             }
+            /* 节点间静默保护: 等空口残余帧清空，避免污染下一节点 */
+            vTaskDelay(pdMS_TO_TICKS(300));
         }
 
         /* 保证轮询周期时间稳定 */

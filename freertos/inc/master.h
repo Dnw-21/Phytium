@@ -79,7 +79,7 @@ void master_flash_save_node_data(uint8_t node_id, const NodeSample_t *data, uint
 uint16_t master_flash_load_node_data(uint8_t node_id, NodeSample_t *buf, uint16_t max_count);
 void master_flash_erase_node(uint8_t node_id);
 
-MasterDownloadBuf_t *master_get_download_buf(void);
+MasterDownloadBuf_t *master_get_download_buf(uint8_t node_id);
 
 uint16_t lora_uart_get_rx_count(void);
 void lora_uart_mark_frame(void);

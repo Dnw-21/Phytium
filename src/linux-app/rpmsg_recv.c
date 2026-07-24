@@ -12,7 +12,7 @@
 #include <sys/ioctl.h>
 #include <linux/rpmsg.h>
 
-#define RPMSG_MAX_PAYLOAD  489
+#define RPMSG_MAX_PAYLOAD  468
 
 #define CMD_LORA_RAW       0x0023U
 #define CMD_LORA_PARSED    0x0024U
@@ -137,6 +137,19 @@ static const char *cmd_name(uint32_t cmd)
     case CMD_ECHO_RESP:   return "ECHO_RESP";
     default:              return "UNKNOWN";
     }
+}
+
+static void print_lora_raw(const uint8_t *data, uint16_t len)
+{
+    printf("  [LoRa frame %uB]: ", len);
+
+    int show = (len < 52) ? len : 52;
+    printf("  hex: ");
+    for (int i = 0; i < show; i++)
+        printf("%02X ", data[i]);
+    if (len > show) printf("...");
+    printf("\n");
+    
 }
 
 static void print_node_status(const uint8_t *data, uint16_t len)
@@ -290,6 +303,7 @@ int main(int argc, char *argv[])
 
         switch (pkt.command) {
         case CMD_LORA_RAW:
+            print_lora_raw(pkt.data, pkt.length);
             print_node_samples(pkt.data, pkt.length);
             break;
         case CMD_NODE_STATUS:

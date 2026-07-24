@@ -2,6 +2,7 @@
 #include "FreeRTOS.h"
 #include "chaos_encrypt.h"
 #include "task.h"
+#include "tasks.h"
 #include <string.h>
 
 #define U2_BASE     0x2800E000UL
@@ -114,8 +115,8 @@ uint8_t send_ack(uint8_t status, uint8_t node_id)
     uint8_t ack_byte = (status == 0) ? 0x00 : 0x01;
 
     /* 对齐 Master_v3(2): 必须加 FP 模式头, 否则 E220 模块进入等待状态阻塞接收 */
-    uart2_tx_byte(0x00);          /* destH (high byte of target address) */
-    uart2_tx_byte(node_id);          /* destL (low byte  → SLAVE_ADDR_BASE=0x000B) */
+    uart2_tx_byte(0x00);                              /* destH */
+    uart2_tx_byte(SLAVE_ADDR_BASE + node_id);        /* destL */
     uart2_tx_byte(23);            /* channel */
     uart2_tx_byte(ack_byte);      /* ACK data */
     return 0;

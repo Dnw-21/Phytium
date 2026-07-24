@@ -75,8 +75,8 @@ typedef struct {
 #define FAULT_UPLOAD_POINTS     (SAMPLES_PER_CYCLE * 2)
 #define MASTER_NODE_UPLOAD_POINTS FAULT_UPLOAD_POINTS
 
-#define TIER1_TIMEOUT_MS            3000
-#define TIER2_TIMEOUT_MS            6000
+#define TIER1_TIMEOUT_MS            3000    //正常轮询的超时时间
+#define TIER2_TIMEOUT_MS            3000    //故障轮询的超时时间
 
 uint8_t calc_frame_crc8(const uint8_t *data, uint16_t len);
 void frame_parse(const uint8_t *raw_pkt, uint16_t raw_len, FrameParseResult_t *result);

@@ -95,14 +95,12 @@ static void process_node_raw(const uint8_t *payload, uint16_t len, MasterDownloa
 
 /* ===================================================================
  *  master_recv_task — 对齐 Master_v3(2) master_recv.c L89-157
- *  关键: NODE_RAW 帧时增加 recv_raw_points 计数
  * =================================================================== */
 void master_recv_task(void *pvParameters)
 {
     uint8_t  lora_buf[256];
     uint16_t recv_len;
 
-    MasterDownloadBuf_t *dl = master_get_download_buf();
     (void)pvParameters;
 
     shm_puts("Recv task started\r\n");
@@ -113,11 +111,11 @@ void master_recv_task(void *pvParameters)
 
         if (lora_uart_get_rx_count() == 0) {
             if ((loop_count % 1000) == 0) {
-                shm_spf("[RECV-hb] loop=%u isr=%u bytes=%u ring=%u\r\n",
-                        (unsigned)loop_count,
-                        (unsigned)lora_uart_get_isr_count(),
-                        (unsigned)lora_uart_get_byte_total(),
-                        (unsigned)lora_uart_get_rx_count());
+                // shm_spf("[RECV-hb] loop=%u isr=%u bytes=%u ring=%u\r\n",
+                //         (unsigned)loop_count,
+                //         (unsigned)lora_uart_get_isr_count(),
+                //         (unsigned)lora_uart_get_byte_total(),
+                //         (unsigned)lora_uart_get_rx_count());
             }
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
@@ -161,9 +159,12 @@ void master_recv_task(void *pvParameters)
             if (frame_result.consumed == 0 || frame_result.consumed > remaining)
                 break;
 
-            /* Master_v3(2) L136-138: NODE_RAW 帧时累计 raw_points */
+            /* NODE_RAW 帧提前计数: 对所有节点的 dl 累加，send_lora_cmd 会在 poll 前清零 */
             if (frame_result.rx_type == DATA_TYPE_NODE_RAW) {
-                dl->recv_raw_points += frame_result.enc_len / sizeof(NodeSample_t);
+                uint16_t n_points = frame_result.enc_len / sizeof(NodeSample_t);
+                for (uint8_t n = 0; n < MASTER_MAX_NODES; n++) {
+                    master_get_download_buf(n)->recv_raw_points += n_points;
+                }
             }
 
             static RecvPacket_t pkt;
@@ -188,8 +189,7 @@ void master_recv_task(void *pvParameters)
 }
 
 /* ===================================================================
- *  master_process_task — 对齐 Master_v3(2) master_recv.c L159-237
- *  关键: recv_started 由 process_node_header 设置，不在这里设
+ *  master_process_task — 每个节点独立维护下载状态
  * =================================================================== */
 void master_process_task(void *pvParameters)
 {
@@ -197,8 +197,6 @@ void master_process_task(void *pvParameters)
     uint8_t *payload;
     uint16_t payload_len;
 
-    MasterDownloadBuf_t *dl = master_get_download_buf();
-    MasterNodeInfo_t *node;
     (void)pvParameters;
 
     shm_puts("Process task started\r\n");
@@ -219,29 +217,29 @@ void master_process_task(void *pvParameters)
             payload = pkt.enc_data;
         }
 
-        shm_spf("[DEC] type=0x%02X len=%d:", pkt.rx_type, payload_len);
-        for (uint16_t i = 0; i < payload_len && i < 64; i++)
-            shm_spf(" %02X", payload[i]);
-        shm_puts("\r\n");
+        /* 确定 node_id: HEADER 帧从 payload 提取, RAW 帧查找活跃的 dl */
+        uint8_t node_id = 0;
 
-        /* node_id 由头帧中提取，raw帧沿用当前dl->node_id */
-        uint8_t node_id;
-        if (dl->active && pkt.rx_type == DATA_TYPE_NODE_RAW) {
-            node_id = dl->node_id;
-        } else {
-            node_id = 0;
-            if (pkt.rx_type == DATA_TYPE_NODE_HEAD && payload_len >= sizeof(NodeUploadHeader_t)) {
-                NodeUploadHeader_t hdr;
-                memcpy(&hdr, payload, sizeof(hdr));
-                node_id = hdr.node_index;
-            } else if (pkt.rx_type == DATA_TYPE_FAULT_HEAD && payload_len >= sizeof(NodeUploadHeader_t)) {
+        if (pkt.rx_type == DATA_TYPE_NODE_HEAD || pkt.rx_type == DATA_TYPE_FAULT_HEAD) {
+            if (payload_len >= sizeof(NodeUploadHeader_t)) {
                 NodeUploadHeader_t hdr;
                 memcpy(&hdr, payload, sizeof(hdr));
                 node_id = hdr.node_index;
             }
-            if (node_id >= MASTER_MAX_NODES) node_id = 0;
+        } else if (pkt.rx_type == DATA_TYPE_NODE_RAW) {
+            /* 查找当前活跃的节点下载缓冲区 */
+            for (uint8_t n = 0; n < MASTER_MAX_NODES; n++) {
+                MasterDownloadBuf_t *candidate = master_get_download_buf(n);
+                if (candidate->active) {
+                    node_id = n;
+                    break;
+                }
+            }
         }
-        node = master_get_node_info(node_id);
+        if (node_id >= MASTER_MAX_NODES) node_id = 0;
+
+        MasterDownloadBuf_t *dl   = master_get_download_buf(node_id);
+        MasterNodeInfo_t    *node = master_get_node_info(node_id);
         if (!node) continue;
         node->is_online = 1;
         node->last_recv_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -249,7 +247,6 @@ void master_process_task(void *pvParameters)
         switch (pkt.rx_type) {
         case DATA_TYPE_NODE_HEAD:
         case DATA_TYPE_FAULT_HEAD:
-            dl->active = 0;
             process_node_header(payload, payload_len, dl, node);
             break;
 
